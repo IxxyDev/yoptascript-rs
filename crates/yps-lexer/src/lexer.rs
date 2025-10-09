@@ -20,13 +20,19 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next_token(&mut self) -> Token {
-        Token {
-            kind: TokenKind::Eof,
-            span: Span {
-                start: self.position,
-                end: self.position,
-            },
-        }
+        self.skip_whitespace();
+
+        let start = self.start_span();
+
+        let kind = match self.peek_char() {
+            Some((_, ch)) => {
+                TokenKind::Unknown
+            }
+            None => TokenKind::Eof
+        };
+
+        let span = self.span_from(start);
+        Token { kind, span }
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
@@ -55,5 +61,23 @@ impl<'a> Lexer<'a> {
         } else {
             None
         }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some((_, ch)) = self.peek_char() {
+            if ch.is_whitespace() {
+                self.next_char();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn start_span(&self) -> usize {
+        self.position
+    }
+
+    fn span_from(&self, start: usize) -> Span {
+        Span { start, end: self.position }
     }
 }
