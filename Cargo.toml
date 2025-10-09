@@ -1,5 +1,7 @@
 [workspace]
 members = [
-  "crates/yopta_frontend",
+    "crates/yopta_frontend",
+    "crates/yps-cli",
+    "crates/yps-lexer",
 ]
-resolver = "2"
+resolver = "3"
