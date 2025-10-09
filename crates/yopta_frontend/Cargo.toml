@@ -1,6 +1,7 @@
-  [package]
-  name = "yopta_frontend"
-  version = "0.1.0"
-  edition = "2024"
+[package]
+name = "yopta_frontend"
+version = "0.1.0"
+edition = "2024"
 
-  [dependencies]
+[dependencies]
+yps-lexer = { path = "../yps-lexer" }
