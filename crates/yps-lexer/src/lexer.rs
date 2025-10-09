@@ -1,4 +1,13 @@
-use crate::{Diagnostic, Span, Token, TokenKind};
+use crate::{
+    Diagnostic,
+    Span,
+    Token,
+    TokenKind,
+    Severity,
+    KeywordKind,
+    OperatorKind,
+    PunctuationKind
+};
 
 pub struct Lexer<'a> {
     source: &'a str,
@@ -24,11 +33,65 @@ impl<'a> Lexer<'a> {
 
         let start = self.start_span();
 
-        let kind = match self.peek_char() {
-            Some((_, ch)) => {
+        let Some((_, ch)) = self.peek_char() else {
+            let span = self.span_from(start);
+            return Token {
+                kind: TokenKind::Eof,
+                span,
+            };
+        };
+
+        if ch.is_ascii_alphabetic() || ch == '_' {
+            self.next_char();
+            let (span, lexeme) = self.collect_identifier(start);
+            let kind = Self::classify_identifier(lexeme);
+            return Token { kind, span };
+        }
+
+        if ch.is_ascii_digit() {
+            self.next_char();
+            let (span, _) = self.collect_number(start);
+            return Token {
+                kind: TokenKind::Number,
+                span,
+            }
+        }
+
+        let kind = match ch {
+            '+' => {
+                self.next_char();
+                TokenKind::Operator(crate::OperatorKind::Plus)
+            }
+            '-' => {
+                self.next_char();
+                TokenKind::Operator(OperatorKind::Minus)
+            }
+            '(' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::LParen)
+            }
+            ')' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::RParen)
+            }
+            '{' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::LBrace)
+            }
+            '}' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::RBrace)
+            }
+            ',' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::Comma)
+            }
+            _ => {
+                self.next_char();
+                let span = self.span_from(start);
+                self.push_error(span, format!("неизвестный символ: {}", ch));
                 TokenKind::Unknown
             }
-            None => TokenKind::Eof
         };
 
         let span = self.span_from(start);
@@ -79,5 +142,47 @@ impl<'a> Lexer<'a> {
 
     fn span_from(&self, start: usize) -> Span {
         Span { start, end: self.position }
+    }
+
+    fn collect_while<F>(&mut self, start: usize, mut predicate: F) -> (Span, &'a str)
+    where
+      F: FnMut(char) -> bool,
+    {
+      while let Some((_, ch)) = self.peek_char() {
+          if predicate(ch) {
+              self.next_char();
+          } else {
+              break;
+          }
+      }
+
+      let end = self.position;
+      let span = Span { start, end };
+      let slice = &self.source[start..end];
+      (span, slice)
+    }
+
+    fn push_error(&mut self, span: Span, message: impl Into<String>) {
+      self.diagnostics.push(Diagnostic {
+          severity: Severity::Error,
+          message: message.into(),
+          span,
+      });
+    }
+
+    fn classify_identifier(lexeme: &str) -> TokenKind {
+      match lexeme {
+          "pachan" => TokenKind::Keyword(KeywordKind::Pachan),
+          "sliva" => TokenKind::Keyword(KeywordKind::Sliva),
+          _ => TokenKind::Identifier,
+        }
+    }
+
+    fn collect_identifier(&mut self, start: usize) -> (Span, &'a str) {
+        self.collect_while(start, |ch| ch.is_ascii_alphanumeric() || ch == '_')
+    }
+
+    fn collect_number(&mut self, start: usize) -> (Span, &'a str) {
+        self.collect_while(start, |ch| ch.is_ascii_digit())
     }
 }
