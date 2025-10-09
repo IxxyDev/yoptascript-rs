@@ -1,6 +1,6 @@
-[package]
-name = "yopta-rs"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+[workspace]
+members = [
+    "crates/yps-cli",
+    "crates/yps-lexer",
+]
+resolver = "3"
