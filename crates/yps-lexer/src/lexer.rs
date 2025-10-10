@@ -32,7 +32,6 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
 
         let start = self.start_span();
-
         let Some((_, ch)) = self.peek_char() else {
             let span = self.span_from(start);
             return Token {
@@ -103,22 +102,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek_char(&mut self) -> Option<(usize, char)> {
-        if let Some(peeked) = self.peeked {
-            return Some(peeked);
+        if self.peeked.is_none() {
+            self.peeked = self.char_indicies.next();
         }
-        if let Some(next) = self.char_indicies.clone().next() {
-            self.peeked = Some(next);
-            return Some(next);
-        }
-        None
+        self.peeked
     }
 
     fn next_char(&mut self) -> Option<(usize, char)> {
-        if let Some(peeked) = self.peeked.take() {
-            self.position = peeked.0 + peeked.1.len_utf8();
-            return Some(peeked);
-        }
-        if let Some((idx, ch)) = self.char_indicies.next() {
+        if let Some((idx, ch)) = self.peek_char() {
+            self.peeked = None;
             self.position = idx + ch.len_utf8();
             Some((idx, ch))
         } else {
