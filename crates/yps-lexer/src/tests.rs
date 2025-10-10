@@ -59,6 +59,51 @@ fn spans_track_original_positions() {
   assert_eq!(kw.span.end, 6);
 }
 
+#[test]
+fn lexes_assignment() {
+  let kinds = collect_kinds("x = 1");
+
+  assert_eq!(
+    kinds,
+    vec![
+      TokenKind::Identifier,
+      TokenKind::Operator(OperatorKind::Assign),
+      TokenKind::Number,
+      TokenKind::Eof,
+    ]
+  )
+}
+
+#[test]
+fn lexes_equality() {
+  let kinds = collect_kinds("x == 1");
+
+  assert_eq!(
+    kinds,
+    vec![
+      TokenKind::Identifier,
+      TokenKind::Operator(OperatorKind::Equals),
+      TokenKind::Number,
+      TokenKind::Eof,
+    ]
+  )
+}
+
+#[test]
+fn lexes_strict_equality() {
+  let kinds = collect_kinds("x === 1");
+
+  assert_eq!(
+    kinds,
+    vec![
+      TokenKind::Identifier,
+      TokenKind::Operator(OperatorKind::StrictEquals),
+      TokenKind::Number,
+      TokenKind::Eof,
+    ]
+  )
+}
+
 fn collect_kinds(src: &str) -> Vec<TokenKind> {
   let mut lexer = Lexer::new(src);
   let mut kinds = Vec::new();

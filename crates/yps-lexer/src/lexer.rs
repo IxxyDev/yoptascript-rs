@@ -85,6 +85,19 @@ impl<'a> Lexer<'a> {
                 self.next_char();
                 TokenKind::Punctuation(PunctuationKind::Comma)
             }
+            '=' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    if let Some((_, '=')) = self.peek_char() {
+                        self.next_char();
+                        return Token { kind: TokenKind::Operator(OperatorKind::StrictEquals), span: self.span_from(start) }
+                    }
+                    return Token { kind: TokenKind::Operator(OperatorKind::Equals), span: self.span_from(start) }
+                } else {
+                    return Token { kind: TokenKind::Operator(OperatorKind::Assign), span: self.span_from(start) }
+                }
+            }
             _ => {
                 self.next_char();
                 let span = self.span_from(start);

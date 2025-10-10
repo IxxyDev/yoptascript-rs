@@ -22,6 +22,9 @@ pub enum KeywordKind {
 pub enum OperatorKind {
     Plus,
     Minus,
+    Assign,
+    Equals,
+    StrictEquals
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
