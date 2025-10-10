@@ -1,0 +1,2 @@
+warns = ["pedantic", "nursery"]
+allow-unwrap-in-tests = true
