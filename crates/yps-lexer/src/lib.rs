@@ -13,3 +13,6 @@ pub use token::{
     TokenKind,
 };
 pub use lexer::Lexer;
+
+#[cfg(test)]
+mod tests;
