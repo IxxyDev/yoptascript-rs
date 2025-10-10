@@ -70,6 +70,19 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if ch == '/' {
+            self.next_char();
+            if let Some((_, '/')) = self.peek_char() {
+                self.peek_char();
+                self.skip_line_comment();
+                return self.next_token();
+            } else {
+                let span = self.span_from(start);
+                self.push_error(span, "неподдержанный символ '/'");
+                return Token { kind: TokenKind:: Unknown, span }
+            }
+        }
+
         let kind = match ch {
             '+' => {
                 self.next_char();
@@ -249,5 +262,14 @@ impl<'a> Lexer<'a> {
         }
         let span = self.span_from(start);
         (span, value, terminated)
+    }
+
+    fn skip_line_comment(&mut self) {
+        while let Some((_, ch)) = self.peek_char() {
+            if ch == '\n' {
+                break;
+            }
+            self.next_char();
+        }
     }
 }

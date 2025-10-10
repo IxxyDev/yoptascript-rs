@@ -134,6 +134,19 @@ fn lexes_string_with_escape() {
   assert!(lexer.diagnostics().is_empty());
 }
 
+        #[test]
+fn skips_line_comment() {
+  let kinds = collect_kinds("pachan // sliva\n42");
+  assert_eq!(
+    kinds,
+    vec![
+      TokenKind::Keyword(KeywordKind::Pachan),
+      TokenKind::Number,
+      TokenKind::Eof,
+    ]
+  );
+}
+
 fn collect_kinds(src: &str) -> Vec<TokenKind> {
   let mut lexer = Lexer::new(src);
   let mut kinds = Vec::new();
