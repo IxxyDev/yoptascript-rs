@@ -85,6 +85,10 @@ impl<'a> Lexer<'a> {
                 self.next_char();
                 TokenKind::Punctuation(PunctuationKind::Comma)
             }
+            ';' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::Semicolon)
+            }
             '=' => {
                 self.next_char();
                 if let Some((_, '=')) = self.peek_char() {

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn lexes_basic_tokens() {
-  let kinds = collect_kinds("pachan x + 42");
+  let kinds = collect_kinds("pachan x + 42;");
 
   assert_eq!(
     kinds,
