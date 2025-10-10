@@ -104,6 +104,36 @@ fn lexes_strict_equality() {
   )
 }
 
+#[test]
+fn lexes_string_literal() {
+  let mut lexer = Lexer::new("\"poydyom\"");
+  let token = lexer.next_token();
+
+  assert_eq!(token.kind, TokenKind::StringLiteral);
+  assert_eq!(token.span.start, 0);
+  assert_eq!(token.span.end, 9);
+  assert!(lexer.diagnostics().is_empty());
+}
+
+#[test]
+fn reports_unterminated_string() {
+  let mut lexer = Lexer::new("\"poy");
+  let token = lexer.next_token();
+
+  assert_eq!(token.kind, TokenKind::StringLiteral);
+  assert!(!lexer.diagnostics().is_empty());
+  assert_eq!(lexer.diagnostics()[0].message, "незакрытая строка");
+}
+
+#[test]
+fn lexes_string_with_escape() {
+  let mut lexer = Lexer::new("\"yo\\nmate\"");
+  let token = lexer.next_token();
+
+  assert_eq!(token.kind, TokenKind::StringLiteral);
+  assert!(lexer.diagnostics().is_empty());
+}
+
 fn collect_kinds(src: &str) -> Vec<TokenKind> {
   let mut lexer = Lexer::new(src);
   let mut kinds = Vec::new();

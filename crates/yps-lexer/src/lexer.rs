@@ -56,6 +56,20 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if ch == '"' {
+            self.next_char();
+            let (span, _value, terminated) = self.collect_string_literal(start);
+
+            if !terminated {
+                self.push_error(span, "незакрытая строка");
+            }
+
+            return Token {
+                kind: TokenKind::StringLiteral,
+                span
+            }
+        }
+
         let kind = match ch {
             '+' => {
                 self.next_char();
@@ -193,5 +207,47 @@ impl<'a> Lexer<'a> {
 
     fn collect_number(&mut self, start: usize) -> (Span, &'a str) {
         self.collect_while(start, |ch| ch.is_ascii_digit())
+    }
+
+    fn collect_string_literal(&mut self, start: usize) -> (Span, String, bool) {
+        let mut value = String::new();
+        let mut terminated = false;
+
+        while let Some((_, ch)) = self.peek_char() {
+            match ch {
+                '"' => {
+                    self.next_char();
+                    terminated = true;
+                    break;
+                }
+                '\\' => {
+                    self.next_char();
+                    match self.peek_char() {
+                        Some((_, esc)) => {
+                            self.next_char();
+                            match esc {
+                                '"' => value.push('"'),
+                                '\\' => value.push('\\'),
+                                'n' => value.push('\n'),
+                                't' => value.push('\t'),
+                                'r' => value.push('\r'),
+                                other => {
+                                    value.push(other);
+                                    let span = self.span_from(start);
+                                    self.push_error(span, format!("неизвестная escape-последовательность: \\{}", other));
+                                }
+                            }
+                        }
+                        None => break
+                    }
+                }
+                _ => {
+                    self.next_char();
+                    value.push(ch);
+                }
+            }
+        }
+        let span = self.span_from(start);
+        (span, value, terminated)
     }
 }
