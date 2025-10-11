@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "yopta-rs"
+name = "yopta_frontend"
 version = "0.1.0"
