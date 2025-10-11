@@ -1,0 +1,8 @@
+  [build]
+  target-dir = "target"
+
+  [target.'cfg(not(windows))']
+  rustflags = ["-Ctarget-cpu=native"]
+
+  [alias]
+  cov = "llvm-cov --workspace --all-features --lcov --output-path coverage.lcov"
