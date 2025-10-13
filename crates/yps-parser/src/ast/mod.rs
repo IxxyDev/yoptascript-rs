@@ -1,13 +1,13 @@
-pub mod program;
-pub mod stmt;
 pub mod expr;
+pub mod ident;
 pub mod literal;
 pub mod ops;
-pub mod ident;
+pub mod program;
+pub mod stmt;
 
-pub use program::Program;
-pub use stmt::{Stmt, Block};
 pub use expr::Expr;
-pub use literal::Literal;
-pub use ops::{UnaryOp, BinaryOp};
 pub use ident::Identifier;
+pub use literal::Literal;
+pub use ops::{BinaryOp, UnaryOp};
+pub use program::Program;
+pub use stmt::{Block, Stmt};
