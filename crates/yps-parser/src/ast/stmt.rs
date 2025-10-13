@@ -22,5 +22,4 @@ pub enum Stmt {
 pub struct Block {
   pub stmts: Vec<Stmt>,
   pub span: Span,
-  
 }
