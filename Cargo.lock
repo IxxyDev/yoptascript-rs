@@ -5,3 +5,14 @@ version = 4
 [[package]]
 name = "yopta-rs"
 version = "0.1.0"
+
+[[package]]
+name = "yps-lexer"
+version = "0.1.0"
+
+[[package]]
+name = "yps-parser"
+version = "0.1.0"
+dependencies = [
+ "yps-lexer",
+]
