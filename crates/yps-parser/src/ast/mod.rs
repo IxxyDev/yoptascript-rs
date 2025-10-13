@@ -9,5 +9,5 @@ pub use program::Program;
 pub use stmt::{Stmt, Block};
 pub use expr::Expr;
 pub use literal::Literal;
-pub use ops::{UnaryOp, BinaryOp, TernaryOp};
-pub use ident::Indetifier;
+pub use ops::{UnaryOp, BinaryOp};
+pub use ident::Identifier;
