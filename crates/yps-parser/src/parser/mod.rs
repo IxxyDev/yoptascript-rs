@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::match_same_arms)]
+
 use crate::ast::Program;
 use yps_lexer::{Diagnostic, Severity, Span, Token, TokenKind};
 
@@ -42,7 +47,7 @@ impl<'a> Parser<'a> {
     }
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span })
+        self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span });
     }
 
     fn synchronize(&mut self) {
@@ -57,8 +62,7 @@ impl<'a> Parser<'a> {
             }
 
             match &self.current().kind {
-                TokenKind::Keyword(_) => return,
-                TokenKind::Punctuation(yps_lexer::PunctuationKind::LBrace) => return,
+                TokenKind::Keyword(_) | TokenKind::Punctuation(yps_lexer::PunctuationKind::LBrace) => return,
                 _ => {
                     self.advance();
                 }
