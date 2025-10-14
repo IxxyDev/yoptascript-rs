@@ -16,8 +16,8 @@ log "Running cargo fmt --all"
 cargo fmt --all
 
 log "Restaging formatted files"
-# Restage in case fmt produced changes
-git add -A
+# Restage tracked files in case fmt produced changes
+git add -u
 
 log "Running cargo clippy --workspace --all-targets --all-features"
 cargo clippy --workspace --all-targets --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery || {
