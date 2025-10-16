@@ -1,3 +1,52 @@
+#[allow(dead_code)]
+pub struct Lexer<'src> {
+    source: &'src SourceFile,
+    position: usize,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[allow(dead_code)]
+impl<'src> Lexer<'src> {
+    #[must_use]
+    pub const fn new(source: &'src SourceFile) -> Self {
+        Self { source, position: 0, diagnostics: Vec::new() }
+    }
+
+    fn current_char(&self) -> char {
+        self.source.source[self.position..].chars().next().unwrap_or('\0')
+    }
+
+    fn peek_char(&self, offset: usize) -> char {
+        let mut chars = self.source.source[self.position..].chars();
+
+        for _ in 0..offset {
+            chars.next();
+        }
+
+        chars.next().unwrap_or('\0')
+    }
+
+    fn advance(&mut self) -> char {
+        let ch = self.current_char();
+
+        if ch != '\0' {
+            self.position += ch.len_utf8();
+        }
+        ch
+    }
+
+    #[must_use]
+    const fn is_at_end(&self) -> bool {
+        self.position >= self.source.source.len()
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.current_char(), ' ' | '\t' | '\n' | '\r') {
+            self.advance();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     pub start: usize,
