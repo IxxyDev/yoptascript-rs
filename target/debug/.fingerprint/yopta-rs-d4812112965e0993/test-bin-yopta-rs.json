@@ -1,1 +1,0 @@
-{"rustc":9783247635632824192,"features":"[]","declared_features":"[]","target":7076149142279696257,"profile":619605765252926426,"path":4942398508502643691,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/yopta-rs-d4812112965e0993/dep-test-bin-yopta-rs","checksum":false}}],"rustflags":["-Ctarget-cpu=native"],"config":2069994364910194474,"compile_kind":0}
