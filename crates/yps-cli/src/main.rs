@@ -1,19 +1,16 @@
-use yps_lexer::{Lexer, TokenKind};
+use yps_lexer::{Lexer, SourceFile};
 
 fn main() {
-    let source = "pachan x + 42";
-    let mut lexer = Lexer::new(source);
+    let source = SourceFile::new("test.yop".into(), "pachan x + 42".into());
+    let lexer = Lexer::new(&source);
 
-    loop {
-        let token = lexer.next_token();
+    let (tokens, diagnostics) = lexer.tokenize();
+
+    for token in tokens {
         println!("{:?} @ {}..{}", token.kind, token.span.start, token.span.end);
-
-        if matches!(token.kind, TokenKind::Eof) {
-            break;
-        }
     }
 
-    for diagnostic in lexer.diagnostics() {
-        eprintln!("{:?}: {}", diagnostic.severity, diagnostic.message)
+    for diagnostic in diagnostics {
+        eprintln!("{:?}: {}", diagnostic.severity, diagnostic.message);
     }
 }
