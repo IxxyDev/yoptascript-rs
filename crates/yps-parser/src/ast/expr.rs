@@ -14,3 +14,19 @@ pub enum Expr {
 
     Grouping { expr: Box<Expr>, span: Span },
 }
+
+impl Expr {
+    #[allow(dead_code)]
+    pub(crate) const fn span(&self) -> Span {
+        match self {
+            Self::Identifier(id) => id.span,
+            Self::Literal(lit) => match lit {
+                Literal::Number { span, .. } | Literal::String { span, .. } => *span,
+            },
+            Self::Unary { span, .. }
+            | Self::Binary { span, .. }
+            | Self::Assignment { span, .. }
+            | Self::Grouping { span, .. } => *span,
+        }
+    }
+}
