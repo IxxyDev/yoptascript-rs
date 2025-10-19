@@ -1,20 +1,22 @@
 #![allow(dead_code)]
+#![allow(unused_imports)]
 #![allow(clippy::missing_const_for_fn)]
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::match_same_arms)]
 
-use crate::ast::Program;
-use yps_lexer::{Diagnostic, Severity, Span, Token, TokenKind};
+use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, Program, Stmt, UnaryOp};
+use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
+    source: &'a SourceFile,
     position: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens, position: 0, diagnostics: Vec::new() }
+    pub fn new(tokens: &'a [Token], source: &'a SourceFile) -> Self {
+        Self { tokens, source, position: 0, diagnostics: Vec::new() }
     }
 
     pub fn parse_program(self) -> (Program, Vec<Diagnostic>) {
