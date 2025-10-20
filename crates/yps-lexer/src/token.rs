@@ -22,9 +22,21 @@ pub enum KeywordKind {
 pub enum OperatorKind {
     Plus,
     Minus,
+    Multiply,
+    Divide,
+    Modulo,
     Assign,
     Equals,
-    StrictEquals
+    StrictEquals,
+    NotEquals,
+    StrictNotEquals,
+    Less,
+    Greater,
+    LessOrEqual,
+    GreaterOrEqual,
+    And,
+    Or,
+    Not,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

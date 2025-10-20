@@ -92,6 +92,14 @@ impl<'a> Lexer<'a> {
                 self.next_char();
                 TokenKind::Operator(OperatorKind::Minus)
             }
+            '*' => {
+                self.next_char();
+                TokenKind::Operator(OperatorKind::Multiply)
+            }
+            '%' => {
+                self.next_char();
+                TokenKind::Operator(OperatorKind::Modulo)
+            }
             '(' => {
                 self.next_char();
                 TokenKind::Punctuation(PunctuationKind::LParen)
@@ -128,6 +136,68 @@ impl<'a> Lexer<'a> {
                 } else {
                     return Token { kind: TokenKind::Operator(OperatorKind::Assign), span: self.span_from(start) }
                 }
+            }
+            '!' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    if let Some((_, '=')) = self.peek_char() {
+                        self.next_char();
+                        TokenKind::Operator(OperatorKind::StrictNotEquals)
+                    } else {
+                        TokenKind::Operator(OperatorKind::NotEquals)
+                    }
+                } else {
+                    TokenKind::Operator(OperatorKind::Not)
+                }
+            }
+            '<' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(Operator::LessOrEqual)
+                } else {
+                    TokenKind::Operator(OperatorKind::Less)
+                }
+            }
+            '>' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(Operator::GreaterOrEqual)
+                } else {
+                    TokenKind::Operator(OperatorKind::Greater)
+                }
+            }
+            '&' => {
+                self.next_char();
+                if let Some((_, '&')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::And)
+                } else {
+                    let span = self.span_from(start);
+                    self.push_error(span, "одиночный '&' не поддерживается (используйте '&&')");
+                    TokenKind::Unknown
+                }
+            }
+            '|' => {
+                self.next_char();
+                if let Some((_, '|')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::Or)
+                } else {
+                    let span = self.span_from(start);
+                    self.push_error(span, "одиночный '|' не поддерживается (используйте '||')");
+                    TokenKind::Unknown
+                }
+            }
+            ';' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::Semicolon)
+            }
+            ',' => {
+                self.next_char();
+                TokenKind::Punctuation(PunctuationKind::Comma)
             }
             _ => {
                 self.next_char();
