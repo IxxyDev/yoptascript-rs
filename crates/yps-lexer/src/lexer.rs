@@ -73,13 +73,15 @@ impl<'a> Lexer<'a> {
         if ch == '/' {
             self.next_char();
             if let Some((_, '/')) = self.peek_char() {
-                self.peek_char();
+                self.next_char();
                 self.skip_line_comment();
                 return self.next_token();
             } else {
                 let span = self.span_from(start);
-                self.push_error(span, "неподдержанный символ '/'");
-                return Token { kind: TokenKind:: Unknown, span }
+                return Token {
+                    kind: TokenKind::Operator(OperatorKind::Divide),
+                    span,
+                };
             }
         }
 
@@ -155,7 +157,7 @@ impl<'a> Lexer<'a> {
                 self.next_char();
                 if let Some((_, '=')) = self.peek_char() {
                     self.next_char();
-                    TokenKind::Operator(Operator::LessOrEqual)
+                    TokenKind::Operator(OperatorKind::LessOrEqual)
                 } else {
                     TokenKind::Operator(OperatorKind::Less)
                 }
@@ -164,7 +166,7 @@ impl<'a> Lexer<'a> {
                 self.next_char();
                 if let Some((_, '=')) = self.peek_char() {
                     self.next_char();
-                    TokenKind::Operator(Operator::GreaterOrEqual)
+                    TokenKind::Operator(OperatorKind::GreaterOrEqual)
                 } else {
                     TokenKind::Operator(OperatorKind::Greater)
                 }
@@ -190,14 +192,6 @@ impl<'a> Lexer<'a> {
                     self.push_error(span, "одиночный '|' не поддерживается (используйте '||')");
                     TokenKind::Unknown
                 }
-            }
-            ';' => {
-                self.next_char();
-                TokenKind::Punctuation(PunctuationKind::Semicolon)
-            }
-            ',' => {
-                self.next_char();
-                TokenKind::Punctuation(PunctuationKind::Comma)
             }
             _ => {
                 self.next_char();
