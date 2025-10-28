@@ -21,8 +21,19 @@ impl<'a> Parser<'a> {
         Self { tokens, source, position: 0, diagnostics: Vec::new() }
     }
 
-    pub fn parse_program(self) -> (Program, Vec<Diagnostic>) {
-        let program = Program { items: Vec::new() };
+    pub fn parse_program(mut self) -> (Program, Vec<Diagnostic>) {
+        let mut items = Vec::new();
+
+        while !self.is_at_end() {
+            match self.parse_statement() {
+                Ok(stmt) => items.push(stmt),
+                Err(()) => {
+                    self.synchronize();
+                }
+            }
+        }
+
+        let program = Program { items };
         (program, self.diagnostics)
     }
 
@@ -87,6 +98,90 @@ impl<'a> Parser<'a> {
 
     fn parse_expr(&mut self) -> Result<Expr, ()> {
         self.parse_expression_with_precedence(0)
+    }
+
+    fn parse_statement(&mut self) -> Result<Stmt, ()> {
+        match &self.current().kind {
+            TokenKind::Keyword(KeywordKind::Pachan | KeywordKind::Sliva) => self.parse_var_decl(),
+            TokenKind::Punctuation(PunctuationKind::Semicolon) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Stmt::Empty { span })
+            }
+            _ => self.parse_expr_stmt(),
+        }
+    }
+
+    fn parse_var_decl(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let name = self.parse_identifier()?;
+        if !matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался '=' после имени переменной");
+            return Err(());
+        }
+        self.advance();
+
+        let init = self.parse_expr()?;
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после объявления переменной");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::VarDecl { name, init, span: Span { start, end } })
+    }
+
+    fn parse_block(&mut self) -> Result<Block, ()> {
+        let start = self.current().span.start;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '{'");
+            return Err(());
+        }
+        self.advance();
+
+        let mut stmts = Vec::new();
+
+        while !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) && !self.is_at_end() {
+            match self.parse_statement() {
+                Ok(stmt) => stmts.push(stmt),
+                Err(()) => {
+                    self.synchronize();
+                }
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '}'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Block { stmts, span: Span { start, end } })
+    }
+
+    fn parse_expr_stmt(&mut self) -> Result<Stmt, ()> {
+        let expr = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после выражения");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        let span = Span { start: expr.span().start, end };
+
+        Ok(Stmt::Expr { expr, span })
     }
 
     fn current(&self) -> &Token {
