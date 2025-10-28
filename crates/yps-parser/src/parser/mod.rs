@@ -494,4 +494,102 @@ mod tests {
             _ => panic!("Expected And at top level with comparisons as operands"),
         }
     }
+
+    #[test]
+    fn test_parse_var_decl_pachan() {
+        let source = SourceFile::new("test.yop".to_string(), "pachan x = 5;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::VarDecl { name, init, .. } => {
+                assert_eq!(name.name, "x");
+                assert!(matches!(init, Expr::Literal(Literal::Number { .. })));
+            }
+            _ => panic!("Expected VarDecl, got: {:?}", program.items[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_var_decl_sliva() {
+        let source = SourceFile::new("test.yop".to_string(), "sliva y = \"hello\";".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::VarDecl { name, init, .. } => {
+                assert_eq!(name.name, "y");
+                assert!(matches!(init, Expr::Literal(Literal::String { .. })));
+            }
+            _ => panic!("Expected VarDecl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_expr_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "x + 5;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => {
+                assert!(matches!(expr, Expr::Binary { op: BinaryOp::Add, .. }));
+            }
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), ";".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty());
+        assert_eq!(program.items.len(), 1);
+        assert!(matches!(program.items[0], Stmt::Empty { .. }));
+    }
+
+    #[test]
+    fn test_parse_multiple_statements() {
+        let source = SourceFile::new("test.yop".to_string(), "pachan x = 5;\nsliva y = 10;\nx + y;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 3);
+
+        assert!(matches!(program.items[0], Stmt::VarDecl { .. }));
+        assert!(matches!(program.items[1], Stmt::VarDecl { .. }));
+        assert!(matches!(program.items[2], Stmt::Expr { .. }));
+    }
 }
