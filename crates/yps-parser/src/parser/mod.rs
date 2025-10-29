@@ -102,7 +102,11 @@ impl<'a> Parser<'a> {
 
     fn parse_statement(&mut self) -> Result<Stmt, ()> {
         match &self.current().kind {
-            TokenKind::Keyword(KeywordKind::Pachan | KeywordKind::Sliva) => self.parse_var_decl(),
+            TokenKind::Keyword(KeywordKind::Gyy | KeywordKind::Uchastkoviy | KeywordKind::YasenHuy) => {
+                self.parse_var_decl()
+            }
+            TokenKind::Keyword(KeywordKind::Vilkoyvglaz) => self.parse_if_stmt(),
+            TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
                 self.advance();
@@ -182,6 +186,61 @@ impl<'a> Parser<'a> {
         let span = Span { start: expr.span().start, end };
 
         Ok(Stmt::Expr { expr, span })
+    }
+
+    fn parse_if_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        // Съедаем 'вилкойвглаз'
+        self.advance();
+
+        // Ожидаем '('
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'вилкойвглаз'");
+            return Err(());
+        }
+        self.advance();
+
+        // Парсим условие
+        let condition = self.parse_expr()?;
+
+        // Ожидаем ')'
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после условия");
+            return Err(());
+        }
+        self.advance();
+
+        // Парсим then-ветку
+        let then_branch = Box::new(self.parse_statement()?);
+
+        // Проверяем наличие else
+        let else_branch = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Ilivzhopuraz)) {
+            self.advance();
+            Some(Box::new(self.parse_statement()?))
+        } else {
+            None
+        };
+
+        let end = else_branch.as_ref().map_or_else(
+            || match then_branch.as_ref() {
+                Stmt::VarDecl { span, .. }
+                | Stmt::Expr { span, .. }
+                | Stmt::Block(Block { span, .. })
+                | Stmt::If { span, .. }
+                | Stmt::Empty { span } => span.end,
+            },
+            |else_stmt| match else_stmt.as_ref() {
+                Stmt::VarDecl { span, .. }
+                | Stmt::Expr { span, .. }
+                | Stmt::Block(Block { span, .. })
+                | Stmt::If { span, .. }
+                | Stmt::Empty { span } => span.end,
+            },
+        );
+
+        Ok(Stmt::If { condition, then_branch, else_branch, span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {
@@ -496,8 +555,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_var_decl_pachan() {
-        let source = SourceFile::new("test.yop".to_string(), "pachan x = 5;".to_string());
+    fn test_parse_var_decl_gyy() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы x = 5;".to_string());
         let lexer = yps_lexer::Lexer::new(&source);
         let (tokens, lex_diags) = lexer.tokenize();
         assert!(lex_diags.is_empty());
@@ -518,8 +577,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_var_decl_sliva() {
-        let source = SourceFile::new("test.yop".to_string(), "sliva y = \"hello\";".to_string());
+    fn test_parse_var_decl_yasen_huy() {
+        let source = SourceFile::new("test.yop".to_string(), "ясенХуй y = \"hello\";".to_string());
         let lexer = yps_lexer::Lexer::new(&source);
         let (tokens, lex_diags) = lexer.tokenize();
         assert!(lex_diags.is_empty());
@@ -577,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_parse_multiple_statements() {
-        let source = SourceFile::new("test.yop".to_string(), "pachan x = 5;\nsliva y = 10;\nx + y;".to_string());
+        let source = SourceFile::new("test.yop".to_string(), "гыы x = 5;\nясенХуй y = 10;\nx + y;".to_string());
         let lexer = yps_lexer::Lexer::new(&source);
         let (tokens, lex_diags) = lexer.tokenize();
         assert!(lex_diags.is_empty());
@@ -591,5 +650,74 @@ mod tests {
         assert!(matches!(program.items[0], Stmt::VarDecl { .. }));
         assert!(matches!(program.items[1], Stmt::VarDecl { .. }));
         assert!(matches!(program.items[2], Stmt::Expr { .. }));
+    }
+
+    #[test]
+    fn test_parse_if_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) x = 10;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::If { condition, then_branch, else_branch, .. } => {
+                assert!(matches!(condition, Expr::Binary { op: BinaryOp::Greater, .. }));
+                assert!(matches!(then_branch.as_ref(), Stmt::Expr { .. }));
+                assert!(else_branch.is_none());
+            }
+            _ => panic!("Expected If statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_if_else_stmt() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) x = 10; иливжопураз x = 0;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::If { condition, then_branch, else_branch, .. } => {
+                assert!(matches!(condition, Expr::Binary { op: BinaryOp::Greater, .. }));
+                assert!(matches!(then_branch.as_ref(), Stmt::Expr { .. }));
+                assert!(else_branch.is_some());
+                assert!(matches!(else_branch.as_ref().unwrap().as_ref(), Stmt::Expr { .. }));
+            }
+            _ => panic!("Expected If statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_if_with_block() {
+        let source = SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) { x = 10; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+
+        match &program.items[0] {
+            Stmt::If { then_branch, .. } => {
+                assert!(matches!(then_branch.as_ref(), Stmt::Block(_)));
+            }
+            _ => panic!("Expected If statement"),
+        }
     }
 }
