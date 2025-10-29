@@ -272,8 +272,11 @@ impl<'a> Lexer<'a> {
 
     fn classify_identifier(lexeme: &str) -> TokenKind {
       match lexeme {
-          "pachan" => TokenKind::Keyword(KeywordKind::Pachan),
-          "sliva" => TokenKind::Keyword(KeywordKind::Sliva),
+          "гыы" => TokenKind::Keyword(KeywordKind::Gyy),
+          "участковый" => TokenKind::Keyword(KeywordKind::Uchastkoviy),
+          "ясенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
+          "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
+          "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
           _ => TokenKind::Identifier,
         }
     }

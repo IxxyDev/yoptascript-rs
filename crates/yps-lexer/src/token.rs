@@ -14,8 +14,11 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeywordKind {
-    Pachan,
-    Sliva,
+    Gyy,
+    Uchastkoviy,
+    YasenHuy,
+    Vilkoyvglaz,
+    Ilivzhopuraz,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

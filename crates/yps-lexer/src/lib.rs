@@ -67,8 +67,11 @@ impl<'src> Lexer<'src> {
         let text = self.source.slice(span);
 
         let kind = match text {
-            "pachan" => TokenKind::Keyword(KeywordKind::Pachan),
-            "sliva" => TokenKind::Keyword(KeywordKind::Sliva),
+            "гыы" => TokenKind::Keyword(KeywordKind::Gyy),
+            "участковый" => TokenKind::Keyword(KeywordKind::Uchastkoviy),
+            "ясенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
+            "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
+            "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
             _ => TokenKind::Identifier,
         };
 
@@ -286,8 +289,11 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeywordKind {
-    Pachan,
-    Sliva,
+    Gyy,
+    Uchastkoviy,
+    YasenHuy,
+    Vilkoyvglaz,
+    Ilivzhopuraz,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
