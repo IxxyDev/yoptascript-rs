@@ -7,6 +7,7 @@ pub enum Stmt {
     Expr { expr: Expr, span: Span },
     Block(Block),
     Empty { span: Span },
+    If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>>, span: Span },
 }
 
 #[derive(Debug, Clone)]
