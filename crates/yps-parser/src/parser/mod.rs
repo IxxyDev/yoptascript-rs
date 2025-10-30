@@ -751,4 +751,66 @@ mod tests {
             _ => panic!("Expected If statement"),
         }
     }
+
+    #[test]
+    fn test_parse_while_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) x = x - 1;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::While { condition, body, .. } => {
+                assert!(matches!(condition, Expr::Binary { op: BinaryOp::Greater, .. }));
+                assert!(matches!(body.as_ref(), Stmt::Expr { .. }));
+            }
+            _ => panic!("Expected While statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_while_with_block() {
+        let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) { x = x - 1; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::While { body, .. } => {
+                assert!(matches!(body.as_ref(), Stmt::Block(_)));
+            }
+            _ => panic!("Expected While statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_while() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "потрещим (x > 0) потрещим (y > 0) y = y - 1;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::While { body, .. } => {
+                assert!(matches!(body.as_ref(), Stmt::While { .. }));
+            }
+            _ => panic!("Expected While statement"),
+        }
+    }
 }
