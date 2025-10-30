@@ -106,6 +106,7 @@ impl<'a> Parser<'a> {
                 self.parse_var_decl()
             }
             TokenKind::Keyword(KeywordKind::Vilkoyvglaz) => self.parse_if_stmt(),
+            TokenKind::Keyword(KeywordKind::Potreshchim) => self.parse_while_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -190,10 +191,8 @@ impl<'a> Parser<'a> {
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        // Съедаем 'вилкойвглаз'
         self.advance();
 
-        // Ожидаем '('
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась '(' после 'вилкойвглаз'");
@@ -201,10 +200,8 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        // Парсим условие
         let condition = self.parse_expr()?;
 
-        // Ожидаем ')'
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась ')' после условия");
@@ -212,10 +209,8 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        // Парсим then-ветку
         let then_branch = Box::new(self.parse_statement()?);
 
-        // Проверяем наличие else
         let else_branch = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Ilivzhopuraz)) {
             self.advance();
             Some(Box::new(self.parse_statement()?))
@@ -229,6 +224,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Expr { span, .. }
                 | Stmt::Block(Block { span, .. })
                 | Stmt::If { span, .. }
+                | Stmt::While { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -236,11 +232,46 @@ impl<'a> Parser<'a> {
                 | Stmt::Expr { span, .. }
                 | Stmt::Block(Block { span, .. })
                 | Stmt::If { span, .. }
+                | Stmt::While { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
 
         Ok(Stmt::If { condition, then_branch, else_branch, span: Span { start, end } })
+    }
+
+    fn parse_while_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'потрещим'");
+            return Err(());
+        }
+        self.advance();
+
+        let condition = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после условия");
+            return Err(());
+        }
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+
+        let end = match body.as_ref() {
+            Stmt::VarDecl { span, .. }
+            | Stmt::Expr { span, .. }
+            | Stmt::Block(Block { span, .. })
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::Empty { span } => span.end,
+        };
+
+        Ok(Stmt::While { condition, body, span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {

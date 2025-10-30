@@ -19,6 +19,7 @@ pub enum KeywordKind {
     YasenHuy,
     Vilkoyvglaz,
     Ilivzhopuraz,
+    Potreshchim,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

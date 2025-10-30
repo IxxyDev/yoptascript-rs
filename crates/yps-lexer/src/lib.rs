@@ -72,6 +72,7 @@ impl<'src> Lexer<'src> {
             "ясенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
             "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
             "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
+            "потрещим" => TokenKind::Keyword(KeywordKind::Potreshchim),
             _ => TokenKind::Identifier,
         };
 
@@ -294,6 +295,7 @@ pub enum KeywordKind {
     YasenHuy,
     Vilkoyvglaz,
     Ilivzhopuraz,
+    Potreshchim,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
