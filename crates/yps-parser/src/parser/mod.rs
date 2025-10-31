@@ -107,6 +107,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Keyword(KeywordKind::Vilkoyvglaz) => self.parse_if_stmt(),
             TokenKind::Keyword(KeywordKind::Potreshchim) => self.parse_while_stmt(),
+            TokenKind::Keyword(KeywordKind::Go) => self.parse_for_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -225,6 +226,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Block(Block { span, .. })
                 | Stmt::If { span, .. }
                 | Stmt::While { span, .. }
+                | Stmt::For { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -233,6 +235,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Block(Block { span, .. })
                 | Stmt::If { span, .. }
                 | Stmt::While { span, .. }
+                | Stmt::For { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -268,10 +271,69 @@ impl<'a> Parser<'a> {
             | Stmt::Block(Block { span, .. })
             | Stmt::If { span, .. }
             | Stmt::While { span, .. }
+            | Stmt::For { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
+    }
+
+    fn parse_for_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'го'");
+            return Err(());
+        }
+        self.advance();
+
+        let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            None
+        } else {
+            Some(Box::new(self.parse_statement()?))
+        };
+
+        let condition = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после условия");
+            return Err(());
+        }
+        self.advance();
+
+        let update = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после 'го'");
+            return Err(());
+        }
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+
+        let end = match body.as_ref() {
+            Stmt::VarDecl { span, .. }
+            | Stmt::Expr { span, .. }
+            | Stmt::Block(Block { span, .. })
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::For { span, .. }
+            | Stmt::Empty { span } => span.end,
+        };
+
+        Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {
