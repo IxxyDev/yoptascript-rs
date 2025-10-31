@@ -14,17 +14,34 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeywordKind {
-    Pachan,
-    Sliva,
+    Gyy,
+    Uchastkoviy,
+    YasenHuy,
+    Vilkoyvglaz,
+    Ilivzhopuraz,
+    Potreshchim,
+    Go
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperatorKind {
     Plus,
     Minus,
+    Multiply,
+    Divide,
+    Modulo,
     Assign,
     Equals,
-    StrictEquals
+    StrictEquals,
+    NotEquals,
+    StrictNotEquals,
+    Less,
+    Greater,
+    LessOrEqual,
+    GreaterOrEqual,
+    And,
+    Or,
+    Not,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

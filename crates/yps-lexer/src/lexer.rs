@@ -73,13 +73,15 @@ impl<'a> Lexer<'a> {
         if ch == '/' {
             self.next_char();
             if let Some((_, '/')) = self.peek_char() {
-                self.peek_char();
+                self.next_char();
                 self.skip_line_comment();
                 return self.next_token();
             } else {
                 let span = self.span_from(start);
-                self.push_error(span, "неподдержанный символ '/'");
-                return Token { kind: TokenKind:: Unknown, span }
+                return Token {
+                    kind: TokenKind::Operator(OperatorKind::Divide),
+                    span,
+                };
             }
         }
 
@@ -91,6 +93,14 @@ impl<'a> Lexer<'a> {
             '-' => {
                 self.next_char();
                 TokenKind::Operator(OperatorKind::Minus)
+            }
+            '*' => {
+                self.next_char();
+                TokenKind::Operator(OperatorKind::Multiply)
+            }
+            '%' => {
+                self.next_char();
+                TokenKind::Operator(OperatorKind::Modulo)
             }
             '(' => {
                 self.next_char();
@@ -127,6 +137,60 @@ impl<'a> Lexer<'a> {
                     return Token { kind: TokenKind::Operator(OperatorKind::Equals), span: self.span_from(start) }
                 } else {
                     return Token { kind: TokenKind::Operator(OperatorKind::Assign), span: self.span_from(start) }
+                }
+            }
+            '!' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    if let Some((_, '=')) = self.peek_char() {
+                        self.next_char();
+                        TokenKind::Operator(OperatorKind::StrictNotEquals)
+                    } else {
+                        TokenKind::Operator(OperatorKind::NotEquals)
+                    }
+                } else {
+                    TokenKind::Operator(OperatorKind::Not)
+                }
+            }
+            '<' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::LessOrEqual)
+                } else {
+                    TokenKind::Operator(OperatorKind::Less)
+                }
+            }
+            '>' => {
+                self.next_char();
+                if let Some((_, '=')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::GreaterOrEqual)
+                } else {
+                    TokenKind::Operator(OperatorKind::Greater)
+                }
+            }
+            '&' => {
+                self.next_char();
+                if let Some((_, '&')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::And)
+                } else {
+                    let span = self.span_from(start);
+                    self.push_error(span, "одиночный '&' не поддерживается (используйте '&&')");
+                    TokenKind::Unknown
+                }
+            }
+            '|' => {
+                self.next_char();
+                if let Some((_, '|')) = self.peek_char() {
+                    self.next_char();
+                    TokenKind::Operator(OperatorKind::Or)
+                } else {
+                    let span = self.span_from(start);
+                    self.push_error(span, "одиночный '|' не поддерживается (используйте '||')");
+                    TokenKind::Unknown
                 }
             }
             _ => {
@@ -208,8 +272,11 @@ impl<'a> Lexer<'a> {
 
     fn classify_identifier(lexeme: &str) -> TokenKind {
       match lexeme {
-          "pachan" => TokenKind::Keyword(KeywordKind::Pachan),
-          "sliva" => TokenKind::Keyword(KeywordKind::Sliva),
+          "гыы" => TokenKind::Keyword(KeywordKind::Gyy),
+          "участковый" => TokenKind::Keyword(KeywordKind::Uchastkoviy),
+          "ясенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
+          "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
+          "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
           _ => TokenKind::Identifier,
         }
     }
