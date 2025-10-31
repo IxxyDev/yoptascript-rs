@@ -290,9 +290,22 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            self.advance(); // пропускаем ';'
             None
+        } else if matches!(
+            self.current().kind,
+            TokenKind::Keyword(KeywordKind::Gyy | KeywordKind::Uchastkoviy | KeywordKind::YasenHuy)
+        ) {
+            Some(Box::new(self.parse_var_decl()?))
         } else {
-            Some(Box::new(self.parse_statement()?))
+            let expr = self.parse_expr()?;
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ';' после инициализации");
+                return Err(());
+            }
+            self.advance();
+            Some(Box::new(Stmt::Expr { span: expr.span(), expr }))
         };
 
         let condition = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
@@ -873,6 +886,162 @@ mod tests {
                 assert!(matches!(body.as_ref(), Stmt::While { .. }));
             }
             _ => panic!("Expected While statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_stmt() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) x = x + i;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { init, condition, update, body, .. } => {
+                assert!(init.is_some());
+                assert!(condition.is_some());
+                assert!(update.is_some());
+                assert!(matches!(body.as_ref(), Stmt::Expr { .. }));
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_with_block() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { x = x + i; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { body, .. } => {
+                assert!(matches!(body.as_ref(), Stmt::Block(_)));
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_without_init() {
+        let source = SourceFile::new("test.yop".to_string(), "го (; i < 10; i = i + 1) x = x + i;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { init, condition, update, .. } => {
+                assert!(init.is_none());
+                assert!(condition.is_some());
+                assert!(update.is_some());
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_without_condition() {
+        let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; ; i = i + 1) x = x + i;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { init, condition, update, .. } => {
+                assert!(init.is_some());
+                assert!(condition.is_none());
+                assert!(update.is_some());
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_without_update() {
+        let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10;) x = x + i;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { init, condition, update, .. } => {
+                assert!(init.is_some());
+                assert!(condition.is_some());
+                assert!(update.is_none());
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_for_infinite_loop() {
+        let source = SourceFile::new("test.yop".to_string(), "го (;;) x = x + 1;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { init, condition, update, .. } => {
+                assert!(init.is_none());
+                assert!(condition.is_none());
+                assert!(update.is_none());
+            }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_for() {
+        let source = SourceFile::new(
+            "test.yop".to_string(),
+            "го (гыы i = 0; i < 10; i = i + 1) го (гыы j = 0; j < 5; j = j + 1) x = x + 1;".to_string(),
+        );
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { body, .. } => {
+                assert!(matches!(body.as_ref(), Stmt::For { .. }));
+            }
+            _ => panic!("Expected For statement"),
         }
     }
 }
