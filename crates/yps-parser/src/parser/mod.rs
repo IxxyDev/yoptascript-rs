@@ -1084,4 +1084,83 @@ mod tests {
             _ => panic!("Expected For statement"),
         }
     }
+
+    #[test]
+    fn test_parse_break_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "харэ;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        assert!(matches!(program.items[0], Stmt::Break { .. }));
+    }
+
+    #[test]
+    fn test_parse_continue_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "двигай;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        assert!(matches!(program.items[0], Stmt::Continue { .. }));
+    }
+
+    #[test]
+    fn test_parse_break_in_while() {
+        let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) { харэ; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::While { body, .. } => match body.as_ref() {
+                Stmt::Block(Block { stmts, .. }) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0], Stmt::Break { .. }));
+                }
+                _ => panic!("Expected Block in While body"),
+            },
+            _ => panic!("Expected While statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_continue_in_for() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { двигай; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { body, .. } => match body.as_ref() {
+                Stmt::Block(Block { stmts, .. }) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0], Stmt::Continue { .. }));
+                }
+                _ => panic!("Expected Block in For body"),
+            },
+            _ => panic!("Expected For statement"),
+        }
+    }
 }
