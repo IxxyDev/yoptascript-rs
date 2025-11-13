@@ -23,6 +23,8 @@ pub enum KeywordKind {
     Go,
     Hare,
     Dvigay,
+    Yopta,
+    Otvechayu,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

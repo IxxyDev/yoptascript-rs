@@ -13,6 +13,8 @@ pub enum Expr {
     Assignment { target: Identifier, value: Box<Expr>, span: Span },
 
     Grouping { expr: Box<Expr>, span: Span },
+
+    Call { callee: Box<Expr>, args: Vec<Expr>, span: Span },
 }
 
 impl Expr {
@@ -26,7 +28,8 @@ impl Expr {
             Self::Unary { span, .. }
             | Self::Binary { span, .. }
             | Self::Assignment { span, .. }
-            | Self::Grouping { span, .. } => *span,
+            | Self::Grouping { span, .. }
+            | Self::Call { span, .. } => *span,
         }
     }
 }
