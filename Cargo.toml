@@ -3,5 +3,6 @@ members = [
     "crates/yopta_frontend",
     "crates/yps-cli",
     "crates/yps-lexer",
+    "crates/yps-parser",
 ]
 resolver = "3"
