@@ -108,6 +108,8 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Vilkoyvglaz) => self.parse_if_stmt(),
             TokenKind::Keyword(KeywordKind::Potreshchim) => self.parse_while_stmt(),
             TokenKind::Keyword(KeywordKind::Go) => self.parse_for_stmt(),
+            TokenKind::Keyword(KeywordKind::Hare) => self.parse_break_stmt(),
+            TokenKind::Keyword(KeywordKind::Dvigay) => self.parse_continue_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -227,6 +229,8 @@ impl<'a> Parser<'a> {
                 | Stmt::If { span, .. }
                 | Stmt::While { span, .. }
                 | Stmt::For { span, .. }
+                | Stmt::Break { span }
+                | Stmt::Continue { span }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -236,6 +240,8 @@ impl<'a> Parser<'a> {
                 | Stmt::If { span, .. }
                 | Stmt::While { span, .. }
                 | Stmt::For { span, .. }
+                | Stmt::Break { span }
+                | Stmt::Continue { span }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -272,6 +278,8 @@ impl<'a> Parser<'a> {
             | Stmt::If { span, .. }
             | Stmt::While { span, .. }
             | Stmt::For { span, .. }
+            | Stmt::Break { span }
+            | Stmt::Continue { span }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -343,10 +351,42 @@ impl<'a> Parser<'a> {
             | Stmt::If { span, .. }
             | Stmt::While { span, .. }
             | Stmt::For { span, .. }
+            | Stmt::Break { span }
+            | Stmt::Continue { span }
             | Stmt::Empty { span } => span.end,
         };
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
+    }
+
+    fn parse_break_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после 'харэ'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Break { span: Span { start, end } })
+    }
+
+    fn parse_continue_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после 'двигай'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Continue { span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {
@@ -1041,6 +1081,85 @@ mod tests {
             Stmt::For { body, .. } => {
                 assert!(matches!(body.as_ref(), Stmt::For { .. }));
             }
+            _ => panic!("Expected For statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_break_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "харэ;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        assert!(matches!(program.items[0], Stmt::Break { .. }));
+    }
+
+    #[test]
+    fn test_parse_continue_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "двигай;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        assert!(matches!(program.items[0], Stmt::Continue { .. }));
+    }
+
+    #[test]
+    fn test_parse_break_in_while() {
+        let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) { харэ; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::While { body, .. } => match body.as_ref() {
+                Stmt::Block(Block { stmts, .. }) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0], Stmt::Break { .. }));
+                }
+                _ => panic!("Expected Block in While body"),
+            },
+            _ => panic!("Expected While statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_continue_in_for() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { двигай; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::For { body, .. } => match body.as_ref() {
+                Stmt::Block(Block { stmts, .. }) => {
+                    assert_eq!(stmts.len(), 1);
+                    assert!(matches!(stmts[0], Stmt::Continue { .. }));
+                }
+                _ => panic!("Expected Block in For body"),
+            },
             _ => panic!("Expected For statement"),
         }
     }

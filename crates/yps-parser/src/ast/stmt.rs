@@ -10,6 +10,8 @@ pub enum Stmt {
     If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>>, span: Span },
     While { condition: Expr, body: Box<Stmt>, span: Span },
     For { init: Option<Box<Stmt>>, condition: Option<Expr>, update: Option<Expr>, body: Box<Stmt>, span: Span },
+    Break { span: Span },
+    Continue { span: Span },
 }
 
 #[derive(Debug, Clone)]
