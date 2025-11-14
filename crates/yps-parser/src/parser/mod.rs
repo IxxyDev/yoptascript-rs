@@ -43,6 +43,7 @@ impl<'a> Parser<'a> {
             TokenKind::StringLiteral => Ok(self.parse_string()),
             TokenKind::Identifier => self.parse_identifier().map(Expr::Identifier),
             TokenKind::Punctuation(PunctuationKind::LParen) => self.parse_grouping(),
+            TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
             _ => {
                 let span = self.current().span;
                 self.push_error(span, format!("Неожиданный токен: {:?}", self.current().kind));
@@ -94,6 +95,34 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Expr::Grouping { expr: Box::new(expr), span: Span { start, end } })
+    }
+
+    fn parse_array(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance(); // consume '['
+
+        let mut elements = Vec::new();
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+            loop {
+                elements.push(self.parse_expr()?);
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался ']'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Expr::Literal(Literal::Array { elements, span: Span { start, end } }))
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ()> {
@@ -564,10 +593,12 @@ impl<'a> Parser<'a> {
             _ => self.parse_primary()?,
         };
 
-        // Handle postfix operations (function calls)
+        // Handle postfix operations (function calls and indexing)
         loop {
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 expr = self.parse_call(expr)?;
+            } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
+                expr = self.parse_index(expr)?;
             } else {
                 break;
             }
@@ -602,6 +633,23 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Expr::Call { callee: Box::new(callee), args, span: Span { start, end } })
+    }
+
+    fn parse_index(&mut self, object: Expr) -> Result<Expr, ()> {
+        let start = object.span().start;
+        self.advance(); // consume '['
+
+        let index = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался ']'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Expr::Index { object: Box::new(object), index: Box::new(index), span: Span { start, end } })
     }
 
     fn try_parse_binary_op(&self) -> Option<(BinaryOp, u8)> {
@@ -1431,6 +1479,119 @@ mod tests {
                     assert!(matches!(args[0], Expr::Call { .. }));
                 }
                 _ => panic!("Expected Call expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_literal() {
+        let source = SourceFile::new("test.yop".to_string(), "[1, 2, 3];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 3);
+                }
+                _ => panic!("Expected Array literal"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_array() {
+        let source = SourceFile::new("test.yop".to_string(), "[];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 0);
+                }
+                _ => panic!("Expected Array literal"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_index() {
+        let source = SourceFile::new("test.yop".to_string(), "arr[0];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => {
+                assert!(matches!(expr, Expr::Index { .. }));
+            }
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_array_index() {
+        let source = SourceFile::new("test.yop".to_string(), "arr[i][j];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Index { object, .. } => {
+                    assert!(matches!(object.as_ref(), Expr::Index { .. }));
+                }
+                _ => panic!("Expected Index expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_array_literal() {
+        let source = SourceFile::new("test.yop".to_string(), "[[1, 2], [3, 4]];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 2);
+                    assert!(matches!(elements[0], Expr::Literal(Literal::Array { .. })));
+                }
+                _ => panic!("Expected Array literal"),
             },
             _ => panic!("Expected Expr statement"),
         }
