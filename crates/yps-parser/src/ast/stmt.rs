@@ -12,6 +12,8 @@ pub enum Stmt {
     For { init: Option<Box<Stmt>>, condition: Option<Expr>, update: Option<Expr>, body: Box<Stmt>, span: Span },
     Break { span: Span },
     Continue { span: Span },
+    FunctionDecl { name: Identifier, params: Vec<Identifier>, body: Block, span: Span },
+    Return { value: Option<Expr>, span: Span },
 }
 
 #[derive(Debug, Clone)]
