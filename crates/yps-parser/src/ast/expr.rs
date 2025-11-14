@@ -15,6 +15,8 @@ pub enum Expr {
     Grouping { expr: Box<Expr>, span: Span },
 
     Call { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+
+    Index { object: Box<Expr>, index: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -23,13 +25,14 @@ impl Expr {
         match self {
             Self::Identifier(id) => id.span,
             Self::Literal(lit) => match lit {
-                Literal::Number { span, .. } | Literal::String { span, .. } => *span,
+                Literal::Number { span, .. } | Literal::String { span, .. } | Literal::Array { span, .. } => *span,
             },
             Self::Unary { span, .. }
             | Self::Binary { span, .. }
             | Self::Assignment { span, .. }
             | Self::Grouping { span, .. }
-            | Self::Call { span, .. } => *span,
+            | Self::Call { span, .. }
+            | Self::Index { span, .. } => *span,
         }
     }
 }
