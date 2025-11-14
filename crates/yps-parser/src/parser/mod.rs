@@ -1483,4 +1483,117 @@ mod tests {
             _ => panic!("Expected Expr statement"),
         }
     }
+
+    #[test]
+    fn test_parse_array_literal() {
+        let source = SourceFile::new("test.yop".to_string(), "[1, 2, 3];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 3);
+                }
+                _ => panic!("Expected Array literal"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_array() {
+        let source = SourceFile::new("test.yop".to_string(), "[];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 0);
+                }
+                _ => panic!("Expected Array literal"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_index() {
+        let source = SourceFile::new("test.yop".to_string(), "arr[0];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => {
+                assert!(matches!(expr, Expr::Index { .. }));
+            }
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_array_index() {
+        let source = SourceFile::new("test.yop".to_string(), "arr[i][j];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Index { object, .. } => {
+                    assert!(matches!(object.as_ref(), Expr::Index { .. }));
+                }
+                _ => panic!("Expected Index expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_array_literal() {
+        let source = SourceFile::new("test.yop".to_string(), "[[1, 2], [3, 4]];".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Literal(Literal::Array { elements, .. }) => {
+                    assert_eq!(elements.len(), 2);
+                    assert!(matches!(elements[0], Expr::Literal(Literal::Array { .. })));
+                }
+                _ => panic!("Expected Array literal"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
 }
