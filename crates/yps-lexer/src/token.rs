@@ -54,6 +54,8 @@ pub enum PunctuationKind {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Semicolon,
     Comma,
 }

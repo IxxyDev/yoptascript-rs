@@ -224,6 +224,8 @@ impl<'src> Lexer<'src> {
             ')' => TokenKind::Punctuation(PunctuationKind::RParen),
             '{' => TokenKind::Punctuation(PunctuationKind::LBrace),
             '}' => TokenKind::Punctuation(PunctuationKind::RBrace),
+            '[' => TokenKind::Punctuation(PunctuationKind::LBracket),
+            ']' => TokenKind::Punctuation(PunctuationKind::RBracket),
             ';' => TokenKind::Punctuation(PunctuationKind::Semicolon),
             ',' => TokenKind::Punctuation(PunctuationKind::Comma),
             _ => {
@@ -335,6 +337,8 @@ pub enum PunctuationKind {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Semicolon,
     Comma,
 }
