@@ -1279,4 +1279,160 @@ mod tests {
             _ => panic!("Expected For statement"),
         }
     }
+
+    #[test]
+    fn test_parse_function_decl() {
+        let source = SourceFile::new("test.yop".to_string(), "йопта foo(x, y) { x + y; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::FunctionDecl { name, params, body, .. } => {
+                assert_eq!(name.name, "foo");
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].name, "x");
+                assert_eq!(params[1].name, "y");
+                assert_eq!(body.stmts.len(), 1);
+            }
+            _ => panic!("Expected FunctionDecl statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_decl_no_params() {
+        let source = SourceFile::new("test.yop".to_string(), "йопта bar() { отвечаю 42; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::FunctionDecl { name, params, body, .. } => {
+                assert_eq!(name.name, "bar");
+                assert_eq!(params.len(), 0);
+                assert_eq!(body.stmts.len(), 1);
+            }
+            _ => panic!("Expected FunctionDecl statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_return_stmt() {
+        let source = SourceFile::new("test.yop".to_string(), "отвечаю 42;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Return { value, .. } => {
+                assert!(value.is_some());
+            }
+            _ => panic!("Expected Return statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_return_stmt_no_value() {
+        let source = SourceFile::new("test.yop".to_string(), "отвечаю;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Return { value, .. } => {
+                assert!(value.is_none());
+            }
+            _ => panic!("Expected Return statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let source = SourceFile::new("test.yop".to_string(), "foo(1, 2);".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 2);
+                }
+                _ => panic!("Expected Call expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call_no_args() {
+        let source = SourceFile::new("test.yop".to_string(), "bar();".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 0);
+                }
+                _ => panic!("Expected Call expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_function_call() {
+        let source = SourceFile::new("test.yop".to_string(), "foo(bar(1), 2);".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+        let parser = Parser::new(&tokens, &source);
+
+        let (program, diags) = parser.parse_program();
+
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            Stmt::Expr { expr, .. } => match expr {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 2);
+                    assert!(matches!(args[0], Expr::Call { .. }));
+                }
+                _ => panic!("Expected Call expression"),
+            },
+            _ => panic!("Expected Expr statement"),
+        }
+    }
 }
