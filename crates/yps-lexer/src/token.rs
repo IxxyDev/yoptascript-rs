@@ -58,6 +58,8 @@ pub enum PunctuationKind {
     RBracket,
     Semicolon,
     Comma,
+    Colon,
+    Dot,
 }
 
 #[derive(Debug, Clone)]
