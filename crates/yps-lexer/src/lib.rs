@@ -228,6 +228,8 @@ impl<'src> Lexer<'src> {
             ']' => TokenKind::Punctuation(PunctuationKind::RBracket),
             ';' => TokenKind::Punctuation(PunctuationKind::Semicolon),
             ',' => TokenKind::Punctuation(PunctuationKind::Comma),
+            ':' => TokenKind::Punctuation(PunctuationKind::Colon),
+            '.' => TokenKind::Punctuation(PunctuationKind::Dot),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     severity: Severity::Error,
@@ -341,6 +343,8 @@ pub enum PunctuationKind {
     RBracket,
     Semicolon,
     Comma,
+    Colon,
+    Dot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,7 +445,6 @@ mod tests {
     #[test]
     fn test_source_file_slice_unicode() {
         let source = SourceFile::new("test.yop".into(), "пацан x = 5;".into());
-        // "пацан" занимает 10 байт (5 символов × 2 байта)
         let span = Span { start: 0, end: 10 };
 
         let result = source.slice(span);

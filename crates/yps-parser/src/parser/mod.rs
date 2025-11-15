@@ -44,6 +44,7 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier => self.parse_identifier().map(Expr::Identifier),
             TokenKind::Punctuation(PunctuationKind::LParen) => self.parse_grouping(),
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
+            TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object(),
             _ => {
                 let span = self.current().span;
                 self.push_error(span, format!("Неожиданный токен: {:?}", self.current().kind));
@@ -123,6 +124,45 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Expr::Literal(Literal::Array { elements, span: Span { start, end } }))
+    }
+
+    fn parse_object(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let mut properties = Vec::new();
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            loop {
+                let key = self.parse_identifier()?;
+
+                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалось ':' после ключа объекта");
+                    return Err(());
+                }
+                self.advance();
+
+                let value = self.parse_expr()?;
+
+                properties.push(crate::ast::ObjectProperty { key, value });
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался '}'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Expr::Literal(Literal::Object { properties, span: Span { start, end } }))
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ()> {
@@ -430,12 +470,10 @@ impl<'a> Parser<'a> {
 
     fn parse_function_decl(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        self.advance(); // consume 'йопта'
+        self.advance();
 
-        // Parse function name
         let name = self.parse_identifier()?;
 
-        // Expect '('
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась '(' после имени функции");
@@ -443,7 +481,6 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        // Parse parameters
         let mut params = Vec::new();
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             loop {
@@ -457,7 +494,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Expect ')'
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась ')' после параметров функции");
@@ -465,7 +501,6 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        // Parse body
         let body = self.parse_block()?;
         let end = body.span.end;
 
@@ -474,16 +509,14 @@ impl<'a> Parser<'a> {
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        self.advance(); // consume 'отвечаю'
+        self.advance();
 
-        // Check if there's a return value
         let value = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             None
         } else {
             Some(self.parse_expr()?)
         };
 
-        // Expect ';'
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась ';' после 'отвечаю'");
@@ -593,12 +626,13 @@ impl<'a> Parser<'a> {
             _ => self.parse_primary()?,
         };
 
-        // Handle postfix operations (function calls and indexing)
         loop {
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 expr = self.parse_call(expr)?;
             } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
                 expr = self.parse_index(expr)?;
+            } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Dot)) {
+                expr = self.parse_member(expr)?;
             } else {
                 break;
             }
@@ -609,7 +643,7 @@ impl<'a> Parser<'a> {
 
     fn parse_call(&mut self, callee: Expr) -> Result<Expr, ()> {
         let start = callee.span().start;
-        self.advance(); // consume '('
+        self.advance();
 
         let mut args = Vec::new();
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
@@ -637,7 +671,7 @@ impl<'a> Parser<'a> {
 
     fn parse_index(&mut self, object: Expr) -> Result<Expr, ()> {
         let start = object.span().start;
-        self.advance(); // consume '['
+        self.advance();
 
         let index = self.parse_expr()?;
 
@@ -650,6 +684,17 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Expr::Index { object: Box::new(object), index: Box::new(index), span: Span { start, end } })
+    }
+
+    fn parse_member(&mut self, object: Expr) -> Result<Expr, ()> {
+        let start = object.span().start;
+        self.advance();
+
+        let property = self.parse_identifier()?;
+
+        let end = property.span.end;
+
+        Ok(Expr::Member { object: Box::new(object), property, span: Span { start, end } })
     }
 
     fn try_parse_binary_op(&self) -> Option<(BinaryOp, u8)> {
