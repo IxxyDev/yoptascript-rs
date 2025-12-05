@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/yopta_frontend",
     "crates/yps-cli",
     "crates/yps-lexer",
     "crates/yps-parser",
