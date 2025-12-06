@@ -1,18 +1,6 @@
 use crate::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TokenKind {
-    Identifier,
-    Number,
-    StringLiteral,
-    Keyword(KeywordKind),
-    Operator(OperatorKind),
-    Punctuation(PunctuationKind),
-    Eof,
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeywordKind {
     Gyy,
     Uchastkoviy,
@@ -60,6 +48,18 @@ pub enum PunctuationKind {
     Comma,
     Colon,
     Dot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenKind {
+    Identifier,
+    Number,
+    StringLiteral,
+    Keyword(KeywordKind),
+    Operator(OperatorKind),
+    Punctuation(PunctuationKind),
+    Eof,
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
