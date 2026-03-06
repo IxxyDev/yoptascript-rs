@@ -2,7 +2,7 @@ name: CI
 
   on:
     push:
-      branches: [main]
+      branches: [master]
     pull_request:
 
   jobs:
@@ -14,7 +14,6 @@ name: CI
         - uses: dtolnay/rust-toolchain@stable
           with:
             components: rustfmt, clippy
-            minimal: true
 
         - uses: Swatinem/rust-cache@v2
           with:
