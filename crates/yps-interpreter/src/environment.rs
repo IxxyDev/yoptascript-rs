@@ -43,6 +43,15 @@ impl Environment {
         None
     }
 
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Value> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(value) = scope.get_mut(name) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
     pub fn set(&mut self, name: &str, value: Value) -> bool {
         for scope in self.scopes.iter_mut().rev() {
             if scope.contains_key(name) {
