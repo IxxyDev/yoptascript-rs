@@ -14,6 +14,11 @@ enum ControlFlow {
     Return(Value),
 }
 
+enum AccessSegment {
+    Index(Value),
+    Member(String),
+}
+
 pub struct Interpreter {
     env: Environment,
 }
@@ -31,6 +36,10 @@ impl Interpreter {
             env.define(name.to_string(), Value::BuiltinFunction(name.to_string()), true);
         }
         Self { env }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.env.get(name)
     }
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
@@ -304,13 +313,7 @@ impl Interpreter {
 
     fn eval_assignment(&mut self, lhs: &Expr, rhs: &Expr, span: Span) -> Result<Value, RuntimeError> {
         let val = self.eval_expr(rhs)?;
-        match lhs {
-            Expr::Identifier(ident) => {
-                self.set_variable(&ident.name, val.clone(), span)?;
-                Ok(val)
-            }
-            _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
-        }
+        self.assign_to_target(lhs, val, span)
     }
 
     fn eval_compound_assignment(
@@ -320,14 +323,7 @@ impl Interpreter {
         rhs: &Expr,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        let Expr::Identifier(ident) = lhs else {
-            return Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span));
-        };
-        let left = self
-            .env
-            .get(&ident.name)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
+        let old = self.eval_expr(lhs)?;
         let right = self.eval_expr(rhs)?;
         let arith_op = match op {
             BinaryOp::PlusAssign => BinaryOp::Add,
@@ -336,9 +332,99 @@ impl Interpreter {
             BinaryOp::DivAssign => BinaryOp::Div,
             _ => unreachable!(),
         };
-        let result = self.eval_binary(arith_op, left, right, span)?;
-        self.set_variable(&ident.name, result.clone(), span)?;
-        Ok(result)
+        let result = self.eval_binary(arith_op, old, right, span)?;
+        self.assign_to_target(lhs, result, span)
+    }
+
+    fn assign_to_target(&mut self, target: &Expr, value: Value, span: Span) -> Result<Value, RuntimeError> {
+        match target {
+            Expr::Identifier(ident) => {
+                self.set_variable(&ident.name, value.clone(), span)?;
+                Ok(value)
+            }
+            Expr::Index { .. } | Expr::Member { .. } => {
+                let mut path = Vec::new();
+                let root_name = self.collect_access_path(target, &mut path, span)?;
+                path.reverse();
+                if self.env.is_const(&root_name) {
+                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
+                }
+                let root = self.env.get_mut(&root_name).ok_or_else(|| {
+                    RuntimeError::new(format!("Переменная '{root_name}' не определена"), span)
+                })?;
+                Self::set_at_path(root, &path, value.clone(), span)?;
+                Ok(value)
+            }
+            _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
+        }
+    }
+
+    fn collect_access_path(
+        &mut self,
+        expr: &Expr,
+        path: &mut Vec<AccessSegment>,
+        span: Span,
+    ) -> Result<String, RuntimeError> {
+        match expr {
+            Expr::Identifier(ident) => Ok(ident.name.clone()),
+            Expr::Index { object, index, .. } => {
+                let idx_val = self.eval_expr(index)?;
+                path.push(AccessSegment::Index(idx_val));
+                self.collect_access_path(object, path, span)
+            }
+            Expr::Member { object, property, .. } => {
+                path.push(AccessSegment::Member(property.name.clone()));
+                self.collect_access_path(object, path, span)
+            }
+            _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
+        }
+    }
+
+    fn set_at_path(target: &mut Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
+        if path.is_empty() {
+            *target = value;
+            return Ok(());
+        }
+        match (&path[0], target) {
+            (AccessSegment::Index(Value::Number(n)), Value::Array(arr)) => {
+                let i = *n as usize;
+                let len = arr.len();
+                let elem = arr.get_mut(i).ok_or_else(|| {
+                    RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span)
+                })?;
+                Self::set_at_path(elem, &path[1..], value, span)
+            }
+            (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
+                if path.len() == 1 {
+                    map.insert(key.clone(), value);
+                    Ok(())
+                } else {
+                    let entry = map.get_mut(key).ok_or_else(|| {
+                        RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span)
+                    })?;
+                    Self::set_at_path(entry, &path[1..], value, span)
+                }
+            }
+            (AccessSegment::Member(prop), Value::Object(map)) => {
+                if path.len() == 1 {
+                    map.insert(prop.clone(), value);
+                    Ok(())
+                } else {
+                    let entry = map.get_mut(prop).ok_or_else(|| {
+                        RuntimeError::new(format!("Свойство '{prop}' не найдено в объекте"), span)
+                    })?;
+                    Self::set_at_path(entry, &path[1..], value, span)
+                }
+            }
+            (AccessSegment::Index(idx), val) => Err(RuntimeError::new(
+                format!("Нельзя индексировать '{}' с помощью '{}'", val.type_name(), idx.type_name()),
+                span,
+            )),
+            (AccessSegment::Member(_), val) => Err(RuntimeError::new(
+                format!("Нельзя установить свойство у типа '{}'", val.type_name()),
+                span,
+            )),
+        }
     }
 
     fn eval_postfix(&mut self, op: PostfixOp, expr: &Expr, span: Span) -> Result<Value, RuntimeError> {
@@ -457,5 +543,207 @@ impl Interpreter {
                 .ok_or_else(|| RuntimeError::new(format!("Свойство '{property}' не найдено в объекте"), span)),
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yps_lexer::{Lexer, SourceFile};
+    use yps_parser::Parser;
+
+    fn run_code(src: &str) -> Interpreter {
+        let source = SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, lex_diags) = Lexer::new(&source).tokenize();
+        assert!(lex_diags.is_empty(), "Ошибки лексера: {lex_diags:?}");
+        let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
+        assert!(parse_diags.is_empty(), "Ошибки парсера: {parse_diags:?}");
+        let mut interp = Interpreter::new();
+        interp.run(&program).expect("Ошибка интерпретатора");
+        interp
+    }
+
+    fn run_code_err(src: &str) -> RuntimeError {
+        let source = SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, _) = Lexer::new(&source).tokenize();
+        let (program, _) = Parser::new(&tokens, &source).parse_program();
+        let mut interp = Interpreter::new();
+        interp.run(&program).unwrap_err()
+    }
+
+    // ── Присваивание по индексу массива ──
+
+    #[test]
+    fn assign_array_index() {
+        let interp = run_code(
+            r#"
+            гыы арр = [1, 2, 3];
+            арр[0] = 10;
+            гыы результат = арр[0];
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn assign_array_index_middle() {
+        let interp = run_code(
+            r#"
+            гыы арр = [1, 2, 3];
+            арр[1] = 42;
+            гыы результат = арр[1];
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn assign_array_index_preserves_other_elements() {
+        let interp = run_code(
+            r#"
+            гыы арр = [10, 20, 30];
+            арр[1] = 99;
+            гыы а = арр[0];
+            гыы б = арр[2];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(30.0)));
+    }
+
+    #[test]
+    fn assign_array_index_out_of_bounds() {
+        let err = run_code_err(
+            r#"
+            гыы арр = [1, 2];
+            арр[5] = 10;
+            "#,
+        );
+        assert!(err.message.contains("вне диапазона") || err.message.contains("Индекс"));
+    }
+
+    // ── Присваивание по свойству объекта ──
+
+    #[test]
+    fn assign_object_member() {
+        let interp = run_code(
+            r#"
+            гыы чел = { имя: "Вася", возраст: 25 };
+            чел.имя = "Петя";
+            гыы результат = чел.имя;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("Петя".to_string())));
+    }
+
+    #[test]
+    fn assign_object_member_new_property() {
+        let interp = run_code(
+            r#"
+            гыы чел = { имя: "Вася" };
+            чел.возраст = 30;
+            гыы результат = чел.возраст;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(30.0)));
+    }
+
+    #[test]
+    fn assign_object_bracket_notation() {
+        let interp = run_code(
+            r#"
+            гыы чел = { имя: "Вася" };
+            чел["имя"] = "Коля";
+            гыы результат = чел.имя;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("Коля".to_string())));
+    }
+
+    #[test]
+    fn assign_member_on_non_object_fails() {
+        let err = run_code_err(
+            r#"
+            гыы х = 5;
+            х.поле = 10;
+            "#,
+        );
+        assert!(err.message.contains("свойство") || err.message.contains("объект"));
+    }
+
+    // ── Составное присваивание по индексу/свойству ──
+
+    #[test]
+    fn compound_assign_array_index() {
+        let interp = run_code(
+            r#"
+            гыы арр = [10, 20, 30];
+            арр[0] += 5;
+            гыы результат = арр[0];
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(15.0)));
+    }
+
+    #[test]
+    fn compound_assign_object_member() {
+        let interp = run_code(
+            r#"
+            гыы чел = { баланс: 100 };
+            чел.баланс -= 30;
+            гыы результат = чел.баланс;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(70.0)));
+    }
+
+    // ── Вложенные присваивания ──
+
+    #[test]
+    fn assign_nested_array() {
+        let interp = run_code(
+            r#"
+            гыы матрица = [[1, 2], [3, 4]];
+            матрица[0][1] = 99;
+            гыы результат = матрица[0][1];
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(99.0)));
+    }
+
+    #[test]
+    fn assign_nested_object() {
+        let interp = run_code(
+            r#"
+            гыы данные = { внутри: { значение: 1 } };
+            данные.внутри.значение = 42;
+            гыы результат = данные.внутри.значение;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn assign_object_in_array() {
+        let interp = run_code(
+            r#"
+            гыы список = [{ имя: "А" }, { имя: "Б" }];
+            список[0].имя = "В";
+            гыы результат = список[0].имя;
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("В".to_string())));
+    }
+
+    #[test]
+    fn assign_array_in_object() {
+        let interp = run_code(
+            r#"
+            гыы данные = { список: [1, 2, 3] };
+            данные.список[2] = 99;
+            гыы результат = данные.список[2];
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(99.0)));
     }
 }
