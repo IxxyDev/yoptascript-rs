@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/yps-cli",
+    "crates/yps-interpreter",
     "crates/yps-lexer",
     "crates/yps-parser",
 ]
