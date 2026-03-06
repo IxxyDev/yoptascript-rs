@@ -11,6 +11,8 @@ pub struct ObjectProperty {
 pub enum Literal {
     Number { raw: String, span: Span },
     String { value: String, span: Span },
+    Boolean { value: bool, span: Span },
+    Null { span: Span },
     Array { elements: Vec<Expr>, span: Span },
     Object { properties: Vec<ObjectProperty>, span: Span },
 }

@@ -13,6 +13,9 @@ pub enum KeywordKind {
     Dvigay,
     Yopta,
     Otvechayu,
+    Pravda,
+    Lozh,
+    Nol,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +26,12 @@ pub enum OperatorKind {
     Divide,
     Modulo,
     Assign,
+    PlusAssign,
+    MinusAssign,
+    MulAssign,
+    DivAssign,
+    Increment,
+    Decrement,
     Equals,
     StrictEquals,
     NotEquals,

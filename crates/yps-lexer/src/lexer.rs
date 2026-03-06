@@ -78,6 +78,9 @@ impl<'src> Lexer<'src> {
             "двигай" => TokenKind::Keyword(KeywordKind::Dvigay),
             "йопта" => TokenKind::Keyword(KeywordKind::Yopta),
             "отвечаю" => TokenKind::Keyword(KeywordKind::Otvechayu),
+            "правда" => TokenKind::Keyword(KeywordKind::Pravda),
+            "лож" => TokenKind::Keyword(KeywordKind::Lozh),
+            "ноль" => TokenKind::Keyword(KeywordKind::Nol),
             _ => TokenKind::Identifier,
         };
 
@@ -137,9 +140,36 @@ impl<'src> Lexer<'src> {
         let ch = self.advance();
 
         let kind = match ch {
-            '+' => TokenKind::Operator(OperatorKind::Plus),
-            '-' => TokenKind::Operator(OperatorKind::Minus),
-            '*' => TokenKind::Operator(OperatorKind::Multiply),
+            '+' => {
+                if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::PlusAssign)
+                } else if self.current_char() == '+' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::Increment)
+                } else {
+                    TokenKind::Operator(OperatorKind::Plus)
+                }
+            }
+            '-' => {
+                if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::MinusAssign)
+                } else if self.current_char() == '-' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::Decrement)
+                } else {
+                    TokenKind::Operator(OperatorKind::Minus)
+                }
+            }
+            '*' => {
+                if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::MulAssign)
+                } else {
+                    TokenKind::Operator(OperatorKind::Multiply)
+                }
+            }
             '%' => TokenKind::Operator(OperatorKind::Modulo),
             '/' => {
                 if self.current_char() == '/' {
@@ -148,8 +178,12 @@ impl<'src> Lexer<'src> {
                         self.advance();
                     }
                     return self.next_token();
+                } else if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::DivAssign)
+                } else {
+                    TokenKind::Operator(OperatorKind::Divide)
                 }
-                TokenKind::Operator(OperatorKind::Divide)
             }
             '=' => {
                 if self.current_char() == '=' {

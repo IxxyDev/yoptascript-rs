@@ -13,6 +13,10 @@ pub enum BinaryOp {
     Div,
     Mod,
     Assign,
+    PlusAssign,
+    MinusAssign,
+    MulAssign,
+    DivAssign,
     Equals,
     StrictEquals,
     NotEquals,
@@ -23,4 +27,10 @@ pub enum BinaryOp {
     GreaterOrEqual,
     And,
     Or,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostfixOp {
+    Increment,
+    Decrement,
 }

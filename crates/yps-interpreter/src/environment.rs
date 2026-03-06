@@ -1,15 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::value::Value;
 
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
     scopes: Vec<HashMap<String, Value>>,
+    constants: HashSet<String>,
 }
 
 impl Environment {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()] }
+        Self { scopes: vec![HashMap::new()], constants: HashSet::new() }
     }
 
     pub fn push_scope(&mut self) {
@@ -20,10 +21,17 @@ impl Environment {
         self.scopes.pop();
     }
 
-    pub fn define(&mut self, name: String, value: Value) {
+    pub fn define(&mut self, name: String, value: Value, is_const: bool) {
+        if is_const {
+            self.constants.insert(name.clone());
+        }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, value);
         }
+    }
+
+    pub fn is_const(&self, name: &str) -> bool {
+        self.constants.contains(name)
     }
 
     pub fn get(&self, name: &str) -> Option<&Value> {
