@@ -13,7 +13,17 @@ dependencies = [
 name = "yps-cli"
 version = "0.1.0"
 dependencies = [
+ "yps-interpreter",
  "yps-lexer",
+ "yps-parser",
+]
+
+[[package]]
+name = "yps-interpreter"
+version = "0.1.0"
+dependencies = [
+ "yps-lexer",
+ "yps-parser",
 ]
 
 [[package]]

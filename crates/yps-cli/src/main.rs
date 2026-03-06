@@ -1,16 +1,56 @@
+use std::env;
+use std::fs;
+use std::process;
+
+use yps_interpreter::Interpreter;
 use yps_lexer::{Lexer, SourceFile};
+use yps_parser::Parser;
 
 fn main() {
-    let source = SourceFile::new("test.yop".into(), "pachan x + 42".into());
-    let lexer = Lexer::new(&source);
+    let args: Vec<String> = env::args().collect();
 
-    let (tokens, diagnostics) = lexer.tokenize();
-
-    for token in tokens {
-        println!("{:?} @ {}..{}", token.kind, token.span.start, token.span.end);
+    if args.len() < 2 {
+        eprintln!("Использование: yps <файл.yop>");
+        process::exit(1);
     }
 
-    for diagnostic in diagnostics {
-        eprintln!("{:?}: {}", diagnostic.severity, diagnostic.message);
+    let filename = &args[1];
+    let code = match fs::read_to_string(filename) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Не удалось прочитать файл '{filename}': {e}");
+            process::exit(1);
+        }
+    };
+
+    let source = SourceFile::new(filename.clone(), code);
+
+    let lexer = Lexer::new(&source);
+    let (tokens, lex_diagnostics) = lexer.tokenize();
+
+    if !lex_diagnostics.is_empty() {
+        for d in &lex_diagnostics {
+            let (line, col) = source.position(d.span.start);
+            eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
+        }
+        process::exit(1);
+    }
+
+    let parser = Parser::new(&tokens, &source);
+    let (program, parse_diagnostics) = parser.parse_program();
+
+    if !parse_diagnostics.is_empty() {
+        for d in &parse_diagnostics {
+            let (line, col) = source.position(d.span.start);
+            eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
+        }
+        process::exit(1);
+    }
+
+    let mut interpreter = Interpreter::new();
+    if let Err(e) = interpreter.run(&program) {
+        let (line, col) = source.position(e.span.start);
+        eprintln!("{filename}:{line}:{col}: {e}");
+        process::exit(1);
     }
 }
