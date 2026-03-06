@@ -1,9 +1,8 @@
 [package]
-name = "yps-cli"
+name = "yps-interpreter"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-yps-interpreter = { path = "../yps-interpreter" }
 yps-lexer = { path = "../yps-lexer" }
 yps-parser = { path = "../yps-parser" }

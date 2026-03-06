@@ -2,6 +2,7 @@
 members = [
     "crates/yopta_frontend",
     "crates/yps-cli",
+    "crates/yps-interpreter",
     "crates/yps-lexer",
     "crates/yps-parser",
 ]
