@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Program, Stmt, UnaryOp};
+use yps_parser::ast::{BinaryOp, Block, Expr, Literal, PostfixOp, Program, Stmt, UnaryOp};
 
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
@@ -28,11 +28,8 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut env = Environment::new();
         for name in builtin_names() {
-            env.define(name.to_string(), Value::BuiltinFunction(name.to_string()));
+            env.define(name.to_string(), Value::BuiltinFunction(name.to_string()), true);
         }
-        env.define("правда".to_string(), Value::Boolean(true));
-        env.define("лож".to_string(), Value::Boolean(false));
-        env.define("ноль".to_string(), Value::Null);
         Self { env }
     }
 
@@ -55,9 +52,9 @@ impl Interpreter {
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
         match stmt {
-            Stmt::VarDecl { name, init, .. } => {
+            Stmt::VarDecl { name, init, is_const, .. } => {
                 let value = self.eval_expr(init)?;
-                self.env.define(name.name.clone(), value);
+                self.env.define(name.name.clone(), value, *is_const);
                 Ok(None)
             }
             Stmt::Expr { expr, .. } => {
@@ -129,7 +126,7 @@ impl Interpreter {
                     params: params.iter().map(|p| p.name.clone()).collect(),
                     body: body.clone(),
                 };
-                self.env.define(name.name.clone(), func);
+                self.env.define(name.name.clone(), func, false);
                 Ok(None)
             }
             Stmt::Return { value, .. } => {
@@ -189,20 +186,19 @@ impl Interpreter {
                 if *op == BinaryOp::Assign {
                     return self.eval_assignment(lhs, rhs, *span);
                 }
+                if matches!(op, BinaryOp::PlusAssign | BinaryOp::MinusAssign | BinaryOp::MulAssign | BinaryOp::DivAssign) {
+                    return self.eval_compound_assignment(*op, lhs, rhs, *span);
+                }
                 let left = self.eval_expr(lhs)?;
                 let right = self.eval_expr(rhs)?;
                 self.eval_binary(*op, left, right, *span)
             }
             Expr::Assignment { target, value, span } => {
                 let val = self.eval_expr(value)?;
-                if !self.env.set(&target.name, val.clone()) {
-                    return Err(RuntimeError::new(
-                        format!("Переменная '{}' не определена", target.name),
-                        *span,
-                    ));
-                }
+                self.set_variable(&target.name, val.clone(), *span)?;
                 Ok(val)
             }
+            Expr::Postfix { op, expr, span } => self.eval_postfix(*op, expr, *span),
             Expr::Grouping { expr, .. } => self.eval_expr(expr),
             Expr::Call { callee, args, span } => {
                 let func = self.eval_expr(callee)?;
@@ -232,6 +228,8 @@ impl Interpreter {
                 })
             }
             Literal::String { value, .. } => Ok(Value::String(value.clone())),
+            Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
+            Literal::Null { .. } => Ok(Value::Null),
             Literal::Array { elements, .. } => {
                 let mut values = Vec::with_capacity(elements.len());
                 for el in elements {
@@ -300,7 +298,8 @@ impl Interpreter {
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
             BinaryOp::And | BinaryOp::Or => unreachable!("handled in eval_expr"),
-            BinaryOp::Assign => unreachable!("handled in eval_expr"),
+            BinaryOp::Assign | BinaryOp::PlusAssign | BinaryOp::MinusAssign
+            | BinaryOp::MulAssign | BinaryOp::DivAssign => unreachable!("handled in eval_expr"),
         }
     }
 
@@ -308,16 +307,68 @@ impl Interpreter {
         let val = self.eval_expr(rhs)?;
         match lhs {
             Expr::Identifier(ident) => {
-                if !self.env.set(&ident.name, val.clone()) {
-                    return Err(RuntimeError::new(
-                        format!("Переменная '{}' не определена", ident.name),
-                        span,
-                    ));
-                }
+                self.set_variable(&ident.name, val.clone(), span)?;
                 Ok(val)
             }
             _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
         }
+    }
+
+    fn eval_compound_assignment(&mut self, op: BinaryOp, lhs: &Expr, rhs: &Expr, span: Span) -> Result<Value, RuntimeError> {
+        let Expr::Identifier(ident) = lhs else {
+            return Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span));
+        };
+        let left = self.env.get(&ident.name).cloned().ok_or_else(|| {
+            RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span)
+        })?;
+        let right = self.eval_expr(rhs)?;
+        let arith_op = match op {
+            BinaryOp::PlusAssign => BinaryOp::Add,
+            BinaryOp::MinusAssign => BinaryOp::Sub,
+            BinaryOp::MulAssign => BinaryOp::Mul,
+            BinaryOp::DivAssign => BinaryOp::Div,
+            _ => unreachable!(),
+        };
+        let result = self.eval_binary(arith_op, left, right, span)?;
+        self.set_variable(&ident.name, result.clone(), span)?;
+        Ok(result)
+    }
+
+    fn eval_postfix(&mut self, op: PostfixOp, expr: &Expr, span: Span) -> Result<Value, RuntimeError> {
+        let Expr::Identifier(ident) = expr else {
+            return Err(RuntimeError::new("'++' / '--' можно применить только к переменной", span));
+        };
+        let old = self.env.get(&ident.name).cloned().ok_or_else(|| {
+            RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span)
+        })?;
+        let Value::Number(n) = old else {
+            return Err(RuntimeError::new(
+                format!("'++' / '--' требует число, получено '{}'", old.type_name()),
+                span,
+            ));
+        };
+        let new_val = match op {
+            PostfixOp::Increment => Value::Number(n + 1.0),
+            PostfixOp::Decrement => Value::Number(n - 1.0),
+        };
+        self.set_variable(&ident.name, new_val, span)?;
+        Ok(Value::Number(n))
+    }
+
+    fn set_variable(&mut self, name: &str, value: Value, span: Span) -> Result<(), RuntimeError> {
+        if self.env.is_const(name) {
+            return Err(RuntimeError::new(
+                format!("Нельзя изменить константу '{name}'"),
+                span,
+            ));
+        }
+        if !self.env.set(name, value) {
+            return Err(RuntimeError::new(
+                format!("Переменная '{name}' не определена"),
+                span,
+            ));
+        }
+        Ok(())
     }
 
     fn numeric_op(&self, left: &Value, right: &Value, span: Span, f: fn(f64, f64) -> f64) -> Result<Value, RuntimeError> {
@@ -352,7 +403,7 @@ impl Interpreter {
                 }
                 self.env.push_scope();
                 for (param, arg) in params.iter().zip(args) {
-                    self.env.define(param.clone(), arg);
+                    self.env.define(param.clone(), arg, false);
                 }
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env.pop_scope();

@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Identifier, Literal, UnaryOp};
+use crate::ast::{BinaryOp, Identifier, Literal, PostfixOp, UnaryOp};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
@@ -11,6 +11,8 @@ pub enum Expr {
     Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
 
     Assignment { target: Identifier, value: Box<Expr>, span: Span },
+
+    Postfix { op: PostfixOp, expr: Box<Expr>, span: Span },
 
     Grouping { expr: Box<Expr>, span: Span },
 
@@ -29,12 +31,15 @@ impl Expr {
             Self::Literal(lit) => match lit {
                 Literal::Number { span, .. }
                 | Literal::String { span, .. }
+                | Literal::Boolean { span, .. }
+                | Literal::Null { span }
                 | Literal::Array { span, .. }
                 | Literal::Object { span, .. } => *span,
             },
             Self::Unary { span, .. }
             | Self::Binary { span, .. }
             | Self::Assignment { span, .. }
+            | Self::Postfix { span, .. }
             | Self::Grouping { span, .. }
             | Self::Call { span, .. }
             | Self::Index { span, .. }

@@ -3,7 +3,7 @@ use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    VarDecl { name: Identifier, init: Expr, span: Span },
+    VarDecl { name: Identifier, init: Expr, is_const: bool, span: Span },
     Expr { expr: Expr, span: Span },
     Block(Block),
     Empty { span: Span },

@@ -4,7 +4,7 @@
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::match_same_arms)]
 
-use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, Program, Stmt, UnaryOp};
+use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, PostfixOp, Program, Stmt, UnaryOp};
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const UNARY_PRECEDENCE: u8 = 8;
@@ -41,6 +41,21 @@ impl<'a> Parser<'a> {
         match &self.current().kind {
             TokenKind::Number => Ok(self.parse_number()),
             TokenKind::StringLiteral => Ok(self.parse_string()),
+            TokenKind::Keyword(KeywordKind::Pravda) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::Literal(Literal::Boolean { value: true, span }))
+            }
+            TokenKind::Keyword(KeywordKind::Lozh) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::Literal(Literal::Boolean { value: false, span }))
+            }
+            TokenKind::Keyword(KeywordKind::Nol) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::Literal(Literal::Null { span }))
+            }
             TokenKind::Identifier => self.parse_identifier().map(Expr::Identifier),
             TokenKind::Punctuation(PunctuationKind::LParen) => self.parse_grouping(),
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
@@ -193,6 +208,7 @@ impl<'a> Parser<'a> {
 
     fn parse_var_decl(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
+        let is_const = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Uchastkoviy));
         self.advance();
 
         let name = self.parse_identifier()?;
@@ -212,7 +228,7 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::VarDecl { name, init, span: Span { start, end } })
+        Ok(Stmt::VarDecl { name, init, is_const, span: Span { start, end } })
     }
 
     fn parse_block(&mut self) -> Result<Block, ()> {
@@ -633,6 +649,16 @@ impl<'a> Parser<'a> {
                 expr = self.parse_index(expr)?;
             } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Dot)) {
                 expr = self.parse_member(expr)?;
+            } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Increment)) {
+                let start = expr.span().start;
+                let end = self.current().span.end;
+                self.advance();
+                expr = Expr::Postfix { op: PostfixOp::Increment, expr: Box::new(expr), span: Span { start, end } };
+            } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Decrement)) {
+                let start = expr.span().start;
+                let end = self.current().span.end;
+                self.advance();
+                expr = Expr::Postfix { op: PostfixOp::Decrement, expr: Box::new(expr), span: Span { start, end } };
             } else {
                 break;
             }
@@ -704,6 +730,10 @@ impl<'a> Parser<'a> {
 
         match op_kind {
             OperatorKind::Assign => Some((BinaryOp::Assign, 1)),
+            OperatorKind::PlusAssign => Some((BinaryOp::PlusAssign, 1)),
+            OperatorKind::MinusAssign => Some((BinaryOp::MinusAssign, 1)),
+            OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
+            OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
             OperatorKind::Or => Some((BinaryOp::Or, 2)),
             OperatorKind::And => Some((BinaryOp::And, 3)),
             OperatorKind::Equals => Some((BinaryOp::Equals, 4)),
@@ -719,7 +749,7 @@ impl<'a> Parser<'a> {
             OperatorKind::Multiply => Some((BinaryOp::Mul, 7)),
             OperatorKind::Divide => Some((BinaryOp::Div, 7)),
             OperatorKind::Modulo => Some((BinaryOp::Mod, 7)),
-            OperatorKind::Not => None,
+            OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
         }
     }
 }
