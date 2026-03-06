@@ -158,11 +158,11 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
-            Expr::Identifier(ident) => {
-                self.env.get(&ident.name).cloned().ok_or_else(|| {
-                    RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)
-                })
-            }
+            Expr::Identifier(ident) => self
+                .env
+                .get(&ident.name)
+                .cloned()
+                .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)),
             Expr::Unary { op, expr, span } => {
                 let val = self.eval_expr(expr)?;
                 self.eval_unary(*op, val, *span)
@@ -186,7 +186,10 @@ impl Interpreter {
                 if *op == BinaryOp::Assign {
                     return self.eval_assignment(lhs, rhs, *span);
                 }
-                if matches!(op, BinaryOp::PlusAssign | BinaryOp::MinusAssign | BinaryOp::MulAssign | BinaryOp::DivAssign) {
+                if matches!(
+                    op,
+                    BinaryOp::PlusAssign | BinaryOp::MinusAssign | BinaryOp::MulAssign | BinaryOp::DivAssign
+                ) {
                     return self.eval_compound_assignment(*op, lhs, rhs, *span);
                 }
                 let left = self.eval_expr(lhs)?;
@@ -222,11 +225,10 @@ impl Interpreter {
 
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
         match lit {
-            Literal::Number { raw, span } => {
-                raw.parse::<f64>().map(Value::Number).map_err(|_| {
-                    RuntimeError::new(format!("Невалидное число: '{raw}'"), *span)
-                })
-            }
+            Literal::Number { raw, span } => raw
+                .parse::<f64>()
+                .map(Value::Number)
+                .map_err(|_| RuntimeError::new(format!("Невалидное число: '{raw}'"), *span)),
             Literal::String { value, .. } => Ok(Value::String(value.clone())),
             Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
             Literal::Null { .. } => Ok(Value::Null),
@@ -252,17 +254,11 @@ impl Interpreter {
         match op {
             UnaryOp::Minus => match val {
                 Value::Number(n) => Ok(Value::Number(-n)),
-                _ => Err(RuntimeError::new(
-                    format!("Нельзя применить '-' к типу '{}'", val.type_name()),
-                    span,
-                )),
+                _ => Err(RuntimeError::new(format!("Нельзя применить '-' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Plus => match val {
                 Value::Number(n) => Ok(Value::Number(n)),
-                _ => Err(RuntimeError::new(
-                    format!("Нельзя применить '+' к типу '{}'", val.type_name()),
-                    span,
-                )),
+                _ => Err(RuntimeError::new(format!("Нельзя применить '+' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
         }
@@ -298,8 +294,11 @@ impl Interpreter {
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
             BinaryOp::And | BinaryOp::Or => unreachable!("handled in eval_expr"),
-            BinaryOp::Assign | BinaryOp::PlusAssign | BinaryOp::MinusAssign
-            | BinaryOp::MulAssign | BinaryOp::DivAssign => unreachable!("handled in eval_expr"),
+            BinaryOp::Assign
+            | BinaryOp::PlusAssign
+            | BinaryOp::MinusAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign => unreachable!("handled in eval_expr"),
         }
     }
 
@@ -314,13 +313,21 @@ impl Interpreter {
         }
     }
 
-    fn eval_compound_assignment(&mut self, op: BinaryOp, lhs: &Expr, rhs: &Expr, span: Span) -> Result<Value, RuntimeError> {
+    fn eval_compound_assignment(
+        &mut self,
+        op: BinaryOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
         let Expr::Identifier(ident) = lhs else {
             return Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span));
         };
-        let left = self.env.get(&ident.name).cloned().ok_or_else(|| {
-            RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span)
-        })?;
+        let left = self
+            .env
+            .get(&ident.name)
+            .cloned()
+            .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
         let right = self.eval_expr(rhs)?;
         let arith_op = match op {
             BinaryOp::PlusAssign => BinaryOp::Add,
@@ -338,14 +345,13 @@ impl Interpreter {
         let Expr::Identifier(ident) = expr else {
             return Err(RuntimeError::new("'++' / '--' можно применить только к переменной", span));
         };
-        let old = self.env.get(&ident.name).cloned().ok_or_else(|| {
-            RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span)
-        })?;
+        let old = self
+            .env
+            .get(&ident.name)
+            .cloned()
+            .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
         let Value::Number(n) = old else {
-            return Err(RuntimeError::new(
-                format!("'++' / '--' требует число, получено '{}'", old.type_name()),
-                span,
-            ));
+            return Err(RuntimeError::new(format!("'++' / '--' требует число, получено '{}'", old.type_name()), span));
         };
         let new_val = match op {
             PostfixOp::Increment => Value::Number(n + 1.0),
@@ -357,21 +363,21 @@ impl Interpreter {
 
     fn set_variable(&mut self, name: &str, value: Value, span: Span) -> Result<(), RuntimeError> {
         if self.env.is_const(name) {
-            return Err(RuntimeError::new(
-                format!("Нельзя изменить константу '{name}'"),
-                span,
-            ));
+            return Err(RuntimeError::new(format!("Нельзя изменить константу '{name}'"), span));
         }
         if !self.env.set(name, value) {
-            return Err(RuntimeError::new(
-                format!("Переменная '{name}' не определена"),
-                span,
-            ));
+            return Err(RuntimeError::new(format!("Переменная '{name}' не определена"), span));
         }
         Ok(())
     }
 
-    fn numeric_op(&self, left: &Value, right: &Value, span: Span, f: fn(f64, f64) -> f64) -> Result<Value, RuntimeError> {
+    fn numeric_op(
+        &self,
+        left: &Value,
+        right: &Value,
+        span: Span,
+        f: fn(f64, f64) -> f64,
+    ) -> Result<Value, RuntimeError> {
         match (left, right) {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Number(f(*a, *b))),
             _ => Err(RuntimeError::new(
@@ -381,7 +387,13 @@ impl Interpreter {
         }
     }
 
-    fn compare_op(&self, left: &Value, right: &Value, span: Span, f: fn(f64, f64) -> bool) -> Result<Value, RuntimeError> {
+    fn compare_op(
+        &self,
+        left: &Value,
+        right: &Value,
+        span: Span,
+        f: fn(f64, f64) -> bool,
+    ) -> Result<Value, RuntimeError> {
         match (left, right) {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Boolean(f(*a, *b))),
             _ => Err(RuntimeError::new(
@@ -414,10 +426,7 @@ impl Interpreter {
                     None => Ok(Value::Null),
                 }
             }
-            _ => Err(RuntimeError::new(
-                format!("'{}' не является функцией", func.type_name()),
-                span,
-            )),
+            _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
     }
 
@@ -425,15 +434,14 @@ impl Interpreter {
         match (&obj, &index) {
             (Value::Array(arr), Value::Number(n)) => {
                 let i = *n as usize;
-                arr.get(i).cloned().ok_or_else(|| {
-                    RuntimeError::new(format!("Индекс {i} вне диапазона (длина {})", arr.len()), span)
-                })
+                arr.get(i)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {})", arr.len()), span))
             }
-            (Value::Object(map), Value::String(key)) => {
-                map.get(key).cloned().ok_or_else(|| {
-                    RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span)
-                })
-            }
+            (Value::Object(map), Value::String(key)) => map
+                .get(key)
+                .cloned()
+                .ok_or_else(|| RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span)),
             _ => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
                 span,
@@ -443,15 +451,11 @@ impl Interpreter {
 
     fn eval_member(&self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
-            Value::Object(map) => {
-                map.get(property).cloned().ok_or_else(|| {
-                    RuntimeError::new(format!("Свойство '{property}' не найдено в объекте"), span)
-                })
-            }
-            _ => Err(RuntimeError::new(
-                format!("Нельзя получить свойство у типа '{}'", obj.type_name()),
-                span,
-            )),
+            Value::Object(map) => map
+                .get(property)
+                .cloned()
+                .ok_or_else(|| RuntimeError::new(format!("Свойство '{property}' не найдено в объекте"), span)),
+            _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }
 }

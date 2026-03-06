@@ -17,10 +17,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             match &args[0] {
                 Value::String(s) => Ok(Value::Number(s.chars().count() as f64)),
                 Value::Array(a) => Ok(Value::Number(a.len() as f64)),
-                other => Err(RuntimeError::new(
-                    format!("'длина' не работает с типом '{}'", other.type_name()),
-                    span,
-                )),
+                other => Err(RuntimeError::new(format!("'длина' не работает с типом '{}'", other.type_name()), span)),
             }
         }
         "тип" => {
