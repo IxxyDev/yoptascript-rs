@@ -62,6 +62,19 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    Switch {
+        expr: Expr,
+        cases: Vec<SwitchCase>,
+        default: Option<Block>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitchCase {
+    pub value: Expr,
+    pub body: Block,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]

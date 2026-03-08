@@ -4,7 +4,7 @@
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::match_same_arms)]
 
-use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, PostfixOp, Program, Stmt, UnaryOp};
+use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, PostfixOp, Program, Stmt, SwitchCase, UnaryOp};
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const UNARY_PRECEDENCE: u8 = 8;
@@ -198,6 +198,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Otvechayu) => self.parse_return_stmt(),
             TokenKind::Keyword(KeywordKind::Try) => self.parse_try_stmt(),
             TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
+            TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -324,6 +325,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Return { span, .. }
                 | Stmt::TryCatch { span, .. }
                 | Stmt::Throw { span, .. }
+                | Stmt::Switch { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -339,6 +341,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Return { span, .. }
                 | Stmt::TryCatch { span, .. }
                 | Stmt::Throw { span, .. }
+                | Stmt::Switch { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -381,6 +384,7 @@ impl<'a> Parser<'a> {
             | Stmt::Return { span, .. }
             | Stmt::TryCatch { span, .. }
             | Stmt::Throw { span, .. }
+            | Stmt::Switch { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -458,6 +462,7 @@ impl<'a> Parser<'a> {
             | Stmt::Return { span, .. }
             | Stmt::TryCatch { span, .. }
             | Stmt::Throw { span, .. }
+            | Stmt::Switch { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -620,6 +625,77 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Throw { value, span: Span { start, end } })
+    }
+
+    fn parse_switch_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'базарпо'");
+            return Err(());
+        }
+        self.advance();
+
+        let expr = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после выражения");
+            return Err(());
+        }
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '{' после 'базарпо'");
+            return Err(());
+        }
+        self.advance();
+
+        let mut cases = Vec::new();
+        let mut default = None;
+
+        while !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace) | TokenKind::Eof) {
+            if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Case)) {
+                let case_start = self.current().span.start;
+                self.advance();
+
+                let value = self.parse_expr()?;
+
+                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалось ':' после значения 'тема'");
+                    return Err(());
+                }
+                self.advance();
+
+                let body = self.parse_block()?;
+                let case_end = body.span.end;
+
+                cases.push(SwitchCase { value, body, span: Span { start: case_start, end: case_end } });
+            } else if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Default)) {
+                self.advance();
+
+                let body = self.parse_block()?;
+                default = Some(body);
+            } else {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалось 'тема' или 'нуичо' внутри 'базарпо'");
+                return Err(());
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '}' после 'базарпо'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Switch { expr, cases, default, span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {

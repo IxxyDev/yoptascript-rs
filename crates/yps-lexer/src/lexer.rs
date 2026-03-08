@@ -89,6 +89,9 @@ impl<'src> Lexer<'src> {
             }
             "тюряжка" => TokenKind::Keyword(KeywordKind::Finally),
             "кидай" => TokenKind::Keyword(KeywordKind::Throw),
+            "базарпо" => TokenKind::Keyword(KeywordKind::Switch),
+            "тема" => TokenKind::Keyword(KeywordKind::Case),
+            "нуичо" => TokenKind::Keyword(KeywordKind::Default),
             _ => TokenKind::Identifier,
         };
 

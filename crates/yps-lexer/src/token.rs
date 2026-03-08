@@ -20,6 +20,9 @@ pub enum KeywordKind {
     Catch,
     Finally,
     Throw,
+    Switch,
+    Case,
+    Default,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

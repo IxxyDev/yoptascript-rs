@@ -10,4 +10,4 @@ pub use ident::Identifier;
 pub use literal::{Literal, ObjectProperty};
 pub use ops::{BinaryOp, PostfixOp, UnaryOp};
 pub use program::Program;
-pub use stmt::{Block, Stmt};
+pub use stmt::{Block, Stmt, SwitchCase};
