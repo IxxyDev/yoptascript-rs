@@ -92,6 +92,7 @@ impl<'src> Lexer<'src> {
             "базарпо" => TokenKind::Keyword(KeywordKind::Switch),
             "тема" => TokenKind::Keyword(KeywordKind::Case),
             "нуичо" => TokenKind::Keyword(KeywordKind::Default),
+            "крутани" => TokenKind::Keyword(KeywordKind::DoWhile),
             _ => TokenKind::Identifier,
         };
 

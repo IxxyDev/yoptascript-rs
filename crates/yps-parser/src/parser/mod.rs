@@ -199,6 +199,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Try) => self.parse_try_stmt(),
             TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
             TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
+            TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -326,6 +327,7 @@ impl<'a> Parser<'a> {
                 | Stmt::TryCatch { span, .. }
                 | Stmt::Throw { span, .. }
                 | Stmt::Switch { span, .. }
+                | Stmt::DoWhile { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -342,6 +344,7 @@ impl<'a> Parser<'a> {
                 | Stmt::TryCatch { span, .. }
                 | Stmt::Throw { span, .. }
                 | Stmt::Switch { span, .. }
+                | Stmt::DoWhile { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -385,6 +388,7 @@ impl<'a> Parser<'a> {
             | Stmt::TryCatch { span, .. }
             | Stmt::Throw { span, .. }
             | Stmt::Switch { span, .. }
+            | Stmt::DoWhile { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -463,6 +467,7 @@ impl<'a> Parser<'a> {
             | Stmt::TryCatch { span, .. }
             | Stmt::Throw { span, .. }
             | Stmt::Switch { span, .. }
+            | Stmt::DoWhile { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -625,6 +630,46 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Throw { value, span: Span { start, end } })
+    }
+
+    fn parse_do_while_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+
+        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Potreshchim)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалось 'потрещим' после тела 'крутани'");
+            return Err(());
+        }
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'потрещим'");
+            return Err(());
+        }
+        self.advance();
+
+        let condition = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после условия");
+            return Err(());
+        }
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после 'крутани...потрещим'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::DoWhile { body, condition, span: Span { start, end } })
     }
 
     fn parse_switch_stmt(&mut self) -> Result<Stmt, ()> {

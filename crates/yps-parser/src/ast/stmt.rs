@@ -68,6 +68,11 @@ pub enum Stmt {
         default: Option<Block>,
         span: Span,
     },
+    DoWhile {
+        body: Box<Stmt>,
+        condition: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
