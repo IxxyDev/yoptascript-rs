@@ -3,17 +3,65 @@ use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    VarDecl { name: Identifier, init: Expr, is_const: bool, span: Span },
-    Expr { expr: Expr, span: Span },
+    VarDecl {
+        name: Identifier,
+        init: Expr,
+        is_const: bool,
+        span: Span,
+    },
+    Expr {
+        expr: Expr,
+        span: Span,
+    },
     Block(Block),
-    Empty { span: Span },
-    If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>>, span: Span },
-    While { condition: Expr, body: Box<Stmt>, span: Span },
-    For { init: Option<Box<Stmt>>, condition: Option<Expr>, update: Option<Expr>, body: Box<Stmt>, span: Span },
-    Break { span: Span },
-    Continue { span: Span },
-    FunctionDecl { name: Identifier, params: Vec<Identifier>, body: Block, span: Span },
-    Return { value: Option<Expr>, span: Span },
+    Empty {
+        span: Span,
+    },
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+        span: Span,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    For {
+        init: Option<Box<Stmt>>,
+        condition: Option<Expr>,
+        update: Option<Expr>,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    Break {
+        span: Span,
+    },
+    Continue {
+        span: Span,
+    },
+    FunctionDecl {
+        name: Identifier,
+        params: Vec<Identifier>,
+        body: Block,
+        span: Span,
+    },
+    Return {
+        value: Option<Expr>,
+        span: Span,
+    },
+    TryCatch {
+        try_block: Block,
+        catch_param: Option<Identifier>,
+        catch_block: Option<Block>,
+        finally_block: Option<Block>,
+        span: Span,
+    },
+    Throw {
+        value: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
