@@ -156,6 +156,19 @@ impl Interpreter {
                 let val = self.eval_expr(value)?;
                 Ok(Some(ControlFlow::Throw(val)))
             }
+            Stmt::Switch { expr, cases, default, .. } => {
+                let switch_val = self.eval_expr(expr)?;
+                for case in cases {
+                    let case_val = self.eval_expr(&case.value)?;
+                    if switch_val == case_val {
+                        return self.exec_block(&case.body);
+                    }
+                }
+                if let Some(default_block) = default {
+                    return self.exec_block(default_block);
+                }
+                Ok(None)
+            }
             Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
                 let try_result = self.exec_block(try_block);
 
@@ -1017,5 +1030,176 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("результат"), Some(&Value::Number(11.0)));
+    }
+
+    // ── switch/case (базарпо/тема/нуичо) ──
+
+    #[test]
+    fn switch_matches_first_case() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (1) {
+                тема 1: {
+                    результат = 10;
+                }
+                тема 2: {
+                    результат = 20;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn switch_matches_second_case() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (2) {
+                тема 1: {
+                    результат = 10;
+                }
+                тема 2: {
+                    результат = 20;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(20.0)));
+    }
+
+    #[test]
+    fn switch_default_when_no_match() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (99) {
+                тема 1: {
+                    результат = 10;
+                }
+                нуичо {
+                    результат = 42;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn switch_no_match_no_default() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (99) {
+                тема 1: {
+                    результат = 10;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(0.0)));
+    }
+
+    #[test]
+    fn switch_with_string_cases() {
+        let interp = run_code(
+            r#"
+            гыы результат = "";
+            базарпо ("привет") {
+                тема "пока": {
+                    результат = "прощание";
+                }
+                тема "привет": {
+                    результат = "приветствие";
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("приветствие".to_string())));
+    }
+
+    #[test]
+    fn switch_with_variable_expr() {
+        let interp = run_code(
+            r#"
+            гыы х = 3;
+            гыы результат = 0;
+            базарпо (х) {
+                тема 1: {
+                    результат = 10;
+                }
+                тема 3: {
+                    результат = 30;
+                }
+                нуичо {
+                    результат = 99;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(30.0)));
+    }
+
+    #[test]
+    fn switch_no_fallthrough() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (1) {
+                тема 1: {
+                    результат = результат + 10;
+                }
+                тема 2: {
+                    результат = результат + 20;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn switch_default_only() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            базарпо (1) {
+                нуичо {
+                    результат = 42;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn switch_with_return_in_function() {
+        let interp = run_code(
+            r#"
+            йопта проверка(х) {
+                базарпо (х) {
+                    тема 1: {
+                        отвечаю 10;
+                    }
+                    тема 2: {
+                        отвечаю 20;
+                    }
+                    нуичо {
+                        отвечаю 0;
+                    }
+                }
+            }
+            гыы а = проверка(1);
+            гыы б = проверка(2);
+            гыы в = проверка(99);
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("в"), Some(&Value::Number(0.0)));
     }
 }
