@@ -156,6 +156,36 @@ impl Interpreter {
                 let val = self.eval_expr(value)?;
                 Ok(Some(ControlFlow::Throw(val)))
             }
+            Stmt::ForIn { variable, iterable, body, span, .. } => {
+                let val = self.eval_expr(iterable)?;
+                let items: Vec<Value> = match val {
+                    Value::Array(elements) => elements,
+                    Value::Object(map) => map.keys().map(|k| Value::String(k.clone())).collect(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("Нельзя итерировать по типу '{}'", other.type_name()),
+                            *span,
+                        ));
+                    }
+                };
+                self.env.push_scope();
+                self.env.define(variable.name.clone(), Value::Null, false);
+                for item in items {
+                    self.env.set(&variable.name, item);
+                    if let Some(cf) = self.exec_stmt(body)? {
+                        match cf {
+                            ControlFlow::Break => break,
+                            ControlFlow::Continue => continue,
+                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                                self.env.pop_scope();
+                                return Ok(Some(cf));
+                            }
+                        }
+                    }
+                }
+                self.env.pop_scope();
+                Ok(None)
+            }
             Stmt::DoWhile { body, condition, .. } => {
                 loop {
                     if let Some(cf) = self.exec_stmt(body)? {
@@ -1301,5 +1331,123 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("результат"), Some(&Value::Number(6.0)));
+    }
+
+    // ── for-in (го ... из ...) ──
+
+    #[test]
+    fn for_in_array() {
+        let interp = run_code(
+            r#"
+            гыы сумма = 0;
+            гыы арр = [1, 2, 3, 4];
+            го (х из арр) {
+                сумма = сумма + х;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn for_in_empty_array() {
+        let interp = run_code(
+            r#"
+            гыы сумма = 0;
+            го (х из []) {
+                сумма = сумма + 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(&Value::Number(0.0)));
+    }
+
+    #[test]
+    fn for_in_object_keys() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            гыы чел = { имя: "Вася", возраст: 25 };
+            го (к из чел) {
+                счётчик = счётчик + 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("счётчик"), Some(&Value::Number(2.0)));
+    }
+
+    #[test]
+    fn for_in_break() {
+        let interp = run_code(
+            r#"
+            гыы сумма = 0;
+            го (х из [10, 20, 30, 40]) {
+                сумма = сумма + х;
+                вилкойвглаз (х == 20) {
+                    харэ;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(&Value::Number(30.0)));
+    }
+
+    #[test]
+    fn for_in_continue() {
+        let interp = run_code(
+            r#"
+            гыы сумма = 0;
+            го (х из [1, 2, 3, 4, 5]) {
+                вилкойвглаз (х == 3) {
+                    двигай;
+                }
+                сумма = сумма + х;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(&Value::Number(12.0)));
+    }
+
+    #[test]
+    fn for_in_with_return() {
+        let interp = run_code(
+            r#"
+            йопта найти(арр) {
+                го (х из арр) {
+                    вилкойвглаз (х > 3) {
+                        отвечаю х;
+                    }
+                }
+                отвечаю 0;
+            }
+            гыы результат = найти([1, 2, 5, 4]);
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(5.0)));
+    }
+
+    #[test]
+    fn for_in_non_iterable_fails() {
+        let err = run_code_err(
+            r#"
+            го (х из 42) {
+                гыы а = 1;
+            }
+            "#,
+        );
+        assert!(err.message.contains("итерировать"));
+    }
+
+    #[test]
+    fn for_in_string_array() {
+        let interp = run_code(
+            r#"
+            гыы результат = "";
+            го (с из ["а", "б", "в"]) {
+                результат = результат + с;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("абв".to_string())));
     }
 }
