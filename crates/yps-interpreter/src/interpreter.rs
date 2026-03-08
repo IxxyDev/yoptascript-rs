@@ -156,6 +156,22 @@ impl Interpreter {
                 let val = self.eval_expr(value)?;
                 Ok(Some(ControlFlow::Throw(val)))
             }
+            Stmt::DoWhile { body, condition, .. } => {
+                loop {
+                    if let Some(cf) = self.exec_stmt(body)? {
+                        match cf {
+                            ControlFlow::Break => break,
+                            ControlFlow::Continue => {}
+                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => return Ok(Some(cf)),
+                        }
+                    }
+                    let cond = self.eval_expr(condition)?;
+                    if !cond.is_truthy() {
+                        break;
+                    }
+                }
+                Ok(None)
+            }
             Stmt::Switch { expr, cases, default, .. } => {
                 let switch_val = self.eval_expr(expr)?;
                 for case in cases {
@@ -1201,5 +1217,89 @@ mod tests {
         assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
         assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
         assert_eq!(interp.get("в"), Some(&Value::Number(0.0)));
+    }
+
+    // ── do-while (крутани/потрещим) ──
+
+    #[test]
+    fn do_while_executes_at_least_once() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            крутани {
+                счётчик = счётчик + 1;
+            } потрещим (лож);
+            "#,
+        );
+        assert_eq!(interp.get("счётчик"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn do_while_loops_while_true() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            крутани {
+                счётчик = счётчик + 1;
+            } потрещим (счётчик < 5);
+            "#,
+        );
+        assert_eq!(interp.get("счётчик"), Some(&Value::Number(5.0)));
+    }
+
+    #[test]
+    fn do_while_break() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            крутани {
+                счётчик = счётчик + 1;
+                вилкойвглаз (счётчик == 3) {
+                    харэ;
+                }
+            } потрещим (счётчик < 10);
+            "#,
+        );
+        assert_eq!(interp.get("счётчик"), Some(&Value::Number(3.0)));
+    }
+
+    #[test]
+    fn do_while_continue() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            гыы сумма = 0;
+            крутани {
+                счётчик = счётчик + 1;
+                вилкойвглаз (счётчик == 3) {
+                    двигай;
+                }
+                сумма = сумма + счётчик;
+            } потрещим (счётчик < 5);
+            "#,
+        );
+        assert_eq!(interp.get("счётчик"), Some(&Value::Number(5.0)));
+        assert_eq!(interp.get("сумма"), Some(&Value::Number(12.0)));
+    }
+
+    #[test]
+    fn do_while_with_return() {
+        let interp = run_code(
+            r#"
+            йопта сумма() {
+                гыы с = 0;
+                гыы и = 0;
+                крутани {
+                    и = и + 1;
+                    с = с + и;
+                    вилкойвглаз (и == 3) {
+                        отвечаю с;
+                    }
+                } потрещим (правда);
+            }
+            гыы результат = сумма();
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(6.0)));
     }
 }

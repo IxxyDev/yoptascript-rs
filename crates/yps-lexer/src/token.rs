@@ -23,6 +23,7 @@ pub enum KeywordKind {
     Switch,
     Case,
     Default,
+    DoWhile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
