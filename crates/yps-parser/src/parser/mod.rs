@@ -328,6 +328,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Throw { span, .. }
                 | Stmt::Switch { span, .. }
                 | Stmt::DoWhile { span, .. }
+                | Stmt::ForIn { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -345,6 +346,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Throw { span, .. }
                 | Stmt::Switch { span, .. }
                 | Stmt::DoWhile { span, .. }
+                | Stmt::ForIn { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -389,6 +391,7 @@ impl<'a> Parser<'a> {
             | Stmt::Throw { span, .. }
             | Stmt::Switch { span, .. }
             | Stmt::DoWhile { span, .. }
+            | Stmt::ForIn { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -405,6 +408,12 @@ impl<'a> Parser<'a> {
             return Err(());
         }
         self.advance();
+
+        if matches!(self.current().kind, TokenKind::Identifier)
+            && matches!(self.peek(1).kind, TokenKind::Keyword(KeywordKind::In))
+        {
+            return self.parse_for_in_rest(start);
+        }
 
         let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             self.advance(); // пропускаем ';'
@@ -468,6 +477,7 @@ impl<'a> Parser<'a> {
             | Stmt::Throw { span, .. }
             | Stmt::Switch { span, .. }
             | Stmt::DoWhile { span, .. }
+            | Stmt::ForIn { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -630,6 +640,43 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Throw { value, span: Span { start, end } })
+    }
+
+    fn parse_for_in_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+        let variable = self.parse_identifier()?;
+        self.advance();
+
+        let iterable = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после 'го'");
+            return Err(());
+        }
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+
+        let end = match body.as_ref() {
+            Stmt::VarDecl { span, .. }
+            | Stmt::Expr { span, .. }
+            | Stmt::Block(Block { span, .. })
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::For { span, .. }
+            | Stmt::Break { span }
+            | Stmt::Continue { span }
+            | Stmt::FunctionDecl { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::TryCatch { span, .. }
+            | Stmt::Throw { span, .. }
+            | Stmt::Switch { span, .. }
+            | Stmt::DoWhile { span, .. }
+            | Stmt::ForIn { span, .. }
+            | Stmt::Empty { span } => span.end,
+        };
+
+        Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
     }
 
     fn parse_do_while_stmt(&mut self) -> Result<Stmt, ()> {
