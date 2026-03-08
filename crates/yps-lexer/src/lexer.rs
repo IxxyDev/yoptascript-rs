@@ -275,7 +275,15 @@ impl<'src> Lexer<'src> {
             ';' => TokenKind::Punctuation(PunctuationKind::Semicolon),
             ',' => TokenKind::Punctuation(PunctuationKind::Comma),
             ':' => TokenKind::Punctuation(PunctuationKind::Colon),
-            '.' => TokenKind::Punctuation(PunctuationKind::Dot),
+            '.' => {
+                if self.current_char() == '.' && self.peek_char(1) == '.' {
+                    self.advance();
+                    self.advance();
+                    TokenKind::Punctuation(PunctuationKind::Spread)
+                } else {
+                    TokenKind::Punctuation(PunctuationKind::Dot)
+                }
+            }
             _ => {
                 self.diagnostics.push(Diagnostic {
                     severity: Severity::Error,
