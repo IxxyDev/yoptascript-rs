@@ -196,6 +196,8 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Dvigay) => self.parse_continue_stmt(),
             TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_decl(),
             TokenKind::Keyword(KeywordKind::Otvechayu) => self.parse_return_stmt(),
+            TokenKind::Keyword(KeywordKind::Try) => self.parse_try_stmt(),
+            TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -320,6 +322,8 @@ impl<'a> Parser<'a> {
                 | Stmt::Continue { span }
                 | Stmt::FunctionDecl { span, .. }
                 | Stmt::Return { span, .. }
+                | Stmt::TryCatch { span, .. }
+                | Stmt::Throw { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -333,6 +337,8 @@ impl<'a> Parser<'a> {
                 | Stmt::Continue { span }
                 | Stmt::FunctionDecl { span, .. }
                 | Stmt::Return { span, .. }
+                | Stmt::TryCatch { span, .. }
+                | Stmt::Throw { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -373,6 +379,8 @@ impl<'a> Parser<'a> {
             | Stmt::Continue { span }
             | Stmt::FunctionDecl { span, .. }
             | Stmt::Return { span, .. }
+            | Stmt::TryCatch { span, .. }
+            | Stmt::Throw { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -448,6 +456,8 @@ impl<'a> Parser<'a> {
             | Stmt::Continue { span }
             | Stmt::FunctionDecl { span, .. }
             | Stmt::Return { span, .. }
+            | Stmt::TryCatch { span, .. }
+            | Stmt::Throw { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -542,6 +552,74 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Return { value, span: Span { start, end } })
+    }
+
+    fn parse_try_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance(); // consume 'хапнуть'
+
+        let try_block = self.parse_block()?;
+
+        let (catch_param, catch_block) = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Catch)) {
+            self.advance(); // consume 'гоп'
+
+            let param = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                self.advance();
+                let ident = self.parse_identifier()?;
+                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалась ')' после параметра 'гоп'");
+                    return Err(());
+                }
+                self.advance();
+                Some(ident)
+            } else {
+                None
+            };
+
+            let block = self.parse_block()?;
+            (param, Some(block))
+        } else {
+            (None, None)
+        };
+
+        let finally_block = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Finally)) {
+            self.advance(); // consume 'тюряжка'
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        if catch_block.is_none() && finally_block.is_none() {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался 'гоп' или 'тюряжка' после 'хапнуть'");
+            return Err(());
+        }
+
+        let end = finally_block
+            .as_ref()
+            .map(|b| b.span.end)
+            .or_else(|| catch_block.as_ref().map(|b| b.span.end))
+            .unwrap_or(try_block.span.end);
+
+        Ok(Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, span: Span { start, end } })
+    }
+
+    fn parse_throw_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance(); // consume 'кидай'
+
+        let value = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после 'кидай'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Throw { value, span: Span { start, end } })
     }
 
     fn current(&self) -> &Token {
