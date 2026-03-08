@@ -1,10 +1,10 @@
-use crate::ast::{Expr, Identifier};
+use crate::ast::{Expr, Identifier, Pattern};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
     VarDecl {
-        name: Identifier,
+        pattern: Pattern,
         init: Expr,
         is_const: bool,
         span: Span,
