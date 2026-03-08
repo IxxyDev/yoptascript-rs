@@ -12,6 +12,7 @@ enum ControlFlow {
     Break,
     Continue,
     Return(Value),
+    Throw(Value),
 }
 
 enum AccessSegment {
@@ -53,6 +54,12 @@ impl Interpreter {
                     ControlFlow::Continue => {
                         return Err(RuntimeError::new("'двигай' вне цикла", Span { start: 0, end: 0 }));
                     }
+                    ControlFlow::Throw(val) => {
+                        return Err(RuntimeError::new(
+                            format!("Необработанное исключение: {val}"),
+                            Span { start: 0, end: 0 },
+                        ));
+                    }
                 }
             }
         }
@@ -92,7 +99,7 @@ impl Interpreter {
                         match cf {
                             ControlFlow::Break => break,
                             ControlFlow::Continue => continue,
-                            ControlFlow::Return(v) => return Ok(Some(ControlFlow::Return(v))),
+                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => return Ok(Some(cf)),
                         }
                     }
                 }
@@ -114,9 +121,9 @@ impl Interpreter {
                         match cf {
                             ControlFlow::Break => break,
                             ControlFlow::Continue => {}
-                            ControlFlow::Return(v) => {
+                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
                                 self.env.pop_scope();
-                                return Ok(Some(ControlFlow::Return(v)));
+                                return Ok(Some(cf));
                             }
                         }
                     }
@@ -144,6 +151,55 @@ impl Interpreter {
                     None => Value::Null,
                 };
                 Ok(Some(ControlFlow::Return(val)))
+            }
+            Stmt::Throw { value, .. } => {
+                let val = self.eval_expr(value)?;
+                Ok(Some(ControlFlow::Throw(val)))
+            }
+            Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
+                let try_result = self.exec_block(try_block);
+
+                let result = match try_result {
+                    Err(err) => {
+                        if let Some(cb) = catch_block {
+                            self.env.push_scope();
+                            if let Some(param) = catch_param {
+                                self.env.define(param.name.clone(), Value::String(err.message), false);
+                            }
+                            let r = self.exec_block_stmts(&cb.stmts);
+                            self.env.pop_scope();
+                            r
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    Ok(Some(ControlFlow::Throw(val))) => {
+                        if let Some(cb) = catch_block {
+                            self.env.push_scope();
+                            if let Some(param) = catch_param {
+                                self.env.define(param.name.clone(), val, false);
+                            }
+                            let r = self.exec_block_stmts(&cb.stmts);
+                            self.env.pop_scope();
+                            r
+                        } else {
+                            Ok(Some(ControlFlow::Throw(val)))
+                        }
+                    }
+                    other => other,
+                };
+
+                if let Some(fb) = finally_block {
+                    let finally_result = self.exec_block(fb);
+                    finally_result.as_ref().map_err(|e| RuntimeError::new(&e.message, e.span))?;
+                    if let Ok(Some(cf)) = &finally_result
+                        && matches!(cf, ControlFlow::Return(_) | ControlFlow::Throw(_))
+                    {
+                        return finally_result;
+                    }
+                }
+
+                result
             }
         }
     }
@@ -349,9 +405,10 @@ impl Interpreter {
                 if self.env.is_const(&root_name) {
                     return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
                 }
-                let root = self.env.get_mut(&root_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Переменная '{root_name}' не определена"), span)
-                })?;
+                let root = self
+                    .env
+                    .get_mut(&root_name)
+                    .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
                 Self::set_at_path(root, &path, value.clone(), span)?;
                 Ok(value)
             }
@@ -389,9 +446,9 @@ impl Interpreter {
             (AccessSegment::Index(Value::Number(n)), Value::Array(arr)) => {
                 let i = *n as usize;
                 let len = arr.len();
-                let elem = arr.get_mut(i).ok_or_else(|| {
-                    RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span)
-                })?;
+                let elem = arr
+                    .get_mut(i)
+                    .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span))?;
                 Self::set_at_path(elem, &path[1..], value, span)
             }
             (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
@@ -399,9 +456,9 @@ impl Interpreter {
                     map.insert(key.clone(), value);
                     Ok(())
                 } else {
-                    let entry = map.get_mut(key).ok_or_else(|| {
-                        RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span)
-                    })?;
+                    let entry = map
+                        .get_mut(key)
+                        .ok_or_else(|| RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span))?;
                     Self::set_at_path(entry, &path[1..], value, span)
                 }
             }
@@ -410,9 +467,9 @@ impl Interpreter {
                     map.insert(prop.clone(), value);
                     Ok(())
                 } else {
-                    let entry = map.get_mut(prop).ok_or_else(|| {
-                        RuntimeError::new(format!("Свойство '{prop}' не найдено в объекте"), span)
-                    })?;
+                    let entry = map
+                        .get_mut(prop)
+                        .ok_or_else(|| RuntimeError::new(format!("Свойство '{prop}' не найдено в объекте"), span))?;
                     Self::set_at_path(entry, &path[1..], value, span)
                 }
             }
@@ -420,10 +477,9 @@ impl Interpreter {
                 format!("Нельзя индексировать '{}' с помощью '{}'", val.type_name(), idx.type_name()),
                 span,
             )),
-            (AccessSegment::Member(_), val) => Err(RuntimeError::new(
-                format!("Нельзя установить свойство у типа '{}'", val.type_name()),
-                span,
-            )),
+            (AccessSegment::Member(_), val) => {
+                Err(RuntimeError::new(format!("Нельзя установить свойство у типа '{}'", val.type_name()), span))
+            }
         }
     }
 
@@ -509,6 +565,9 @@ impl Interpreter {
                     Some(ControlFlow::Return(val)) => Ok(val),
                     Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
                     Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                    Some(ControlFlow::Throw(val)) => {
+                        Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
+                    }
                     None => Ok(Value::Null),
                 }
             }
@@ -745,5 +804,218 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("результат"), Some(&Value::Number(99.0)));
+    }
+
+    // ── try/catch/finally ──
+
+    #[test]
+    fn try_catch_catches_runtime_error() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            хапнуть {
+                гыы х = 1 / 0;
+            } гоп (е) {
+                результат = 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn try_catch_catches_throw() {
+        let interp = run_code(
+            r#"
+            гыы результат = "";
+            хапнуть {
+                кидай "ошибка";
+            } гоп (е) {
+                результат = е;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("ошибка".to_string())));
+    }
+
+    #[test]
+    fn try_catch_throw_number() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            хапнуть {
+                кидай 42;
+            } гоп (е) {
+                результат = е;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn try_catch_no_error_skips_catch() {
+        let interp = run_code(
+            r#"
+            гыы результат = 1;
+            хапнуть {
+                результат = 2;
+            } гоп (е) {
+                результат = 3;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(2.0)));
+    }
+
+    #[test]
+    fn try_finally_runs_always() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            хапнуть {
+                результат = 1;
+            } тюряжка {
+                результат = результат + 10;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(11.0)));
+    }
+
+    #[test]
+    fn try_catch_finally_on_error() {
+        let interp = run_code(
+            r#"
+            гыы шаг1 = 0;
+            гыы шаг2 = 0;
+            хапнуть {
+                кидай "бум";
+            } гоп (е) {
+                шаг1 = 1;
+            } тюряжка {
+                шаг2 = 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("шаг1"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("шаг2"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn try_catch_finally_no_error() {
+        let interp = run_code(
+            r#"
+            гыы шаг1 = 0;
+            гыы шаг2 = 0;
+            хапнуть {
+                шаг1 = 1;
+            } гоп (е) {
+                шаг1 = 99;
+            } тюряжка {
+                шаг2 = 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("шаг1"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("шаг2"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn uncaught_throw_is_error() {
+        let err = run_code_err(
+            r#"
+            кидай "паника";
+            "#,
+        );
+        assert!(err.message.contains("Необработанное исключение"));
+    }
+
+    #[test]
+    fn try_catch_without_param() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            хапнуть {
+                кидай "бум";
+            } гоп {
+                результат = 1;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn try_catch_runtime_error_message() {
+        let interp = run_code(
+            r#"
+            гыы результат = "";
+            хапнуть {
+                гыы х = неизвестная;
+            } гоп (е) {
+                результат = е;
+            }
+            "#,
+        );
+        let val = interp.get("результат").unwrap();
+        if let Value::String(s) = val {
+            assert!(s.contains("не определена"));
+        } else {
+            panic!("Expected string error message");
+        }
+    }
+
+    #[test]
+    fn nested_try_catch() {
+        let interp = run_code(
+            r#"
+            гыы результат = "";
+            хапнуть {
+                хапнуть {
+                    кидай "внутри";
+                } гоп (е) {
+                    кидай "снаружи";
+                }
+            } гоп (е) {
+                результат = е;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::String("снаружи".to_string())));
+    }
+
+    #[test]
+    fn try_catch_with_alias_keywords() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            побратски {
+                кидай 1;
+            } аченетак (е) {
+                результат = е;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn finally_runs_after_throw_without_catch() {
+        let interp = run_code(
+            r#"
+            гыы результат = 0;
+            хапнуть {
+                хапнуть {
+                    кидай "бум";
+                } тюряжка {
+                    результат = 1;
+                }
+            } гоп (е) {
+                результат = результат + 10;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("результат"), Some(&Value::Number(11.0)));
     }
 }

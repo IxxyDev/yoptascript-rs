@@ -16,6 +16,10 @@ pub enum KeywordKind {
     Pravda,
     Lozh,
     Nol,
+    Try,
+    Catch,
+    Finally,
+    Throw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

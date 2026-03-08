@@ -81,6 +81,14 @@ impl<'src> Lexer<'src> {
             "правда" => TokenKind::Keyword(KeywordKind::Pravda),
             "лож" => TokenKind::Keyword(KeywordKind::Lozh),
             "ноль" => TokenKind::Keyword(KeywordKind::Nol),
+            "хапнуть" | "побратски" | "пабрацки" | "пабратски" => {
+                TokenKind::Keyword(KeywordKind::Try)
+            }
+            "гоп" | "аченетак" | "аченитак" | "ачёнетак" => {
+                TokenKind::Keyword(KeywordKind::Catch)
+            }
+            "тюряжка" => TokenKind::Keyword(KeywordKind::Finally),
+            "кидай" => TokenKind::Keyword(KeywordKind::Throw),
             _ => TokenKind::Identifier,
         };
 
