@@ -4,7 +4,10 @@
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::match_same_arms)]
 
-use crate::ast::{BinaryOp, Block, Expr, Identifier, Literal, PostfixOp, Program, Stmt, SwitchCase, UnaryOp};
+use crate::ast::{
+    BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Pattern, PostfixOp, Program, Stmt, SwitchCase,
+    UnaryOp,
+};
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const UNARY_PRECEDENCE: u8 = 8;
@@ -215,7 +218,7 @@ impl<'a> Parser<'a> {
         let is_const = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Uchastkoviy));
         self.advance();
 
-        let name = self.parse_identifier()?;
+        let pattern = self.parse_pattern()?;
         if !matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
             let span = self.current().span;
             self.push_error(span, "Ожидался '=' после имени переменной");
@@ -232,7 +235,120 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::VarDecl { name, init, is_const, span: Span { start, end } })
+        Ok(Stmt::VarDecl { pattern, init, is_const, span: Span { start, end } })
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern, ()> {
+        match &self.current().kind {
+            TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array_pattern(),
+            TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object_pattern(),
+            TokenKind::Identifier => {
+                let ident = self.parse_identifier()?;
+                Ok(Pattern::Identifier(ident))
+            }
+            _ => {
+                let span = self.current().span;
+                self.push_error(span, "Ожидался идентификатор или паттерн деструктуризации");
+                Err(())
+            }
+        }
+    }
+
+    fn parse_array_pattern(&mut self) -> Result<Pattern, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let mut elements: Vec<Option<Pattern>> = Vec::new();
+        let mut rest: Option<Box<Pattern>> = None;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+            loop {
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    self.advance();
+                    let pat = self.parse_pattern()?;
+                    rest = Some(Box::new(pat));
+                    break;
+                }
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    elements.push(None);
+                } else {
+                    elements.push(Some(self.parse_pattern()?));
+                }
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался ']'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Pattern::Array { elements, rest, span: Span { start, end } })
+    }
+
+    fn parse_object_pattern(&mut self) -> Result<Pattern, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let mut properties: Vec<ObjectPatternProp> = Vec::new();
+        let mut rest: Option<Box<Pattern>> = None;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            loop {
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    self.advance();
+                    let pat = self.parse_pattern()?;
+                    rest = Some(Box::new(pat));
+                    break;
+                }
+
+                let key = self.parse_identifier()?;
+                let prop_start = key.span.start;
+
+                let value = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    self.advance();
+                    Some(self.parse_pattern()?)
+                } else {
+                    None
+                };
+
+                let prop_end = if let Some(ref v) = value {
+                    match v {
+                        Pattern::Identifier(id) => id.span.end,
+                        Pattern::Array { span, .. } | Pattern::Object { span, .. } => span.end,
+                    }
+                } else {
+                    key.span.end
+                };
+
+                properties.push(ObjectPatternProp { key, value, span: Span { start: prop_start, end: prop_end } });
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался '}'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Pattern::Object { properties, rest, span: Span { start, end } })
     }
 
     fn parse_block(&mut self) -> Result<Block, ()> {
@@ -1199,7 +1315,7 @@ mod tests {
         assert_eq!(program.items.len(), 1);
 
         match &program.items[0] {
-            Stmt::VarDecl { name, init, .. } => {
+            Stmt::VarDecl { pattern: Pattern::Identifier(name), init, .. } => {
                 assert_eq!(name.name, "x");
                 assert!(matches!(init, Expr::Literal(Literal::Number { .. })));
             }
@@ -1221,7 +1337,7 @@ mod tests {
         assert_eq!(program.items.len(), 1);
 
         match &program.items[0] {
-            Stmt::VarDecl { name, init, .. } => {
+            Stmt::VarDecl { pattern: Pattern::Identifier(name), init, .. } => {
                 assert_eq!(name.name, "y");
                 assert!(matches!(init, Expr::Literal(Literal::String { .. })));
             }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, Literal, PostfixOp, Program, Stmt, UnaryOp};
+use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Pattern, PostfixOp, Program, Stmt, UnaryOp};
 
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
@@ -68,9 +68,9 @@ impl Interpreter {
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
         match stmt {
-            Stmt::VarDecl { name, init, is_const, .. } => {
+            Stmt::VarDecl { pattern, init, is_const, span } => {
                 let value = self.eval_expr(init)?;
-                self.env.define(name.name.clone(), value, *is_const);
+                self.destructure_pattern(pattern, value, *is_const, *span)?;
                 Ok(None)
             }
             Stmt::Expr { expr, .. } => {
@@ -277,6 +277,80 @@ impl Interpreter {
             }
         }
         Ok(None)
+    }
+
+    fn destructure_pattern(
+        &mut self,
+        pattern: &Pattern,
+        value: Value,
+        is_const: bool,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match pattern {
+            Pattern::Identifier(ident) => {
+                self.env.define(ident.name.clone(), value, is_const);
+                Ok(())
+            }
+            Pattern::Array { elements, rest, .. } => {
+                let items = match &value {
+                    Value::Array(arr) => arr.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Невозможно деструктурировать {} как массив", value.type_name()),
+                            span,
+                        ));
+                    }
+                };
+
+                for (i, elem) in elements.iter().enumerate() {
+                    if let Some(pat) = elem {
+                        let val = items.get(i).cloned().unwrap_or(Value::Null);
+                        self.destructure_pattern(pat, val, is_const, span)?;
+                    }
+                }
+
+                if let Some(rest_pat) = rest {
+                    let start = elements.len();
+                    let rest_items = if start < items.len() { items[start..].to_vec() } else { Vec::new() };
+                    self.destructure_pattern(rest_pat, Value::Array(rest_items), is_const, span)?;
+                }
+
+                Ok(())
+            }
+            Pattern::Object { properties, rest, .. } => {
+                let mut map = match value {
+                    Value::Object(map) => map,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Невозможно деструктурировать {} как объект", value.type_name()),
+                            span,
+                        ));
+                    }
+                };
+
+                let mut used_keys = Vec::new();
+
+                for prop in properties {
+                    let val = map.get(&prop.key.name).cloned().unwrap_or(Value::Null);
+                    used_keys.push(prop.key.name.clone());
+
+                    if let Some(ref value_pat) = prop.value {
+                        self.destructure_pattern(value_pat, val, is_const, span)?;
+                    } else {
+                        self.env.define(prop.key.name.clone(), val, is_const);
+                    }
+                }
+
+                if let Some(rest_pat) = rest {
+                    for key in &used_keys {
+                        map.remove(key);
+                    }
+                    self.destructure_pattern(rest_pat, Value::Object(map), is_const, span)?;
+                }
+
+                Ok(())
+            }
+        }
     }
 
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -1449,5 +1523,203 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("результат"), Some(&Value::String("абв".to_string())));
+    }
+
+    // ── Деструктуризация массивов ──
+
+    #[test]
+    fn destructure_array_basic() {
+        let interp = run_code(
+            r#"
+            гыы [а, б, в] = [1, 2, 3];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+    }
+
+    #[test]
+    fn destructure_array_fewer_elements() {
+        let interp = run_code(
+            r#"
+            гыы [а, б] = [1];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn destructure_array_skip_elements() {
+        let interp = run_code(
+            r#"
+            гыы [, , в] = [1, 2, 3];
+            "#,
+        );
+        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+    }
+
+    #[test]
+    fn destructure_array_rest() {
+        let interp = run_code(
+            r#"
+            гыы [а, ...остаток] = [1, 2, 3, 4];
+            гыы длинна = длина(остаток);
+            гыы б = остаток[0];
+            гыы в = остаток[1];
+            гыы г = остаток[2];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("длинна"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("г"), Some(&Value::Number(4.0)));
+    }
+
+    #[test]
+    fn destructure_array_rest_empty() {
+        let interp = run_code(
+            r#"
+            гыы [а, ...остаток] = [1];
+            гыы длинна = длина(остаток);
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("длинна"), Some(&Value::Number(0.0)));
+    }
+
+    #[test]
+    fn destructure_array_non_array_fails() {
+        let err = run_code_err(
+            r#"
+            гыы [а, б] = 42;
+            "#,
+        );
+        assert!(err.message.contains("деструктурировать"));
+    }
+
+    // ── Деструктуризация объектов ──
+
+    #[test]
+    fn destructure_object_shorthand() {
+        let interp = run_code(
+            r#"
+            гыы {х, у} = { х: 10, у: 20 };
+            "#,
+        );
+        assert_eq!(interp.get("х"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("у"), Some(&Value::Number(20.0)));
+    }
+
+    #[test]
+    fn destructure_object_rename() {
+        let interp = run_code(
+            r#"
+            гыы {х: а, у: б} = { х: 10, у: 20 };
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
+    }
+
+    #[test]
+    fn destructure_object_missing_key() {
+        let interp = run_code(
+            r#"
+            гыы {х, з} = { х: 10, у: 20 };
+            "#,
+        );
+        assert_eq!(interp.get("х"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("з"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn destructure_object_rest() {
+        let interp = run_code(
+            r#"
+            гыы {х, ...остаток} = { х: 1, у: 2, з: 3 };
+            "#,
+        );
+        assert_eq!(interp.get("х"), Some(&Value::Number(1.0)));
+        let rest = interp.get("остаток").unwrap();
+        if let Value::Object(map) = rest {
+            assert_eq!(map.get("у"), Some(&Value::Number(2.0)));
+            assert_eq!(map.get("з"), Some(&Value::Number(3.0)));
+            assert_eq!(map.len(), 2);
+        } else {
+            panic!("Ожидался объект");
+        }
+    }
+
+    #[test]
+    fn destructure_object_non_object_fails() {
+        let err = run_code_err(
+            r#"
+            гыы {х} = 42;
+            "#,
+        );
+        assert!(err.message.contains("деструктурировать"));
+    }
+
+    // ── Вложенная деструктуризация ──
+
+    #[test]
+    fn destructure_nested_array_in_array() {
+        let interp = run_code(
+            r#"
+            гыы [а, [б, в]] = [1, [2, 3]];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+    }
+
+    #[test]
+    fn destructure_object_in_array() {
+        let interp = run_code(
+            r#"
+            гыы [а, {б}] = [1, { б: 2 }];
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
+    }
+
+    #[test]
+    fn destructure_array_in_object() {
+        let interp = run_code(
+            r#"
+            гыы {данные: [а, б]} = { данные: [10, 20] };
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
+    }
+
+    // ── Деструктуризация с const ──
+
+    #[test]
+    fn destructure_const_array() {
+        let err = run_code_err(
+            r#"
+            участковый [а, б] = [1, 2];
+            а = 10;
+            "#,
+        );
+        assert!(err.message.contains("константу") || err.message.contains("const"));
+    }
+
+    #[test]
+    fn destructure_const_object() {
+        let err = run_code_err(
+            r#"
+            участковый {х, у} = { х: 1, у: 2 };
+            х = 10;
+            "#,
+        );
+        assert!(err.message.contains("константу") || err.message.contains("const"));
     }
 }
