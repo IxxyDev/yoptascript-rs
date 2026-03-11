@@ -79,6 +79,10 @@ pub enum TokenKind {
     Keyword(KeywordKind),
     Operator(OperatorKind),
     Punctuation(PunctuationKind),
+    TemplateNoSub,
+    TemplateHead,
+    TemplateMiddle,
+    TemplateTail,
     Eof,
     Unknown,
 }
