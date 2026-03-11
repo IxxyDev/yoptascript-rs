@@ -10,7 +10,8 @@ use crate::ast::{
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
-const UNARY_PRECEDENCE: u8 = 8;
+const TERNARY_PRECEDENCE: u8 = 2;
+const UNARY_PRECEDENCE: u8 = 9;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -985,6 +986,29 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_prefix()?;
 
         loop {
+            if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Question))
+                && min_precedence <= TERNARY_PRECEDENCE
+            {
+                let start = lhs.span().start;
+                self.advance();
+                let then_expr = self.parse_expression_with_precedence(0)?;
+                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалось ':' в тернарном операторе");
+                    return Err(());
+                }
+                self.advance();
+                let else_expr = self.parse_expression_with_precedence(TERNARY_PRECEDENCE)?;
+                let end = else_expr.span().end;
+                lhs = Expr::Conditional {
+                    condition: Box::new(lhs),
+                    then_expr: Box::new(then_expr),
+                    else_expr: Box::new(else_expr),
+                    span: Span { start, end },
+                };
+                continue;
+            }
+
             let Some((op, precedence)) = self.try_parse_binary_op() else {
                 break;
             };
@@ -1123,21 +1147,21 @@ impl<'a> Parser<'a> {
             OperatorKind::MinusAssign => Some((BinaryOp::MinusAssign, 1)),
             OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
             OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
-            OperatorKind::Or => Some((BinaryOp::Or, 2)),
-            OperatorKind::And => Some((BinaryOp::And, 3)),
-            OperatorKind::Equals => Some((BinaryOp::Equals, 4)),
-            OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 4)),
-            OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 4)),
-            OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 4)),
-            OperatorKind::Less => Some((BinaryOp::Less, 5)),
-            OperatorKind::Greater => Some((BinaryOp::Greater, 5)),
-            OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 5)),
-            OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 5)),
-            OperatorKind::Plus => Some((BinaryOp::Add, 6)),
-            OperatorKind::Minus => Some((BinaryOp::Sub, 6)),
-            OperatorKind::Multiply => Some((BinaryOp::Mul, 7)),
-            OperatorKind::Divide => Some((BinaryOp::Div, 7)),
-            OperatorKind::Modulo => Some((BinaryOp::Mod, 7)),
+            OperatorKind::Or => Some((BinaryOp::Or, 3)),
+            OperatorKind::And => Some((BinaryOp::And, 4)),
+            OperatorKind::Equals => Some((BinaryOp::Equals, 5)),
+            OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 5)),
+            OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 5)),
+            OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 5)),
+            OperatorKind::Less => Some((BinaryOp::Less, 6)),
+            OperatorKind::Greater => Some((BinaryOp::Greater, 6)),
+            OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 6)),
+            OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 6)),
+            OperatorKind::Plus => Some((BinaryOp::Add, 7)),
+            OperatorKind::Minus => Some((BinaryOp::Sub, 7)),
+            OperatorKind::Multiply => Some((BinaryOp::Mul, 8)),
+            OperatorKind::Divide => Some((BinaryOp::Div, 8)),
+            OperatorKind::Modulo => Some((BinaryOp::Mod, 8)),
             OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
         }
     }
@@ -2276,5 +2300,39 @@ mod tests {
             },
             _ => panic!("Expected Expr statement"),
         }
+    }
+
+    #[test]
+    fn test_parse_ternary_simple() {
+        let expr = parse_expr_from_source("правда ? 1 : 2").unwrap();
+        assert!(matches!(expr, Expr::Conditional { .. }));
+    }
+
+    #[test]
+    fn test_parse_ternary_with_comparison() {
+        let expr = parse_expr_from_source("x > 5 ? 10 : 20").unwrap();
+        match &expr {
+            Expr::Conditional { condition, .. } => {
+                assert!(matches!(condition.as_ref(), Expr::Binary { .. }));
+            }
+            _ => panic!("Expected Conditional"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ternary_nested_else() {
+        let expr = parse_expr_from_source("a ? 1 : b ? 2 : 3").unwrap();
+        match &expr {
+            Expr::Conditional { else_expr, .. } => {
+                assert!(matches!(else_expr.as_ref(), Expr::Conditional { .. }));
+            }
+            _ => panic!("Expected nested Conditional"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ternary_missing_colon() {
+        let result = parse_expr_from_source("правда ? 1 2");
+        assert!(result.is_err());
     }
 }
