@@ -418,6 +418,14 @@ impl Interpreter {
                 let obj = self.eval_expr(object)?;
                 self.eval_member(obj, &property.name, *span)
             }
+            Expr::Conditional { condition, then_expr, else_expr, .. } => {
+                let cond = self.eval_expr(condition)?;
+                if cond.is_truthy() {
+                    self.eval_expr(then_expr)
+                } else {
+                    self.eval_expr(else_expr)
+                }
+            }
         }
     }
 
@@ -1788,5 +1796,58 @@ mod tests {
             interp.get("с"),
             Some(&Value::String("строка1\nстрока2\tтаб".to_string()))
         );
+    }
+
+    #[test]
+    fn ternary_true_branch() {
+        let interp = run_code(
+            r#"
+            гыы р = правда ? 10 : 20;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn ternary_false_branch() {
+        let interp = run_code(
+            r#"
+            гыы р = лож ? 10 : 20;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(20.0)));
+    }
+
+    #[test]
+    fn ternary_with_expression_condition() {
+        let interp = run_code(
+            r#"
+            гыы x = 7;
+            гыы р = x > 5 ? "да" : "нет";
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("да".to_string())));
+    }
+
+    #[test]
+    fn ternary_nested() {
+        let interp = run_code(
+            r#"
+            гыы x = 3;
+            гыы р = x > 10 ? "большое" : x > 5 ? "среднее" : "маленькое";
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("маленькое".to_string())));
+    }
+
+    #[test]
+    fn ternary_with_function_call() {
+        let interp = run_code(
+            r#"
+            гыы arr = [1, 2, 3];
+            гыы р = длина(arr) > 0 ? arr[0] : ноль;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(1.0)));
     }
 }

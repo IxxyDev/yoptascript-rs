@@ -284,6 +284,7 @@ impl<'src> Lexer<'src> {
                     TokenKind::Punctuation(PunctuationKind::Dot)
                 }
             }
+            '?' => TokenKind::Punctuation(PunctuationKind::Question),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     severity: Severity::Error,
