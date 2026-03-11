@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Pattern, PostfixOp, Program, Stmt, UnaryOp};
+use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Pattern, PostfixOp, Program, Stmt, TemplatePart, UnaryOp};
 
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
@@ -429,6 +429,19 @@ impl Interpreter {
                     body: body.clone(),
                 };
                 Ok(func)
+            }
+            Expr::TemplateLiteral { parts, .. } => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        TemplatePart::Str(s) => result.push_str(s),
+                        TemplatePart::Expr(expr) => {
+                            let val = self.eval_expr(expr)?;
+                            result.push_str(&val.to_string());
+                        }
+                    }
+                }
+                Ok(Value::String(result))
             }
         }
     }
@@ -1909,5 +1922,110 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(&Value::Number(21.0)));
+    }
+
+    // ── шаблонные строки (template literals) ──
+
+    #[test]
+    fn template_no_substitution() {
+        let interp = run_code("гыы р = `привет мир`;");
+        assert_eq!(interp.get("р"), Some(&Value::String("привет мир".to_string())));
+    }
+
+    #[test]
+    fn template_empty() {
+        let interp = run_code("гыы р = ``;");
+        assert_eq!(interp.get("р"), Some(&Value::String(String::new())));
+    }
+
+    #[test]
+    fn template_single_interpolation() {
+        let interp = run_code(
+            r#"
+            гыы имя = "Вася";
+            гыы р = `привет, ${имя}!`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("привет, Вася!".to_string())));
+    }
+
+    #[test]
+    fn template_multiple_interpolations() {
+        let interp = run_code(
+            r#"
+            гыы а = 1;
+            гыы б = 2;
+            гыы р = `${а} + ${б} = ${а + б}`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("1 + 2 = 3".to_string())));
+    }
+
+    #[test]
+    fn template_expression_interpolation() {
+        let interp = run_code("гыы р = `результат: ${2 + 3 * 4}`;");
+        assert_eq!(interp.get("р"), Some(&Value::String("результат: 14".to_string())));
+    }
+
+    #[test]
+    fn template_with_escape() {
+        let interp = run_code("гыы р = `строка1\\nстрока2`;");
+        assert_eq!(interp.get("р"), Some(&Value::String("строка1\nстрока2".to_string())));
+    }
+
+    #[test]
+    fn template_multiline() {
+        let interp = run_code("гыы р = `строка1\nстрока2`;");
+        assert_eq!(interp.get("р"), Some(&Value::String("строка1\nстрока2".to_string())));
+    }
+
+    #[test]
+    fn template_nested() {
+        let interp = run_code(
+            r#"
+            гыы х = 5;
+            гыы р = `внешний ${`внутренний ${х}`}`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("внешний внутренний 5".to_string())));
+    }
+
+    #[test]
+    fn template_with_object_in_braces() {
+        let interp = run_code(
+            r#"
+            гыы а = [1, 2, 3];
+            гыы р = `длина: ${длина(а)}`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("длина: 3".to_string())));
+    }
+
+    #[test]
+    fn template_only_interpolation() {
+        let interp = run_code(
+            r#"
+            гыы х = 42;
+            гыы р = `${х}`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("42".to_string())));
+    }
+
+    #[test]
+    fn template_escaped_dollar() {
+        let interp = run_code("гыы р = `цена: \\${100}`;");
+        assert_eq!(interp.get("р"), Some(&Value::String("цена: ${100}".to_string())));
+    }
+
+    #[test]
+    fn template_ternary_inside() {
+        let interp = run_code(
+            r#"
+            гыы х = 10;
+            гыы р = `число ${х > 5 ? "большое" : "маленькое"}`;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("число большое".to_string())));
     }
 }
