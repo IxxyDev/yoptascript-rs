@@ -73,6 +73,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
+            Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
         }
