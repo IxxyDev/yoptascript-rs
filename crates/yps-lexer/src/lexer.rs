@@ -4,12 +4,13 @@ pub struct Lexer<'src> {
     source: &'src SourceFile,
     position: usize,
     diagnostics: Vec<Diagnostic>,
+    template_brace_depth: Vec<usize>,
 }
 
 impl<'src> Lexer<'src> {
     #[must_use]
     pub const fn new(source: &'src SourceFile) -> Self {
-        Self { source, position: 0, diagnostics: Vec::new() }
+        Self { source, position: 0, diagnostics: Vec::new(), template_brace_depth: Vec::new() }
     }
 
     #[must_use]
@@ -50,6 +51,10 @@ impl<'src> Lexer<'src> {
 
         if ch == '"' || ch == '\'' {
             return self.read_string();
+        }
+
+        if ch == '`' {
+            return self.read_template_literal();
         }
 
         self.read_operator_or_punctuation()
@@ -271,8 +276,27 @@ impl<'src> Lexer<'src> {
             }
             '(' => TokenKind::Punctuation(PunctuationKind::LParen),
             ')' => TokenKind::Punctuation(PunctuationKind::RParen),
-            '{' => TokenKind::Punctuation(PunctuationKind::LBrace),
-            '}' => TokenKind::Punctuation(PunctuationKind::RBrace),
+            '{' => {
+                if let Some(depth) = self.template_brace_depth.last_mut() {
+                    *depth += 1;
+                }
+                TokenKind::Punctuation(PunctuationKind::LBrace)
+            }
+            '}' => {
+                if let Some(depth) = self.template_brace_depth.last_mut() {
+                    if *depth == 0 {
+                        self.template_brace_depth.pop();
+                        let hit_interp = self.read_template_chars();
+                        if hit_interp {
+                            self.template_brace_depth.push(0);
+                            return Token { kind: TokenKind::TemplateMiddle, span: Span { start, end: self.position } };
+                        }
+                        return Token { kind: TokenKind::TemplateTail, span: Span { start, end: self.position } };
+                    }
+                    *depth -= 1;
+                }
+                TokenKind::Punctuation(PunctuationKind::RBrace)
+            }
             '[' => TokenKind::Punctuation(PunctuationKind::LBracket),
             ']' => TokenKind::Punctuation(PunctuationKind::RBracket),
             ';' => TokenKind::Punctuation(PunctuationKind::Semicolon),
@@ -299,6 +323,49 @@ impl<'src> Lexer<'src> {
         };
 
         Token { kind, span: Span { start, end: self.position } }
+    }
+
+    fn read_template_literal(&mut self) -> Token {
+        let start = self.position;
+        self.advance();
+        let hit_interp = self.read_template_chars();
+        if hit_interp {
+            self.template_brace_depth.push(0);
+            Token { kind: TokenKind::TemplateHead, span: Span { start, end: self.position } }
+        } else {
+            Token { kind: TokenKind::TemplateNoSub, span: Span { start, end: self.position } }
+        }
+    }
+
+    fn read_template_chars(&mut self) -> bool {
+        loop {
+            if self.is_at_end() {
+                self.diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    message: "Незакрытая шаблонная строка".into(),
+                    span: Span { start: self.position, end: self.position },
+                });
+                return false;
+            }
+            let ch = self.current_char();
+            if ch == '`' {
+                self.advance();
+                return false;
+            }
+            if ch == '$' && self.peek_char(1) == '{' {
+                self.advance();
+                self.advance();
+                return true;
+            }
+            if ch == '\\' {
+                self.advance();
+                if !self.is_at_end() {
+                    self.advance();
+                }
+            } else {
+                self.advance();
+            }
+        }
     }
 
     fn current_char(&self) -> char {

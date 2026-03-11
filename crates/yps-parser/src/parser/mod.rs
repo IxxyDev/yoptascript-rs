@@ -6,7 +6,7 @@
 
 use crate::ast::{
     BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Pattern, PostfixOp, Program, Stmt, SwitchCase,
-    UnaryOp,
+    TemplatePart, UnaryOp,
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
@@ -76,6 +76,8 @@ impl<'a> Parser<'a> {
                     self.parse_grouping()
                 }
             }
+            TokenKind::TemplateNoSub => Ok(self.parse_template_nosub()),
+            TokenKind::TemplateHead => self.parse_template_literal(),
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object(),
             _ => {
@@ -115,6 +117,8 @@ impl<'a> Parser<'a> {
                     Some('\\') => result.push('\\'),
                     Some('\'') => result.push('\''),
                     Some('"') => result.push('"'),
+                    Some('`') => result.push('`'),
+                    Some('$') => result.push('$'),
                     Some(other) => {
                         result.push('\\');
                         result.push(other);
@@ -126,6 +130,58 @@ impl<'a> Parser<'a> {
             }
         }
         result
+    }
+
+    fn parse_template_nosub(&mut self) -> Expr {
+        let span = self.current().span;
+        let raw = self.source.slice(span);
+        let inner = &raw[1..raw.len() - 1];
+        let value = Self::unescape_string(inner);
+        self.advance();
+        Expr::Literal(Literal::String { value, span })
+    }
+
+    fn parse_template_literal(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        let mut parts = Vec::new();
+
+        let head_span = self.current().span;
+        let head_raw = self.source.slice(head_span);
+        let head_text = &head_raw[1..head_raw.len() - 2];
+        parts.push(TemplatePart::Str(Self::unescape_string(head_text)));
+        self.advance();
+
+        let end;
+        loop {
+            let expr = self.parse_expr()?;
+            parts.push(TemplatePart::Expr(Box::new(expr)));
+
+            match &self.current().kind {
+                TokenKind::TemplateMiddle => {
+                    let mid_span = self.current().span;
+                    let mid_raw = self.source.slice(mid_span);
+                    let mid_text = &mid_raw[1..mid_raw.len() - 2];
+                    parts.push(TemplatePart::Str(Self::unescape_string(mid_text)));
+                    self.advance();
+                }
+                TokenKind::TemplateTail => {
+                    let tail_span = self.current().span;
+                    let tail_raw = self.source.slice(tail_span);
+                    let tail_text = &tail_raw[1..tail_raw.len() - 1];
+                    parts.push(TemplatePart::Str(Self::unescape_string(tail_text)));
+                    end = self.current().span.end;
+                    self.advance();
+                    break;
+                }
+                _ => {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалось продолжение шаблонной строки");
+                    return Err(());
+                }
+            }
+        }
+
+        Ok(Expr::TemplateLiteral { parts, span: Span { start, end } })
     }
 
     fn parse_identifier(&mut self) -> Result<Identifier, ()> {
