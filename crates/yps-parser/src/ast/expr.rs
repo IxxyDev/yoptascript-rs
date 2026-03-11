@@ -21,6 +21,8 @@ pub enum Expr {
     Index { object: Box<Expr>, index: Box<Expr>, span: Span },
 
     Member { object: Box<Expr>, property: Identifier, span: Span },
+
+    Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -43,7 +45,8 @@ impl Expr {
             | Self::Grouping { span, .. }
             | Self::Call { span, .. }
             | Self::Index { span, .. }
-            | Self::Member { span, .. } => *span,
+            | Self::Member { span, .. }
+            | Self::Conditional { span, .. } => *span,
         }
     }
 }
