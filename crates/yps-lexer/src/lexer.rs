@@ -207,6 +207,9 @@ impl<'src> Lexer<'src> {
                     } else {
                         TokenKind::Operator(OperatorKind::Equals)
                     }
+                } else if self.current_char() == '>' {
+                    self.advance();
+                    TokenKind::Punctuation(PunctuationKind::Arrow)
                 } else {
                     TokenKind::Operator(OperatorKind::Assign)
                 }

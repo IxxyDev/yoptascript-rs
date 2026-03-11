@@ -1,3 +1,4 @@
+use crate::ast::stmt::Block;
 use crate::ast::{BinaryOp, Identifier, Literal, PostfixOp, UnaryOp};
 use yps_lexer::Span;
 
@@ -23,6 +24,8 @@ pub enum Expr {
     Member { object: Box<Expr>, property: Identifier, span: Span },
 
     Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
+
+    ArrowFunction { params: Vec<Identifier>, body: Block, span: Span },
 }
 
 impl Expr {
@@ -46,7 +49,8 @@ impl Expr {
             | Self::Call { span, .. }
             | Self::Index { span, .. }
             | Self::Member { span, .. }
-            | Self::Conditional { span, .. } => *span,
+            | Self::Conditional { span, .. }
+            | Self::ArrowFunction { span, .. } => *span,
         }
     }
 }
