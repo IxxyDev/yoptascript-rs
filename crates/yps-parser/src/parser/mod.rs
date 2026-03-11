@@ -81,9 +81,36 @@ impl<'a> Parser<'a> {
     fn parse_string(&mut self) -> Expr {
         let span = self.current().span;
         let raw = self.source.slice(span);
-        let value = raw[1..raw.len() - 1].to_string();
+        let inner = &raw[1..raw.len() - 1];
+        let value = Self::unescape_string(inner);
         self.advance();
         Expr::Literal(Literal::String { value, span })
+    }
+
+    fn unescape_string(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                match chars.next() {
+                    Some('n') => result.push('\n'),
+                    Some('t') => result.push('\t'),
+                    Some('r') => result.push('\r'),
+                    Some('0') => result.push('\0'),
+                    Some('\\') => result.push('\\'),
+                    Some('\'') => result.push('\''),
+                    Some('"') => result.push('"'),
+                    Some(other) => {
+                        result.push('\\');
+                        result.push(other);
+                    }
+                    None => result.push('\\'),
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+        result
     }
 
     fn parse_identifier(&mut self) -> Result<Identifier, ()> {
@@ -1146,6 +1173,60 @@ mod tests {
     fn test_parse_string() {
         let expr = parse_expr_from_source("\"hello\"").unwrap();
         assert!(matches!(expr, Expr::Literal(Literal::String { .. })));
+    }
+
+    #[test]
+    fn test_parse_string_escape_newline() {
+        let expr = parse_expr_from_source(r#""hello\nworld""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "hello\nworld"),
+            _ => panic!("expected string literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_string_escape_tab() {
+        let expr = parse_expr_from_source(r#""a\tb""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "a\tb"),
+            _ => panic!("expected string literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_string_escape_backslash() {
+        let expr = parse_expr_from_source(r#""a\\b""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "a\\b"),
+            _ => panic!("expected string literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_string_escape_quote() {
+        let expr = parse_expr_from_source(r#""say \"yo\"""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "say \"yo\""),
+            _ => panic!("expected string literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_string_escape_multiple() {
+        let expr = parse_expr_from_source(r#""a\nb\tc\r\0""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "a\nb\tc\r\0"),
+            _ => panic!("expected string literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_string_unknown_escape_preserved() {
+        let expr = parse_expr_from_source(r#""a\xb""#).unwrap();
+        match expr {
+            Expr::Literal(Literal::String { value, .. }) => assert_eq!(value, "a\\xb"),
+            _ => panic!("expected string literal"),
+        }
     }
 
     #[test]
