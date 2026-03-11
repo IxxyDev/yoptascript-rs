@@ -1722,4 +1722,71 @@ mod tests {
         );
         assert!(err.message.contains("константу") || err.message.contains("const"));
     }
+
+    // ── Escape-последовательности в строках ──
+
+    #[test]
+    fn string_escape_newline() {
+        let interp = run_code(
+            r#"
+            гыы с = "привет\nмир";
+            "#,
+        );
+        assert_eq!(
+            interp.get("с"),
+            Some(&Value::String("привет\nмир".to_string()))
+        );
+    }
+
+    #[test]
+    fn string_escape_tab() {
+        let interp = run_code(
+            r#"
+            гыы с = "а\tб";
+            "#,
+        );
+        assert_eq!(
+            interp.get("с"),
+            Some(&Value::String("а\tб".to_string()))
+        );
+    }
+
+    #[test]
+    fn string_escape_backslash() {
+        let interp = run_code(
+            r#"
+            гыы с = "путь\\файл";
+            "#,
+        );
+        assert_eq!(
+            interp.get("с"),
+            Some(&Value::String("путь\\файл".to_string()))
+        );
+    }
+
+    #[test]
+    fn string_escape_quote() {
+        let interp = run_code(
+            r#"
+            гыы с = "он сказал \"да\"";
+            "#,
+        );
+        assert_eq!(
+            interp.get("с"),
+            Some(&Value::String("он сказал \"да\"".to_string()))
+        );
+    }
+
+    #[test]
+    fn string_escape_combined() {
+        let interp = run_code(
+            r#"
+            гыы с = "строка1\nстрока2\tтаб";
+            "#,
+        );
+        assert_eq!(
+            interp.get("с"),
+            Some(&Value::String("строка1\nстрока2\tтаб".to_string()))
+        );
+    }
 }
