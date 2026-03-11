@@ -60,8 +60,22 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Expr::Literal(Literal::Null { span }))
             }
-            TokenKind::Identifier => self.parse_identifier().map(Expr::Identifier),
-            TokenKind::Punctuation(PunctuationKind::LParen) => self.parse_grouping(),
+            TokenKind::Identifier => {
+                if self.position + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.position + 1].kind, TokenKind::Punctuation(PunctuationKind::Arrow))
+                {
+                    self.parse_single_param_arrow()
+                } else {
+                    self.parse_identifier().map(Expr::Identifier)
+                }
+            }
+            TokenKind::Punctuation(PunctuationKind::LParen) => {
+                if let Some(arrow) = self.try_parse_arrow_function()? {
+                    Ok(arrow)
+                } else {
+                    self.parse_grouping()
+                }
+            }
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object(),
             _ => {
@@ -142,6 +156,83 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Expr::Grouping { expr: Box::new(expr), span: Span { start, end } })
+    }
+
+    fn try_parse_arrow_function(&mut self) -> Result<Option<Expr>, ()> {
+        let saved_pos = self.position;
+        let saved_diag_len = self.diagnostics.len();
+
+        self.advance();
+
+        let mut params = Vec::new();
+
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            self.advance();
+            if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Arrow)) {
+                self.advance();
+                return Ok(Some(self.parse_arrow_body(params, saved_pos)?));
+            }
+            self.position = saved_pos;
+            self.diagnostics.truncate(saved_diag_len);
+            return Ok(None);
+        }
+
+        loop {
+            if !matches!(self.current().kind, TokenKind::Identifier) {
+                self.position = saved_pos;
+                self.diagnostics.truncate(saved_diag_len);
+                return Ok(None);
+            }
+            let span = self.current().span;
+            let name = self.source.slice(span).to_string();
+            self.advance();
+            params.push(Identifier { name, span });
+
+            if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            self.position = saved_pos;
+            self.diagnostics.truncate(saved_diag_len);
+            return Ok(None);
+        }
+        self.advance();
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Arrow)) {
+            self.position = saved_pos;
+            self.diagnostics.truncate(saved_diag_len);
+            return Ok(None);
+        }
+        self.advance();
+
+        Ok(Some(self.parse_arrow_body(params, saved_pos)?))
+    }
+
+    fn parse_single_param_arrow(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        let param = self.parse_identifier()?;
+        self.advance();
+        self.parse_arrow_body(vec![param], start)
+    }
+
+    fn parse_arrow_body(&mut self, params: Vec<Identifier>, start: usize) -> Result<Expr, ()> {
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            Ok(Expr::ArrowFunction { params, body, span: Span { start, end } })
+        } else {
+            let expr = self.parse_expr()?;
+            let end = expr.span().end;
+            let body = Block {
+                stmts: vec![Stmt::Return { value: Some(expr), span: Span { start, end } }],
+                span: Span { start, end },
+            };
+            Ok(Expr::ArrowFunction { params, body, span: Span { start, end } })
+        }
     }
 
     fn parse_array(&mut self) -> Result<Expr, ()> {

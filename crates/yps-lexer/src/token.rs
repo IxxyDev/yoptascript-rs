@@ -68,6 +68,7 @@ pub enum PunctuationKind {
     Dot,
     Spread,
     Question,
+    Arrow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

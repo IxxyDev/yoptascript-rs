@@ -420,11 +420,15 @@ impl Interpreter {
             }
             Expr::Conditional { condition, then_expr, else_expr, .. } => {
                 let cond = self.eval_expr(condition)?;
-                if cond.is_truthy() {
-                    self.eval_expr(then_expr)
-                } else {
-                    self.eval_expr(else_expr)
-                }
+                if cond.is_truthy() { self.eval_expr(then_expr) } else { self.eval_expr(else_expr) }
+            }
+            Expr::ArrowFunction { params, body, .. } => {
+                let func = Value::Function {
+                    name: String::new(),
+                    params: params.iter().map(|p| p.name.clone()).collect(),
+                    body: body.clone(),
+                };
+                Ok(func)
             }
         }
     }
@@ -1740,10 +1744,7 @@ mod tests {
             гыы с = "привет\nмир";
             "#,
         );
-        assert_eq!(
-            interp.get("с"),
-            Some(&Value::String("привет\nмир".to_string()))
-        );
+        assert_eq!(interp.get("с"), Some(&Value::String("привет\nмир".to_string())));
     }
 
     #[test]
@@ -1753,10 +1754,7 @@ mod tests {
             гыы с = "а\tб";
             "#,
         );
-        assert_eq!(
-            interp.get("с"),
-            Some(&Value::String("а\tб".to_string()))
-        );
+        assert_eq!(interp.get("с"), Some(&Value::String("а\tб".to_string())));
     }
 
     #[test]
@@ -1766,10 +1764,7 @@ mod tests {
             гыы с = "путь\\файл";
             "#,
         );
-        assert_eq!(
-            interp.get("с"),
-            Some(&Value::String("путь\\файл".to_string()))
-        );
+        assert_eq!(interp.get("с"), Some(&Value::String("путь\\файл".to_string())));
     }
 
     #[test]
@@ -1779,10 +1774,7 @@ mod tests {
             гыы с = "он сказал \"да\"";
             "#,
         );
-        assert_eq!(
-            interp.get("с"),
-            Some(&Value::String("он сказал \"да\"".to_string()))
-        );
+        assert_eq!(interp.get("с"), Some(&Value::String("он сказал \"да\"".to_string())));
     }
 
     #[test]
@@ -1792,10 +1784,7 @@ mod tests {
             гыы с = "строка1\nстрока2\tтаб";
             "#,
         );
-        assert_eq!(
-            interp.get("с"),
-            Some(&Value::String("строка1\nстрока2\tтаб".to_string()))
-        );
+        assert_eq!(interp.get("с"), Some(&Value::String("строка1\nстрока2\tтаб".to_string())));
     }
 
     #[test]
@@ -1849,5 +1838,76 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(&Value::Number(1.0)));
+    }
+
+    // ── стрелочные функции ──
+
+    #[test]
+    fn arrow_function_expr_body() {
+        let interp = run_code(
+            r#"
+            гыы двойное = (х) => х * 2;
+            гыы р = двойное(5);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(10.0)));
+    }
+
+    #[test]
+    fn arrow_function_block_body() {
+        let interp = run_code(
+            r#"
+            гыы сумма = (а, б) => {
+                отвечаю а + б;
+            };
+            гыы р = сумма(3, 4);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(7.0)));
+    }
+
+    #[test]
+    fn arrow_function_no_params() {
+        let interp = run_code(
+            r#"
+            гыы привет = () => "здарова";
+            гыы р = привет();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("здарова".into())));
+    }
+
+    #[test]
+    fn arrow_function_single_param_no_parens() {
+        let interp = run_code(
+            r#"
+            гыы квадрат = х => х * х;
+            гыы р = квадрат(6);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(36.0)));
+    }
+
+    #[test]
+    fn arrow_function_as_callback() {
+        let interp = run_code(
+            r#"
+            йопта применить(ф, знач) {
+                отвечаю ф(знач);
+            }
+            гыы р = применить((х) => х + 10, 5);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(15.0)));
+    }
+
+    #[test]
+    fn arrow_function_iife() {
+        let interp = run_code(
+            r#"
+            гыы р = ((а, б) => а * б)(3, 7);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Number(21.0)));
     }
 }
