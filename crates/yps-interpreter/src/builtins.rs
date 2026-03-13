@@ -8,7 +8,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             println!("{}", parts.join(" "));
-            Ok(Value::Null)
+            Ok(Value::Undefined)
         }
         "длина" => {
             if args.len() != 1 {
