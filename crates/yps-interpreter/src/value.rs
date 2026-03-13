@@ -12,13 +12,14 @@ pub enum Value {
     Object(HashMap<String, Value>),
     Function { name: String, params: Vec<String>, body: Block },
     BuiltinFunction(String),
+    Undefined,
     Null,
 }
 
 impl Value {
     pub fn is_truthy(&self) -> bool {
         match self {
-            Value::Null => false,
+            Value::Undefined | Value::Null => false,
             Value::Boolean(b) => *b,
             Value::Number(n) => *n != 0.0,
             Value::String(s) => !s.is_empty(),
@@ -35,6 +36,7 @@ impl Value {
             Value::Array(_) => "массив",
             Value::Object(_) => "объект",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
+            Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
     }
@@ -52,6 +54,7 @@ impl fmt::Display for Value {
             }
             Value::String(s) => write!(f, "{s}"),
             Value::Boolean(b) => write!(f, "{b}"),
+            Value::Undefined => write!(f, "undefined"),
             Value::Null => write!(f, "null"),
             Value::Array(elements) => {
                 write!(f, "[")?;
@@ -86,6 +89,7 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,
         }

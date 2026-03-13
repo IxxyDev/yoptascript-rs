@@ -148,7 +148,7 @@ impl Interpreter {
             Stmt::Return { value, .. } => {
                 let val = match value {
                     Some(expr) => self.eval_expr(expr)?,
-                    None => Value::Null,
+                    None => Value::Undefined,
                 };
                 Ok(Some(ControlFlow::Return(val)))
             }
@@ -169,7 +169,7 @@ impl Interpreter {
                     }
                 };
                 self.env.push_scope();
-                self.env.define(variable.name.clone(), Value::Null, false);
+                self.env.define(variable.name.clone(), Value::Undefined, false);
                 for item in items {
                     self.env.set(&variable.name, item);
                     if let Some(cf) = self.exec_stmt(body)? {
@@ -304,7 +304,7 @@ impl Interpreter {
 
                 for (i, elem) in elements.iter().enumerate() {
                     if let Some(pat) = elem {
-                        let val = items.get(i).cloned().unwrap_or(Value::Null);
+                        let val = items.get(i).cloned().unwrap_or(Value::Undefined);
                         self.destructure_pattern(pat, val, is_const, span)?;
                     }
                 }
@@ -331,7 +331,7 @@ impl Interpreter {
                 let mut used_keys = Vec::new();
 
                 for prop in properties {
-                    let val = map.get(&prop.key.name).cloned().unwrap_or(Value::Null);
+                    let val = map.get(&prop.key.name).cloned().unwrap_or(Value::Undefined);
                     used_keys.push(prop.key.name.clone());
 
                     if let Some(ref value_pat) = prop.value {
@@ -726,7 +726,7 @@ impl Interpreter {
                     Some(ControlFlow::Throw(val)) => {
                         Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
                     }
-                    None => Ok(Value::Null),
+                    None => Ok(Value::Undefined),
                 }
             }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
@@ -737,14 +737,9 @@ impl Interpreter {
         match (&obj, &index) {
             (Value::Array(arr), Value::Number(n)) => {
                 let i = *n as usize;
-                arr.get(i)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {})", arr.len()), span))
+                Ok(arr.get(i).cloned().unwrap_or(Value::Undefined))
             }
-            (Value::Object(map), Value::String(key)) => map
-                .get(key)
-                .cloned()
-                .ok_or_else(|| RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span)),
+            (Value::Object(map), Value::String(key)) => Ok(map.get(key).cloned().unwrap_or(Value::Undefined)),
             _ => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
                 span,
@@ -754,10 +749,7 @@ impl Interpreter {
 
     fn eval_member(&self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
-            Value::Object(map) => map
-                .get(property)
-                .cloned()
-                .ok_or_else(|| RuntimeError::new(format!("Свойство '{property}' не найдено в объекте"), span)),
+            Value::Object(map) => Ok(map.get(property).cloned().unwrap_or(Value::Undefined)),
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }
@@ -1572,7 +1564,7 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Null));
+        assert_eq!(interp.get("б"), Some(&Value::Undefined));
     }
 
     #[test]
@@ -1657,7 +1649,7 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("х"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("з"), Some(&Value::Null));
+        assert_eq!(interp.get("з"), Some(&Value::Undefined));
     }
 
     #[test]
@@ -2027,5 +2019,73 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(&Value::String("число большое".to_string())));
+    }
+
+    // ── Value::Undefined ──
+
+    #[test]
+    fn function_without_return_gives_undefined() {
+        let interp = run_code(
+            r#"
+            йопта ф() {}
+            гыы р = ф();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+    }
+
+    #[test]
+    fn return_without_value_gives_undefined() {
+        let interp = run_code(
+            r#"
+            йопта ф() { отвечаю; }
+            гыы р = ф();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+    }
+
+    #[test]
+    fn missing_object_property_gives_undefined() {
+        let interp = run_code(
+            r#"
+            гыы о = { а: 1 };
+            гыы р = о.б;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+    }
+
+    #[test]
+    fn array_index_out_of_bounds_gives_undefined() {
+        let interp = run_code(
+            r#"
+            гыы м = [1, 2, 3];
+            гыы р = м[10];
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+    }
+
+    #[test]
+    fn typeof_undefined() {
+        let interp = run_code(
+            r#"
+            йопта ф() {}
+            гыы р = тип(ф());
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::String("неопределено".to_string())));
+    }
+
+    #[test]
+    fn null_not_equal_undefined() {
+        let interp = run_code(
+            r#"
+            йопта ф() {}
+            гыы р = ф() == ноль;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(&Value::Boolean(false)));
     }
 }
