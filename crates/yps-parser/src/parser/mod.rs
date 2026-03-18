@@ -60,6 +60,11 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Expr::Literal(Literal::Null { span }))
             }
+            TokenKind::Keyword(KeywordKind::Undefined) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::Literal(Literal::Undefined { span }))
+            }
             TokenKind::Identifier => {
                 if self.position + 1 < self.tokens.len()
                     && matches!(self.tokens[self.position + 1].kind, TokenKind::Punctuation(PunctuationKind::Arrow))
