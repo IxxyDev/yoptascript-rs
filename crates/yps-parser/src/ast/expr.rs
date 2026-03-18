@@ -46,6 +46,7 @@ impl Expr {
                 | Literal::String { span, .. }
                 | Literal::Boolean { span, .. }
                 | Literal::Null { span }
+                | Literal::Undefined { span }
                 | Literal::Array { span, .. }
                 | Literal::Object { span, .. } => *span,
             },
