@@ -1,64 +1,116 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::value::Value;
 
-#[derive(Debug, Clone, Default)]
-pub struct Environment {
-    scopes: Vec<HashMap<String, Value>>,
+#[derive(Debug)]
+pub struct EnvFrame {
+    bindings: HashMap<String, Value>,
     constants: HashSet<String>,
+    parent: Option<Rc<RefCell<EnvFrame>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Environment {
+    current: Rc<RefCell<EnvFrame>>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Environment {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()], constants: HashSet::new() }
+        Self {
+            current: Rc::new(RefCell::new(EnvFrame {
+                bindings: HashMap::new(),
+                constants: HashSet::new(),
+                parent: None,
+            })),
+        }
     }
 
     pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        let new_frame =
+            EnvFrame { bindings: HashMap::new(), constants: HashSet::new(), parent: Some(Rc::clone(&self.current)) };
+        self.current = Rc::new(RefCell::new(new_frame));
     }
 
     pub fn pop_scope(&mut self) {
-        self.scopes.pop();
+        let parent = self.current.borrow().parent.clone();
+        if let Some(parent) = parent {
+            self.current = parent;
+        }
+    }
+
+    pub fn snapshot(&self) -> Rc<RefCell<EnvFrame>> {
+        Rc::clone(&self.current)
+    }
+
+    pub fn from_snapshot(frame: Rc<RefCell<EnvFrame>>) -> Self {
+        Self { current: frame }
     }
 
     pub fn define(&mut self, name: String, value: Value, is_const: bool) {
+        let mut frame = self.current.borrow_mut();
         if is_const {
-            self.constants.insert(name.clone());
+            frame.constants.insert(name.clone());
         }
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, value);
-        }
+        frame.bindings.insert(name, value);
     }
 
     pub fn is_const(&self, name: &str) -> bool {
-        self.constants.contains(name)
-    }
-
-    pub fn get(&self, name: &str) -> Option<&Value> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(value) = scope.get(name) {
-                return Some(value);
+        let mut frame_rc = Rc::clone(&self.current);
+        loop {
+            let parent = {
+                let frame = frame_rc.borrow();
+                if frame.constants.contains(name) {
+                    return true;
+                }
+                frame.parent.clone()
+            };
+            match parent {
+                Some(p) => frame_rc = p,
+                None => return false,
             }
         }
-        None
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut Value> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(value) = scope.get_mut(name) {
-                return Some(value);
+    pub fn get(&self, name: &str) -> Option<Value> {
+        let mut frame_rc = Rc::clone(&self.current);
+        loop {
+            let parent = {
+                let frame = frame_rc.borrow();
+                if let Some(value) = frame.bindings.get(name) {
+                    return Some(value.clone());
+                }
+                frame.parent.clone()
+            };
+            match parent {
+                Some(p) => frame_rc = p,
+                None => return None,
             }
         }
-        None
     }
 
-    pub fn set(&mut self, name: &str, value: Value) -> bool {
-        for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.to_string(), value);
-                return true;
+    pub fn set(&self, name: &str, value: Value) -> bool {
+        let mut frame_rc = Rc::clone(&self.current);
+        loop {
+            let parent = {
+                let mut frame = frame_rc.borrow_mut();
+                if frame.bindings.contains_key(name) {
+                    frame.bindings.insert(name.to_string(), value);
+                    return true;
+                }
+                frame.parent.clone()
+            };
+            match parent {
+                Some(p) => frame_rc = p,
+                None => return false,
             }
         }
-        false
     }
 }

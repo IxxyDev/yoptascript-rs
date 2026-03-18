@@ -39,7 +39,7 @@ impl Interpreter {
         Self { env }
     }
 
-    pub fn get(&self, name: &str) -> Option<&Value> {
+    pub fn get(&self, name: &str) -> Option<Value> {
         self.env.get(name)
     }
 
@@ -141,6 +141,7 @@ impl Interpreter {
                     name: name.name.clone(),
                     params: params.iter().map(|p| p.name.clone()).collect(),
                     body: body.clone(),
+                    env: self.env.snapshot(),
                 };
                 self.env.define(name.name.clone(), func, false);
                 Ok(None)
@@ -359,7 +360,6 @@ impl Interpreter {
             Expr::Identifier(ident) => self
                 .env
                 .get(&ident.name)
-                .cloned()
                 .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)),
             Expr::Unary { op, expr, span } => {
                 let val = self.eval_expr(expr)?;
@@ -427,6 +427,7 @@ impl Interpreter {
                     name: String::new(),
                     params: params.iter().map(|p| p.name.clone()).collect(),
                     body: body.clone(),
+                    env: self.env.snapshot(),
                 };
                 Ok(func)
             }
@@ -455,6 +456,7 @@ impl Interpreter {
             Literal::String { value, .. } => Ok(Value::String(value.clone())),
             Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
             Literal::Null { .. } => Ok(Value::Null),
+            Literal::Undefined { .. } => Ok(Value::Undefined),
             Literal::Array { elements, .. } => {
                 let mut values = Vec::with_capacity(elements.len());
                 for el in elements {
@@ -563,11 +565,12 @@ impl Interpreter {
                 if self.env.is_const(&root_name) {
                     return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
                 }
-                let root = self
+                let mut root = self
                     .env
-                    .get_mut(&root_name)
+                    .get(&root_name)
                     .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-                Self::set_at_path(root, &path, value.clone(), span)?;
+                Self::set_at_path(&mut root, &path, value.clone(), span)?;
+                self.env.set(&root_name, root);
                 Ok(value)
             }
             _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
@@ -648,7 +651,6 @@ impl Interpreter {
         let old = self
             .env
             .get(&ident.name)
-            .cloned()
             .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
         let Value::Number(n) = old else {
             return Err(RuntimeError::new(format!("'++' / '--' требует число, получено '{}'", old.type_name()), span));
@@ -706,19 +708,21 @@ impl Interpreter {
     fn call_function(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         match func {
             Value::BuiltinFunction(name) => call_builtin(&name, args, span),
-            Value::Function { name, params, body } => {
+            Value::Function { name, params, body, env } => {
                 if args.len() != params.len() {
                     return Err(RuntimeError::new(
                         format!("Функция '{}' ожидает {} аргумент(ов), получено {}", name, params.len(), args.len()),
                         span,
                     ));
                 }
+                let saved_env = self.env.clone();
+                self.env = Environment::from_snapshot(env);
                 self.env.push_scope();
                 for (param, arg) in params.iter().zip(args) {
                     self.env.define(param.clone(), arg, false);
                 }
                 let result = self.exec_block_stmts(&body.stmts);
-                self.env.pop_scope();
+                self.env = saved_env;
                 match result? {
                     Some(ControlFlow::Return(val)) => Ok(val),
                     Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
@@ -791,7 +795,7 @@ mod tests {
             гыы результат = арр[0];
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -803,7 +807,7 @@ mod tests {
             гыы результат = арр[1];
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
     }
 
     #[test]
@@ -816,8 +820,8 @@ mod tests {
             гыы б = арр[2];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(30.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(30.0)));
     }
 
     #[test]
@@ -842,7 +846,7 @@ mod tests {
             гыы результат = чел.имя;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("Петя".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("Петя".to_string())));
     }
 
     #[test]
@@ -854,7 +858,7 @@ mod tests {
             гыы результат = чел.возраст;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(30.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(30.0)));
     }
 
     #[test]
@@ -866,7 +870,7 @@ mod tests {
             гыы результат = чел.имя;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("Коля".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("Коля".to_string())));
     }
 
     #[test]
@@ -891,7 +895,7 @@ mod tests {
             гыы результат = арр[0];
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(15.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(15.0)));
     }
 
     #[test]
@@ -903,7 +907,7 @@ mod tests {
             гыы результат = чел.баланс;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(70.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(70.0)));
     }
 
     // ── Вложенные присваивания ──
@@ -917,7 +921,7 @@ mod tests {
             гыы результат = матрица[0][1];
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(99.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(99.0)));
     }
 
     #[test]
@@ -929,7 +933,7 @@ mod tests {
             гыы результат = данные.внутри.значение;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
     }
 
     #[test]
@@ -941,7 +945,7 @@ mod tests {
             гыы результат = список[0].имя;
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("В".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("В".to_string())));
     }
 
     #[test]
@@ -953,7 +957,7 @@ mod tests {
             гыы результат = данные.список[2];
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(99.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(99.0)));
     }
 
     // ── try/catch/finally ──
@@ -970,7 +974,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -985,7 +989,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("ошибка".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("ошибка".to_string())));
     }
 
     #[test]
@@ -1000,7 +1004,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
     }
 
     #[test]
@@ -1015,7 +1019,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(2.0)));
     }
 
     #[test]
@@ -1030,7 +1034,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(11.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(11.0)));
     }
 
     #[test]
@@ -1048,8 +1052,8 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("шаг1"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("шаг2"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("шаг1"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("шаг2"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -1067,8 +1071,8 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("шаг1"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("шаг2"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("шаг1"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("шаг2"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -1093,7 +1097,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -1132,7 +1136,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("снаружи".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("снаружи".to_string())));
     }
 
     #[test]
@@ -1147,7 +1151,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -1166,7 +1170,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(11.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(11.0)));
     }
 
     // ── switch/case (базарпо/тема/нуичо) ──
@@ -1186,7 +1190,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -1204,7 +1208,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(20.0)));
     }
 
     #[test]
@@ -1222,7 +1226,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
     }
 
     #[test]
@@ -1237,7 +1241,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(0.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(0.0)));
     }
 
     #[test]
@@ -1255,7 +1259,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("приветствие".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("приветствие".to_string())));
     }
 
     #[test]
@@ -1277,7 +1281,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(30.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(30.0)));
     }
 
     #[test]
@@ -1295,7 +1299,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -1310,7 +1314,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(42.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
     }
 
     #[test]
@@ -1335,9 +1339,9 @@ mod tests {
             гыы в = проверка(99);
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
-        assert_eq!(interp.get("в"), Some(&Value::Number(0.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(20.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(0.0)));
     }
 
     // ── do-while (крутани/потрещим) ──
@@ -1352,7 +1356,7 @@ mod tests {
             } потрещим (лож);
             "#,
         );
-        assert_eq!(interp.get("счётчик"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("счётчик"), Some(Value::Number(1.0)));
     }
 
     #[test]
@@ -1365,7 +1369,7 @@ mod tests {
             } потрещим (счётчик < 5);
             "#,
         );
-        assert_eq!(interp.get("счётчик"), Some(&Value::Number(5.0)));
+        assert_eq!(interp.get("счётчик"), Some(Value::Number(5.0)));
     }
 
     #[test]
@@ -1381,7 +1385,7 @@ mod tests {
             } потрещим (счётчик < 10);
             "#,
         );
-        assert_eq!(interp.get("счётчик"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("счётчик"), Some(Value::Number(3.0)));
     }
 
     #[test]
@@ -1399,8 +1403,8 @@ mod tests {
             } потрещим (счётчик < 5);
             "#,
         );
-        assert_eq!(interp.get("счётчик"), Some(&Value::Number(5.0)));
-        assert_eq!(interp.get("сумма"), Some(&Value::Number(12.0)));
+        assert_eq!(interp.get("счётчик"), Some(Value::Number(5.0)));
+        assert_eq!(interp.get("сумма"), Some(Value::Number(12.0)));
     }
 
     #[test]
@@ -1421,7 +1425,7 @@ mod tests {
             гыы результат = сумма();
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(6.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(6.0)));
     }
 
     // ── for-in (го ... из ...) ──
@@ -1437,7 +1441,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("сумма"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("сумма"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -1450,7 +1454,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("сумма"), Some(&Value::Number(0.0)));
+        assert_eq!(interp.get("сумма"), Some(Value::Number(0.0)));
     }
 
     #[test]
@@ -1464,7 +1468,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("счётчик"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("счётчик"), Some(Value::Number(2.0)));
     }
 
     #[test]
@@ -1480,7 +1484,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("сумма"), Some(&Value::Number(30.0)));
+        assert_eq!(interp.get("сумма"), Some(Value::Number(30.0)));
     }
 
     #[test]
@@ -1496,7 +1500,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("сумма"), Some(&Value::Number(12.0)));
+        assert_eq!(interp.get("сумма"), Some(Value::Number(12.0)));
     }
 
     #[test]
@@ -1514,7 +1518,7 @@ mod tests {
             гыы результат = найти([1, 2, 5, 4]);
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::Number(5.0)));
+        assert_eq!(interp.get("результат"), Some(Value::Number(5.0)));
     }
 
     #[test]
@@ -1539,7 +1543,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(interp.get("результат"), Some(&Value::String("абв".to_string())));
+        assert_eq!(interp.get("результат"), Some(Value::String("абв".to_string())));
     }
 
     // ── Деструктуризация массивов ──
@@ -1551,9 +1555,9 @@ mod tests {
             гыы [а, б, в] = [1, 2, 3];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
-        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
     }
 
     #[test]
@@ -1563,8 +1567,8 @@ mod tests {
             гыы [а, б] = [1];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Undefined));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Undefined));
     }
 
     #[test]
@@ -1574,7 +1578,7 @@ mod tests {
             гыы [, , в] = [1, 2, 3];
             "#,
         );
-        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
     }
 
     #[test]
@@ -1588,11 +1592,11 @@ mod tests {
             гыы г = остаток[2];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("длинна"), Some(&Value::Number(3.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
-        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
-        assert_eq!(interp.get("г"), Some(&Value::Number(4.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("длинна"), Some(Value::Number(3.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
+        assert_eq!(interp.get("г"), Some(Value::Number(4.0)));
     }
 
     #[test]
@@ -1603,8 +1607,8 @@ mod tests {
             гыы длинна = длина(остаток);
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("длинна"), Some(&Value::Number(0.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("длинна"), Some(Value::Number(0.0)));
     }
 
     #[test]
@@ -1626,8 +1630,8 @@ mod tests {
             гыы {х, у} = { х: 10, у: 20 };
             "#,
         );
-        assert_eq!(interp.get("х"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("у"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("х"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("у"), Some(Value::Number(20.0)));
     }
 
     #[test]
@@ -1637,8 +1641,8 @@ mod tests {
             гыы {х: а, у: б} = { х: 10, у: 20 };
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(20.0)));
     }
 
     #[test]
@@ -1648,8 +1652,8 @@ mod tests {
             гыы {х, з} = { х: 10, у: 20 };
             "#,
         );
-        assert_eq!(interp.get("х"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("з"), Some(&Value::Undefined));
+        assert_eq!(interp.get("х"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("з"), Some(Value::Undefined));
     }
 
     #[test]
@@ -1659,7 +1663,7 @@ mod tests {
             гыы {х, ...остаток} = { х: 1, у: 2, з: 3 };
             "#,
         );
-        assert_eq!(interp.get("х"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("х"), Some(Value::Number(1.0)));
         let rest = interp.get("остаток").unwrap();
         if let Value::Object(map) = rest {
             assert_eq!(map.get("у"), Some(&Value::Number(2.0)));
@@ -1689,9 +1693,9 @@ mod tests {
             гыы [а, [б, в]] = [1, [2, 3]];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
-        assert_eq!(interp.get("в"), Some(&Value::Number(3.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
     }
 
     #[test]
@@ -1701,8 +1705,8 @@ mod tests {
             гыы [а, {б}] = [1, { б: 2 }];
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(1.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(2.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
     }
 
     #[test]
@@ -1712,8 +1716,8 @@ mod tests {
             гыы {данные: [а, б]} = { данные: [10, 20] };
             "#,
         );
-        assert_eq!(interp.get("а"), Some(&Value::Number(10.0)));
-        assert_eq!(interp.get("б"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("а"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(20.0)));
     }
 
     // ── Деструктуризация с const ──
@@ -1749,7 +1753,7 @@ mod tests {
             гыы с = "привет\nмир";
             "#,
         );
-        assert_eq!(interp.get("с"), Some(&Value::String("привет\nмир".to_string())));
+        assert_eq!(interp.get("с"), Some(Value::String("привет\nмир".to_string())));
     }
 
     #[test]
@@ -1759,7 +1763,7 @@ mod tests {
             гыы с = "а\tб";
             "#,
         );
-        assert_eq!(interp.get("с"), Some(&Value::String("а\tб".to_string())));
+        assert_eq!(interp.get("с"), Some(Value::String("а\tб".to_string())));
     }
 
     #[test]
@@ -1769,7 +1773,7 @@ mod tests {
             гыы с = "путь\\файл";
             "#,
         );
-        assert_eq!(interp.get("с"), Some(&Value::String("путь\\файл".to_string())));
+        assert_eq!(interp.get("с"), Some(Value::String("путь\\файл".to_string())));
     }
 
     #[test]
@@ -1779,7 +1783,7 @@ mod tests {
             гыы с = "он сказал \"да\"";
             "#,
         );
-        assert_eq!(interp.get("с"), Some(&Value::String("он сказал \"да\"".to_string())));
+        assert_eq!(interp.get("с"), Some(Value::String("он сказал \"да\"".to_string())));
     }
 
     #[test]
@@ -1789,7 +1793,7 @@ mod tests {
             гыы с = "строка1\nстрока2\tтаб";
             "#,
         );
-        assert_eq!(interp.get("с"), Some(&Value::String("строка1\nстрока2\tтаб".to_string())));
+        assert_eq!(interp.get("с"), Some(Value::String("строка1\nстрока2\tтаб".to_string())));
     }
 
     #[test]
@@ -1799,7 +1803,7 @@ mod tests {
             гыы р = правда ? 10 : 20;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -1809,7 +1813,7 @@ mod tests {
             гыы р = лож ? 10 : 20;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(20.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(20.0)));
     }
 
     #[test]
@@ -1820,7 +1824,7 @@ mod tests {
             гыы р = x > 5 ? "да" : "нет";
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("да".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("да".to_string())));
     }
 
     #[test]
@@ -1831,7 +1835,7 @@ mod tests {
             гыы р = x > 10 ? "большое" : x > 5 ? "среднее" : "маленькое";
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("маленькое".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("маленькое".to_string())));
     }
 
     #[test]
@@ -1842,7 +1846,7 @@ mod tests {
             гыы р = длина(arr) > 0 ? arr[0] : ноль;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(1.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(1.0)));
     }
 
     // ── стрелочные функции ──
@@ -1855,7 +1859,7 @@ mod tests {
             гыы р = двойное(5);
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(10.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(10.0)));
     }
 
     #[test]
@@ -1868,7 +1872,7 @@ mod tests {
             гыы р = сумма(3, 4);
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(7.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(7.0)));
     }
 
     #[test]
@@ -1879,7 +1883,7 @@ mod tests {
             гыы р = привет();
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("здарова".into())));
+        assert_eq!(interp.get("р"), Some(Value::String("здарова".into())));
     }
 
     #[test]
@@ -1890,7 +1894,7 @@ mod tests {
             гыы р = квадрат(6);
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(36.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(36.0)));
     }
 
     #[test]
@@ -1903,7 +1907,7 @@ mod tests {
             гыы р = применить((х) => х + 10, 5);
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(15.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(15.0)));
     }
 
     #[test]
@@ -1913,7 +1917,7 @@ mod tests {
             гыы р = ((а, б) => а * б)(3, 7);
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Number(21.0)));
+        assert_eq!(interp.get("р"), Some(Value::Number(21.0)));
     }
 
     // ── шаблонные строки (template literals) ──
@@ -1921,13 +1925,13 @@ mod tests {
     #[test]
     fn template_no_substitution() {
         let interp = run_code("гыы р = `привет мир`;");
-        assert_eq!(interp.get("р"), Some(&Value::String("привет мир".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("привет мир".to_string())));
     }
 
     #[test]
     fn template_empty() {
         let interp = run_code("гыы р = ``;");
-        assert_eq!(interp.get("р"), Some(&Value::String(String::new())));
+        assert_eq!(interp.get("р"), Some(Value::String(String::new())));
     }
 
     #[test]
@@ -1938,7 +1942,7 @@ mod tests {
             гыы р = `привет, ${имя}!`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("привет, Вася!".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("привет, Вася!".to_string())));
     }
 
     #[test]
@@ -1950,25 +1954,25 @@ mod tests {
             гыы р = `${а} + ${б} = ${а + б}`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("1 + 2 = 3".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("1 + 2 = 3".to_string())));
     }
 
     #[test]
     fn template_expression_interpolation() {
         let interp = run_code("гыы р = `результат: ${2 + 3 * 4}`;");
-        assert_eq!(interp.get("р"), Some(&Value::String("результат: 14".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("результат: 14".to_string())));
     }
 
     #[test]
     fn template_with_escape() {
         let interp = run_code("гыы р = `строка1\\nстрока2`;");
-        assert_eq!(interp.get("р"), Some(&Value::String("строка1\nстрока2".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".to_string())));
     }
 
     #[test]
     fn template_multiline() {
         let interp = run_code("гыы р = `строка1\nстрока2`;");
-        assert_eq!(interp.get("р"), Some(&Value::String("строка1\nстрока2".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".to_string())));
     }
 
     #[test]
@@ -1979,7 +1983,7 @@ mod tests {
             гыы р = `внешний ${`внутренний ${х}`}`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("внешний внутренний 5".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("внешний внутренний 5".to_string())));
     }
 
     #[test]
@@ -1990,7 +1994,7 @@ mod tests {
             гыы р = `длина: ${длина(а)}`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("длина: 3".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("длина: 3".to_string())));
     }
 
     #[test]
@@ -2001,13 +2005,13 @@ mod tests {
             гыы р = `${х}`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("42".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("42".to_string())));
     }
 
     #[test]
     fn template_escaped_dollar() {
         let interp = run_code("гыы р = `цена: \\${100}`;");
-        assert_eq!(interp.get("р"), Some(&Value::String("цена: ${100}".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("цена: ${100}".to_string())));
     }
 
     #[test]
@@ -2018,7 +2022,7 @@ mod tests {
             гыы р = `число ${х > 5 ? "большое" : "маленькое"}`;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("число большое".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("число большое".to_string())));
     }
 
     // ── Value::Undefined ──
@@ -2031,7 +2035,7 @@ mod tests {
             гыы р = ф();
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
     }
 
     #[test]
@@ -2042,7 +2046,7 @@ mod tests {
             гыы р = ф();
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
     }
 
     #[test]
@@ -2053,7 +2057,7 @@ mod tests {
             гыы р = о.б;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
     }
 
     #[test]
@@ -2064,7 +2068,7 @@ mod tests {
             гыы р = м[10];
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Undefined));
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
     }
 
     #[test]
@@ -2075,7 +2079,7 @@ mod tests {
             гыы р = тип(ф());
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::String("неопределено".to_string())));
+        assert_eq!(interp.get("р"), Some(Value::String("неопределено".to_string())));
     }
 
     #[test]
@@ -2086,6 +2090,231 @@ mod tests {
             гыы р = ф() == ноль;
             "#,
         );
-        assert_eq!(interp.get("р"), Some(&Value::Boolean(false)));
+        assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+    }
+
+    // ── Замыкания (closures) ──
+
+    #[test]
+    fn closure_captures_variable() {
+        let interp = run_code(
+            r#"
+            йопта создать() {
+                гыы н = 0;
+                отвечаю () => {
+                    н = н + 1;
+                    отвечаю н;
+                };
+            }
+            гыы инкр = создать();
+            гыы а = инкр();
+            гыы б = инкр();
+            гыы в = инкр();
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn closure_independent_instances() {
+        let interp = run_code(
+            r#"
+            йопта счётчик() {
+                гыы н = 0;
+                отвечаю () => {
+                    н = н + 1;
+                    отвечаю н;
+                };
+            }
+            гыы а = счётчик();
+            гыы б = счётчик();
+            а();
+            а();
+            б();
+            гыы ра = а();
+            гыы рб = б();
+            "#,
+        );
+        assert_eq!(interp.get("ра"), Some(Value::Number(3.0)));
+        assert_eq!(interp.get("рб"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn closure_captures_outer_scope() {
+        let interp = run_code(
+            r#"
+            гыы х = 10;
+            йопта создать() {
+                отвечаю () => х;
+            }
+            гыы получить = создать();
+            гыы р = получить();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn closure_sees_mutations_of_shared_variable() {
+        let interp = run_code(
+            r#"
+            йопта создать() {
+                гыы н = 0;
+                гыы инкр = () => {
+                    н = н + 1;
+                };
+                гыы получить = () => н;
+                отвечаю [инкр, получить];
+            }
+            гыы пара = создать();
+            гыы инкр = пара[0];
+            гыы получить = пара[1];
+            инкр();
+            инкр();
+            гыы р = получить();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn closure_in_loop() {
+        let interp = run_code(
+            r#"
+            гыы функции = [];
+            го (гыы и = 0; и < 3; и++) {
+                гыы текущий = и;
+                функции = втолкнуть(функции, () => текущий);
+            }
+            гыы а = функции[0]();
+            гыы б = функции[1]();
+            гыы в = функции[2]();
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(0.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn nested_closure() {
+        let interp = run_code(
+            r#"
+            йопта внешняя(х) {
+                отвечаю (у) => {
+                    отвечаю () => х + у;
+                };
+            }
+            гыы ф = внешняя(10)(20);
+            гыы р = ф();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(30.0)));
+    }
+
+    // ── Алиасы ключевых слов ──
+
+    #[test]
+    fn alias_true_trulio() {
+        let interp = run_code("гыы р = трулио;");
+        assert_eq!(interp.get("р"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn alias_true_chotko() {
+        let interp = run_code("гыы р = чотко;");
+        assert_eq!(interp.get("р"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn alias_false_netrulio() {
+        let interp = run_code("гыы р = нетрулио;");
+        assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn alias_false_pizdish() {
+        let interp = run_code("гыы р = пиздишь;");
+        assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn alias_null_nullio() {
+        let interp = run_code("гыы р = нуллио;");
+        assert_eq!(interp.get("р"), Some(Value::Null));
+    }
+
+    #[test]
+    fn alias_null_porozhnyak() {
+        let interp = run_code("гыы р = порожняк;");
+        assert_eq!(interp.get("р"), Some(Value::Null));
+    }
+
+    #[test]
+    fn alias_undefined_neibu() {
+        let interp = run_code("гыы р = неибу;");
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn alias_throw_pnh() {
+        let interp = run_code(
+            r#"
+            гыы р = 0;
+            хапнуть {
+                пнх 42;
+            } гоп (е) {
+                р = е;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn alias_switch_estcho() {
+        let interp = run_code(
+            r#"
+            гыы р = 0;
+            естьчо (1) {
+                лещ 1: {
+                    р = 10;
+                }
+                аеслинайду 2: {
+                    р = 20;
+                }
+                пахану {
+                    р = 99;
+                }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn alias_do_while_krch() {
+        let interp = run_code(
+            r#"
+            гыы р = 0;
+            крч {
+                р = р + 1;
+            } потрещим (р < 3);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn alias_const_yasen_huy_capital() {
+        let interp = run_code(
+            r#"
+            ЯсенХуй ПИ = 3.14;
+            гыы р = ПИ;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(3.14)));
     }
 }

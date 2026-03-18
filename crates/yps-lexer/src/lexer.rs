@@ -74,7 +74,7 @@ impl<'src> Lexer<'src> {
         let kind = match text {
             "гыы" => TokenKind::Keyword(KeywordKind::Gyy),
             "участковый" => TokenKind::Keyword(KeywordKind::Uchastkoviy),
-            "ясенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
+            "ясенХуй" | "ЯсенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
             "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
             "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
             "потрещим" => TokenKind::Keyword(KeywordKind::Potreshchim),
@@ -83,9 +83,14 @@ impl<'src> Lexer<'src> {
             "двигай" => TokenKind::Keyword(KeywordKind::Dvigay),
             "йопта" => TokenKind::Keyword(KeywordKind::Yopta),
             "отвечаю" => TokenKind::Keyword(KeywordKind::Otvechayu),
-            "правда" => TokenKind::Keyword(KeywordKind::Pravda),
-            "лож" => TokenKind::Keyword(KeywordKind::Lozh),
-            "ноль" => TokenKind::Keyword(KeywordKind::Nol),
+            "правда" | "трулио" | "чётко" | "четко" | "чотко" => {
+                TokenKind::Keyword(KeywordKind::Pravda)
+            }
+            "лож" | "нетрулио" | "пиздишь" | "нечётко" | "нечетко" | "нечотко" => {
+                TokenKind::Keyword(KeywordKind::Lozh)
+            }
+            "ноль" | "нуллио" | "порожняк" => TokenKind::Keyword(KeywordKind::Nol),
+            "неибу" => TokenKind::Keyword(KeywordKind::Undefined),
             "хапнуть" | "побратски" | "пабрацки" | "пабратски" => {
                 TokenKind::Keyword(KeywordKind::Try)
             }
@@ -93,12 +98,33 @@ impl<'src> Lexer<'src> {
                 TokenKind::Keyword(KeywordKind::Catch)
             }
             "тюряжка" => TokenKind::Keyword(KeywordKind::Finally),
-            "кидай" => TokenKind::Keyword(KeywordKind::Throw),
-            "базарпо" => TokenKind::Keyword(KeywordKind::Switch),
-            "тема" => TokenKind::Keyword(KeywordKind::Case),
-            "нуичо" => TokenKind::Keyword(KeywordKind::Default),
-            "крутани" => TokenKind::Keyword(KeywordKind::DoWhile),
+            "кидай" | "пнх" => TokenKind::Keyword(KeywordKind::Throw),
+            "базарпо" | "естьчо" => TokenKind::Keyword(KeywordKind::Switch),
+            "тема" | "лещ" | "аеслинайду" => TokenKind::Keyword(KeywordKind::Case),
+            "нуичо" | "пахану" | "апохуй" | "наотыбись" => {
+                TokenKind::Keyword(KeywordKind::Default)
+            }
+            "крутани" | "крч" => TokenKind::Keyword(KeywordKind::DoWhile),
             "из" => TokenKind::Keyword(KeywordKind::In),
+            "клёво" | "клево" => TokenKind::Keyword(KeywordKind::Class),
+            "батя" => TokenKind::Keyword(KeywordKind::Extends),
+            "яга" => TokenKind::Keyword(KeywordKind::Super),
+            "захуярить" | "гыйбать" => TokenKind::Keyword(KeywordKind::New),
+            "тырыпыры" => TokenKind::Keyword(KeywordKind::This),
+            "попонятия" => TokenKind::Keyword(KeywordKind::Static),
+            "чезажижан" => TokenKind::Keyword(KeywordKind::Typeof),
+            "шкура" => TokenKind::Keyword(KeywordKind::Instanceof),
+            "пиздюли" => TokenKind::Keyword(KeywordKind::GeneratorFn),
+            "поебалу" | "поебалуна" => TokenKind::Keyword(KeywordKind::Yield),
+            "ассо" => TokenKind::Keyword(KeywordKind::Async),
+            "сидетьНахуй" => TokenKind::Keyword(KeywordKind::Await),
+            "спиздить" => TokenKind::Keyword(KeywordKind::Import),
+            "предъява" => TokenKind::Keyword(KeywordKind::Export),
+            "откуда" => TokenKind::Keyword(KeywordKind::From),
+            "сашаГрей" => TokenKind::Keyword(KeywordKind::Of),
+            "ёбнуть" | "ебнуть" => TokenKind::Keyword(KeywordKind::Delete),
+            "куку" => TokenKind::Keyword(KeywordKind::Void),
+            "юзай" => TokenKind::Keyword(KeywordKind::Using),
             _ => TokenKind::Identifier,
         };
 

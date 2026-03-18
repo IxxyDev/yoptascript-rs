@@ -1,16 +1,20 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use yps_parser::ast::Block;
 
-#[derive(Debug, Clone)]
+use crate::environment::EnvFrame;
+
+#[derive(Clone)]
 pub enum Value {
     Number(f64),
     String(String),
     Boolean(bool),
     Array(Vec<Value>),
     Object(HashMap<String, Value>),
-    Function { name: String, params: Vec<String>, body: Block },
+    Function { name: String, params: Vec<String>, body: Block, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
     Undefined,
     Null,
@@ -38,6 +42,24 @@ impl Value {
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
+        }
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Number(n) => write!(f, "Number({n})"),
+            Value::String(s) => write!(f, "String({s:?})"),
+            Value::Boolean(b) => write!(f, "Boolean({b})"),
+            Value::Array(a) => f.debug_tuple("Array").field(a).finish(),
+            Value::Object(o) => f.debug_tuple("Object").field(o).finish(),
+            Value::Function { name, params, .. } => {
+                write!(f, "Function {{ name: {name:?}, params: {params:?}, .. }}")
+            }
+            Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
+            Value::Undefined => write!(f, "Undefined"),
+            Value::Null => write!(f, "Null"),
         }
     }
 }

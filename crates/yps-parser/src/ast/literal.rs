@@ -13,6 +13,7 @@ pub enum Literal {
     String { value: String, span: Span },
     Boolean { value: bool, span: Span },
     Null { span: Span },
+    Undefined { span: Span },
     Array { elements: Vec<Expr>, span: Span },
     Object { properties: Vec<ObjectProperty>, span: Span },
 }
