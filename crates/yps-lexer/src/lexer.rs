@@ -207,7 +207,15 @@ impl<'src> Lexer<'src> {
                 }
             }
             '*' => {
-                if self.current_char() == '=' {
+                if self.current_char() == '*' {
+                    self.advance();
+                    if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::ExponentAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::Exponent)
+                    }
+                } else if self.current_char() == '=' {
                     self.advance();
                     TokenKind::Operator(OperatorKind::MulAssign)
                 } else {
