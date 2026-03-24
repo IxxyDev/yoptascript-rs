@@ -11,7 +11,7 @@ use crate::ast::{
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const TERNARY_PRECEDENCE: u8 = 2;
-const UNARY_PRECEDENCE: u8 = 10;
+const UNARY_PRECEDENCE: u8 = 11;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -1302,22 +1302,24 @@ impl<'a> Parser<'a> {
             OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
             OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
             OperatorKind::ExponentAssign => Some((BinaryOp::ExpAssign, 1)),
+            OperatorKind::NullishAssign => Some((BinaryOp::NullishAssign, 1)),
             OperatorKind::Or => Some((BinaryOp::Or, 3)),
-            OperatorKind::And => Some((BinaryOp::And, 4)),
-            OperatorKind::Equals => Some((BinaryOp::Equals, 5)),
-            OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 5)),
-            OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 5)),
-            OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 5)),
-            OperatorKind::Less => Some((BinaryOp::Less, 6)),
-            OperatorKind::Greater => Some((BinaryOp::Greater, 6)),
-            OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 6)),
-            OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 6)),
-            OperatorKind::Plus => Some((BinaryOp::Add, 7)),
-            OperatorKind::Minus => Some((BinaryOp::Sub, 7)),
-            OperatorKind::Multiply => Some((BinaryOp::Mul, 8)),
-            OperatorKind::Divide => Some((BinaryOp::Div, 8)),
-            OperatorKind::Modulo => Some((BinaryOp::Mod, 8)),
-            OperatorKind::Exponent => Some((BinaryOp::Exp, 9)),
+            OperatorKind::NullishCoalescing => Some((BinaryOp::NullishCoalescing, 4)),
+            OperatorKind::And => Some((BinaryOp::And, 5)),
+            OperatorKind::Equals => Some((BinaryOp::Equals, 6)),
+            OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 6)),
+            OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 6)),
+            OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 6)),
+            OperatorKind::Less => Some((BinaryOp::Less, 7)),
+            OperatorKind::Greater => Some((BinaryOp::Greater, 7)),
+            OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 7)),
+            OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 7)),
+            OperatorKind::Plus => Some((BinaryOp::Add, 8)),
+            OperatorKind::Minus => Some((BinaryOp::Sub, 8)),
+            OperatorKind::Multiply => Some((BinaryOp::Mul, 9)),
+            OperatorKind::Divide => Some((BinaryOp::Div, 9)),
+            OperatorKind::Modulo => Some((BinaryOp::Mod, 9)),
+            OperatorKind::Exponent => Some((BinaryOp::Exp, 10)),
             OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
         }
     }

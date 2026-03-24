@@ -345,7 +345,19 @@ impl<'src> Lexer<'src> {
                     TokenKind::Punctuation(PunctuationKind::Dot)
                 }
             }
-            '?' => TokenKind::Punctuation(PunctuationKind::Question),
+            '?' => {
+                if self.current_char() == '?' {
+                    self.advance();
+                    if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::NullishAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::NullishCoalescing)
+                    }
+                } else {
+                    TokenKind::Punctuation(PunctuationKind::Question)
+                }
+            }
             _ => {
                 self.diagnostics.push(Diagnostic {
                     severity: Severity::Error,

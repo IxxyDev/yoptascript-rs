@@ -380,6 +380,21 @@ impl Interpreter {
                     }
                     return self.eval_expr(rhs);
                 }
+                if *op == BinaryOp::NullishCoalescing {
+                    let left = self.eval_expr(lhs)?;
+                    if !matches!(left, Value::Null | Value::Undefined) {
+                        return Ok(left);
+                    }
+                    return self.eval_expr(rhs);
+                }
+                if *op == BinaryOp::NullishAssign {
+                    let left = self.eval_expr(lhs)?;
+                    if !matches!(left, Value::Null | Value::Undefined) {
+                        return Ok(left);
+                    }
+                    let right = self.eval_expr(rhs)?;
+                    return self.assign_to_target(lhs, right, *span);
+                }
                 if *op == BinaryOp::Assign {
                     return self.eval_assignment(lhs, rhs, *span);
                 }
@@ -522,7 +537,9 @@ impl Interpreter {
             BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
-            BinaryOp::And | BinaryOp::Or => unreachable!("handled in eval_expr"),
+            BinaryOp::And | BinaryOp::Or | BinaryOp::NullishCoalescing | BinaryOp::NullishAssign => {
+                unreachable!("handled in eval_expr")
+            }
             BinaryOp::Assign
             | BinaryOp::PlusAssign
             | BinaryOp::MinusAssign
@@ -2213,6 +2230,58 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(Value::Number(1024.0)));
+    }
+
+    #[test]
+    fn nullish_coalescing_null() {
+        let interp = run_code("гыы р = ноль ?? 42;");
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn nullish_coalescing_undefined() {
+        let interp = run_code("гыы р = неибу ?? 42;");
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn nullish_coalescing_non_null() {
+        let interp = run_code("гыы р = 0 ?? 42;");
+        assert_eq!(interp.get("р"), Some(Value::Number(0.0)));
+    }
+
+    #[test]
+    fn nullish_coalescing_false_is_not_nullish() {
+        let interp = run_code("гыы р = лож ?? 42;");
+        assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn nullish_coalescing_chain() {
+        let interp = run_code("гыы р = ноль ?? неибу ?? 7;");
+        assert_eq!(interp.get("р"), Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn nullish_assign_null() {
+        let interp = run_code(
+            r#"
+            гыы р = ноль;
+            р ??= 99;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(99.0)));
+    }
+
+    #[test]
+    fn nullish_assign_non_null() {
+        let interp = run_code(
+            r#"
+            гыы р = 5;
+            р ??= 99;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(5.0)));
     }
 
     #[test]
