@@ -366,7 +366,6 @@ impl Interpreter {
                 self.eval_unary(*op, val, *span)
             }
             Expr::Binary { op, lhs, rhs, span } => {
-                // short-circuit for logical operators
                 if *op == BinaryOp::And {
                     let left = self.eval_expr(lhs)?;
                     if !left.is_truthy() {
@@ -386,7 +385,11 @@ impl Interpreter {
                 }
                 if matches!(
                     op,
-                    BinaryOp::PlusAssign | BinaryOp::MinusAssign | BinaryOp::MulAssign | BinaryOp::DivAssign
+                    BinaryOp::PlusAssign
+                        | BinaryOp::MinusAssign
+                        | BinaryOp::MulAssign
+                        | BinaryOp::DivAssign
+                        | BinaryOp::ExpAssign
                 ) {
                     return self.eval_compound_assignment(*op, lhs, rhs, *span);
                 }
@@ -512,6 +515,7 @@ impl Interpreter {
                 self.numeric_op(&left, &right, span, |a, b| a / b)
             }
             BinaryOp::Mod => self.numeric_op(&left, &right, span, |a, b| a % b),
+            BinaryOp::Exp => self.numeric_op(&left, &right, span, |a, b| a.powf(b)),
             BinaryOp::Equals | BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
             BinaryOp::NotEquals | BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
             BinaryOp::Less => self.compare_op(&left, &right, span, |a, b| a < b),
@@ -523,7 +527,8 @@ impl Interpreter {
             | BinaryOp::PlusAssign
             | BinaryOp::MinusAssign
             | BinaryOp::MulAssign
-            | BinaryOp::DivAssign => unreachable!("handled in eval_expr"),
+            | BinaryOp::DivAssign
+            | BinaryOp::ExpAssign => unreachable!("handled in eval_expr"),
         }
     }
 
@@ -546,6 +551,7 @@ impl Interpreter {
             BinaryOp::MinusAssign => BinaryOp::Sub,
             BinaryOp::MulAssign => BinaryOp::Mul,
             BinaryOp::DivAssign => BinaryOp::Div,
+            BinaryOp::ExpAssign => BinaryOp::Exp,
             _ => unreachable!(),
         };
         let result = self.eval_binary(arith_op, old, right, span)?;
@@ -784,8 +790,6 @@ mod tests {
         interp.run(&program).unwrap_err()
     }
 
-    // ── Присваивание по индексу массива ──
-
     #[test]
     fn assign_array_index() {
         let interp = run_code(
@@ -835,8 +839,6 @@ mod tests {
         assert!(err.message.contains("вне диапазона") || err.message.contains("Индекс"));
     }
 
-    // ── Присваивание по свойству объекта ──
-
     #[test]
     fn assign_object_member() {
         let interp = run_code(
@@ -884,8 +886,6 @@ mod tests {
         assert!(err.message.contains("свойство") || err.message.contains("объект"));
     }
 
-    // ── Составное присваивание по индексу/свойству ──
-
     #[test]
     fn compound_assign_array_index() {
         let interp = run_code(
@@ -909,8 +909,6 @@ mod tests {
         );
         assert_eq!(interp.get("результат"), Some(Value::Number(70.0)));
     }
-
-    // ── Вложенные присваивания ──
 
     #[test]
     fn assign_nested_array() {
@@ -959,8 +957,6 @@ mod tests {
         );
         assert_eq!(interp.get("результат"), Some(Value::Number(99.0)));
     }
-
-    // ── try/catch/finally ──
 
     #[test]
     fn try_catch_catches_runtime_error() {
@@ -1173,8 +1169,6 @@ mod tests {
         assert_eq!(interp.get("результат"), Some(Value::Number(11.0)));
     }
 
-    // ── switch/case (базарпо/тема/нуичо) ──
-
     #[test]
     fn switch_matches_first_case() {
         let interp = run_code(
@@ -1344,8 +1338,6 @@ mod tests {
         assert_eq!(interp.get("в"), Some(Value::Number(0.0)));
     }
 
-    // ── do-while (крутани/потрещим) ──
-
     #[test]
     fn do_while_executes_at_least_once() {
         let interp = run_code(
@@ -1427,8 +1419,6 @@ mod tests {
         );
         assert_eq!(interp.get("результат"), Some(Value::Number(6.0)));
     }
-
-    // ── for-in (го ... из ...) ──
 
     #[test]
     fn for_in_array() {
@@ -1546,8 +1536,6 @@ mod tests {
         assert_eq!(interp.get("результат"), Some(Value::String("абв".to_string())));
     }
 
-    // ── Деструктуризация массивов ──
-
     #[test]
     fn destructure_array_basic() {
         let interp = run_code(
@@ -1621,8 +1609,6 @@ mod tests {
         assert!(err.message.contains("деструктурировать"));
     }
 
-    // ── Деструктуризация объектов ──
-
     #[test]
     fn destructure_object_shorthand() {
         let interp = run_code(
@@ -1684,8 +1670,6 @@ mod tests {
         assert!(err.message.contains("деструктурировать"));
     }
 
-    // ── Вложенная деструктуризация ──
-
     #[test]
     fn destructure_nested_array_in_array() {
         let interp = run_code(
@@ -1720,8 +1704,6 @@ mod tests {
         assert_eq!(interp.get("б"), Some(Value::Number(20.0)));
     }
 
-    // ── Деструктуризация с const ──
-
     #[test]
     fn destructure_const_array() {
         let err = run_code_err(
@@ -1743,8 +1725,6 @@ mod tests {
         );
         assert!(err.message.contains("константу") || err.message.contains("const"));
     }
-
-    // ── Escape-последовательности в строках ──
 
     #[test]
     fn string_escape_newline() {
@@ -1849,8 +1829,6 @@ mod tests {
         assert_eq!(interp.get("р"), Some(Value::Number(1.0)));
     }
 
-    // ── стрелочные функции ──
-
     #[test]
     fn arrow_function_expr_body() {
         let interp = run_code(
@@ -1919,8 +1897,6 @@ mod tests {
         );
         assert_eq!(interp.get("р"), Some(Value::Number(21.0)));
     }
-
-    // ── шаблонные строки (template literals) ──
 
     #[test]
     fn template_no_substitution() {
@@ -2025,8 +2001,6 @@ mod tests {
         assert_eq!(interp.get("р"), Some(Value::String("число большое".to_string())));
     }
 
-    // ── Value::Undefined ──
-
     #[test]
     fn function_without_return_gives_undefined() {
         let interp = run_code(
@@ -2092,8 +2066,6 @@ mod tests {
         );
         assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
     }
-
-    // ── Замыкания (closures) ──
 
     #[test]
     fn closure_captures_variable() {
@@ -2214,7 +2186,34 @@ mod tests {
         assert_eq!(interp.get("р"), Some(Value::Number(30.0)));
     }
 
-    // ── Алиасы ключевых слов ──
+    #[test]
+    fn exponent_basic() {
+        let interp = run_code("гыы р = 2 ** 3;");
+        assert_eq!(interp.get("р"), Some(Value::Number(8.0)));
+    }
+
+    #[test]
+    fn exponent_right_associative() {
+        let interp = run_code("гыы р = 2 ** 3 ** 2;");
+        assert_eq!(interp.get("р"), Some(Value::Number(512.0)));
+    }
+
+    #[test]
+    fn exponent_with_multiply() {
+        let interp = run_code("гыы р = 3 * 2 ** 3;");
+        assert_eq!(interp.get("р"), Some(Value::Number(24.0)));
+    }
+
+    #[test]
+    fn exponent_assign() {
+        let interp = run_code(
+            r#"
+            гыы р = 2;
+            р **= 10;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(1024.0)));
+    }
 
     #[test]
     fn alias_true_trulio() {
@@ -2308,6 +2307,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn alias_const_yasen_huy_capital() {
         let interp = run_code(
             r#"

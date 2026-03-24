@@ -11,7 +11,7 @@ use crate::ast::{
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const TERNARY_PRECEDENCE: u8 = 2;
-const UNARY_PRECEDENCE: u8 = 9;
+const UNARY_PRECEDENCE: u8 = 10;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -1171,7 +1171,9 @@ impl<'a> Parser<'a> {
 
             self.advance();
 
-            let rhs = self.parse_expression_with_precedence(precedence + 1)?;
+            let right_assoc = matches!(op, BinaryOp::Exp);
+            let next_prec = if right_assoc { precedence } else { precedence + 1 };
+            let rhs = self.parse_expression_with_precedence(next_prec)?;
 
             let start = lhs.span().start;
             let end = rhs.span().end;
@@ -1299,6 +1301,7 @@ impl<'a> Parser<'a> {
             OperatorKind::MinusAssign => Some((BinaryOp::MinusAssign, 1)),
             OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
             OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
+            OperatorKind::ExponentAssign => Some((BinaryOp::ExpAssign, 1)),
             OperatorKind::Or => Some((BinaryOp::Or, 3)),
             OperatorKind::And => Some((BinaryOp::And, 4)),
             OperatorKind::Equals => Some((BinaryOp::Equals, 5)),
@@ -1314,6 +1317,7 @@ impl<'a> Parser<'a> {
             OperatorKind::Multiply => Some((BinaryOp::Mul, 8)),
             OperatorKind::Divide => Some((BinaryOp::Div, 8)),
             OperatorKind::Modulo => Some((BinaryOp::Mod, 8)),
+            OperatorKind::Exponent => Some((BinaryOp::Exp, 9)),
             OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
         }
     }
