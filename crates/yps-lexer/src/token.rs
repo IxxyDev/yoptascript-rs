@@ -74,6 +74,8 @@ pub enum OperatorKind {
     And,
     Or,
     Not,
+    NullishCoalescing,
+    NullishAssign,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
