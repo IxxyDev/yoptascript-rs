@@ -92,6 +92,7 @@ pub enum PunctuationKind {
     Dot,
     Spread,
     Question,
+    OptionalChain,
     Arrow,
 }
 
