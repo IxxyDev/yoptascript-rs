@@ -1216,6 +1216,8 @@ impl<'a> Parser<'a> {
                 expr = self.parse_index(expr)?;
             } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Dot)) {
                 expr = self.parse_member(expr)?;
+            } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::OptionalChain)) {
+                expr = self.parse_optional_chain(expr)?;
             } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Increment)) {
                 let start = expr.span().start;
                 let end = self.current().span.end;
@@ -1288,6 +1290,49 @@ impl<'a> Parser<'a> {
         let end = property.span.end;
 
         Ok(Expr::Member { object: Box::new(object), property, span: Span { start, end } })
+    }
+
+    fn parse_optional_chain(&mut self, object: Expr) -> Result<Expr, ()> {
+        let start = object.span().start;
+        self.advance();
+
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            self.advance();
+            let mut args = Vec::new();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                loop {
+                    args.push(self.parse_expr()?);
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ')' после аргументов функции");
+                return Err(());
+            }
+            let end = self.current().span.end;
+            self.advance();
+            Ok(Expr::OptionalCall { callee: Box::new(object), args, span: Span { start, end } })
+        } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
+            self.advance();
+            let index = self.parse_expr()?;
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидался ']'");
+                return Err(());
+            }
+            let end = self.current().span.end;
+            self.advance();
+            Ok(Expr::OptionalIndex { object: Box::new(object), index: Box::new(index), span: Span { start, end } })
+        } else {
+            let property = self.parse_identifier()?;
+            let end = property.span.end;
+            Ok(Expr::OptionalMember { object: Box::new(object), property, span: Span { start, end } })
+        }
     }
 
     fn try_parse_binary_op(&self) -> Option<(BinaryOp, u8)> {

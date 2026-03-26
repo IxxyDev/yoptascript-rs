@@ -29,6 +29,12 @@ pub enum Expr {
 
     Member { object: Box<Expr>, property: Identifier, span: Span },
 
+    OptionalMember { object: Box<Expr>, property: Identifier, span: Span },
+
+    OptionalIndex { object: Box<Expr>, index: Box<Expr>, span: Span },
+
+    OptionalCall { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+
     Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
 
     ArrowFunction { params: Vec<Identifier>, body: Block, span: Span },
@@ -58,6 +64,9 @@ impl Expr {
             | Self::Call { span, .. }
             | Self::Index { span, .. }
             | Self::Member { span, .. }
+            | Self::OptionalMember { span, .. }
+            | Self::OptionalIndex { span, .. }
+            | Self::OptionalCall { span, .. }
             | Self::Conditional { span, .. }
             | Self::ArrowFunction { span, .. }
             | Self::TemplateLiteral { span, .. } => *span,

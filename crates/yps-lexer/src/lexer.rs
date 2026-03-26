@@ -346,7 +346,10 @@ impl<'src> Lexer<'src> {
                 }
             }
             '?' => {
-                if self.current_char() == '?' {
+                if self.current_char() == '.' && !self.peek_char(1).is_ascii_digit() {
+                    self.advance();
+                    TokenKind::Punctuation(PunctuationKind::OptionalChain)
+                } else if self.current_char() == '?' {
                     self.advance();
                     if self.current_char() == '=' {
                         self.advance();
