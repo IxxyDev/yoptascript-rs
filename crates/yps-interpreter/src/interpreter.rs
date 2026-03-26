@@ -436,6 +436,35 @@ impl Interpreter {
                 let obj = self.eval_expr(object)?;
                 self.eval_member(obj, &property.name, *span)
             }
+            Expr::OptionalMember { object, property, span } => {
+                let obj = self.eval_expr(object)?;
+                if matches!(obj, Value::Null | Value::Undefined) {
+                    Ok(Value::Undefined)
+                } else {
+                    self.eval_member(obj, &property.name, *span)
+                }
+            }
+            Expr::OptionalIndex { object, index, span } => {
+                let obj = self.eval_expr(object)?;
+                if matches!(obj, Value::Null | Value::Undefined) {
+                    Ok(Value::Undefined)
+                } else {
+                    let idx = self.eval_expr(index)?;
+                    self.eval_index(obj, idx, *span)
+                }
+            }
+            Expr::OptionalCall { callee, args, span } => {
+                let func = self.eval_expr(callee)?;
+                if matches!(func, Value::Null | Value::Undefined) {
+                    Ok(Value::Undefined)
+                } else {
+                    let mut arg_values = Vec::with_capacity(args.len());
+                    for arg in args {
+                        arg_values.push(self.eval_expr(arg)?);
+                    }
+                    self.call_function(func, arg_values, *span)
+                }
+            }
             Expr::Conditional { condition, then_expr, else_expr, .. } => {
                 let cond = self.eval_expr(condition)?;
                 if cond.is_truthy() { self.eval_expr(then_expr) } else { self.eval_expr(else_expr) }
@@ -2385,5 +2414,104 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(Value::Number(3.14)));
+    }
+
+    #[test]
+    fn optional_chain_member_on_object() {
+        let interp = run_code(
+            r#"
+            гыы чел = { имя: "Вася" };
+            гыы р = чел?.имя;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::String("Вася".to_string())));
+    }
+
+    #[test]
+    fn optional_chain_member_on_null() {
+        let interp = run_code(
+            r#"
+            гыы чел = ноль;
+            гыы р = чел?.имя;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn optional_chain_member_on_undefined() {
+        let interp = run_code(
+            r#"
+            гыы чел = неибу;
+            гыы р = чел?.имя;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn optional_chain_nested() {
+        let interp = run_code(
+            r#"
+            гыы данные = { а: { б: 42 } };
+            гыы р = данные?.а?.б;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn optional_chain_nested_null() {
+        let interp = run_code(
+            r#"
+            гыы данные = { а: ноль };
+            гыы р = данные?.а?.б;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn optional_chain_index() {
+        let interp = run_code(
+            r#"
+            гыы арр = [10, 20, 30];
+            гыы р = арр?.[1];
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(20.0)));
+    }
+
+    #[test]
+    fn optional_chain_index_on_null() {
+        let interp = run_code(
+            r#"
+            гыы арр = ноль;
+            гыы р = арр?.[0];
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn optional_chain_call() {
+        let interp = run_code(
+            r#"
+            гыы ф = () => { отвечаю 42; };
+            гыы р = ф?.();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn optional_chain_call_on_null() {
+        let interp = run_code(
+            r#"
+            гыы ф = ноль;
+            гыы р = ф?.();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Undefined));
     }
 }
