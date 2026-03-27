@@ -395,6 +395,22 @@ impl Interpreter {
                     let right = self.eval_expr(rhs)?;
                     return self.assign_to_target(lhs, right, *span);
                 }
+                if *op == BinaryOp::AndAssign {
+                    let left = self.eval_expr(lhs)?;
+                    if !left.is_truthy() {
+                        return Ok(left);
+                    }
+                    let right = self.eval_expr(rhs)?;
+                    return self.assign_to_target(lhs, right, *span);
+                }
+                if *op == BinaryOp::OrAssign {
+                    let left = self.eval_expr(lhs)?;
+                    if left.is_truthy() {
+                        return Ok(left);
+                    }
+                    let right = self.eval_expr(rhs)?;
+                    return self.assign_to_target(lhs, right, *span);
+                }
                 if *op == BinaryOp::Assign {
                     return self.eval_assignment(lhs, rhs, *span);
                 }
@@ -566,7 +582,12 @@ impl Interpreter {
             BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
-            BinaryOp::And | BinaryOp::Or | BinaryOp::NullishCoalescing | BinaryOp::NullishAssign => {
+            BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::NullishCoalescing
+            | BinaryOp::NullishAssign
+            | BinaryOp::AndAssign
+            | BinaryOp::OrAssign => {
                 unreachable!("handled in eval_expr")
             }
             BinaryOp::Assign
@@ -2513,5 +2534,49 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn logical_and_assign_truthy() {
+        let interp = run_code(
+            r#"
+            гыы а = 1;
+            а &&= 42;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn logical_and_assign_falsy() {
+        let interp = run_code(
+            r#"
+            гыы а = 0;
+            а &&= 42;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(0.0)));
+    }
+
+    #[test]
+    fn logical_or_assign_falsy() {
+        let interp = run_code(
+            r#"
+            гыы а = 0;
+            а ||= 42;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn logical_or_assign_truthy() {
+        let interp = run_code(
+            r#"
+            гыы а = 1;
+            а ||= 42;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
     }
 }

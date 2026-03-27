@@ -1348,6 +1348,8 @@ impl<'a> Parser<'a> {
             OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
             OperatorKind::ExponentAssign => Some((BinaryOp::ExpAssign, 1)),
             OperatorKind::NullishAssign => Some((BinaryOp::NullishAssign, 1)),
+            OperatorKind::AndAssign => Some((BinaryOp::AndAssign, 1)),
+            OperatorKind::OrAssign => Some((BinaryOp::OrAssign, 1)),
             OperatorKind::Or => Some((BinaryOp::Or, 3)),
             OperatorKind::NullishCoalescing => Some((BinaryOp::NullishCoalescing, 4)),
             OperatorKind::And => Some((BinaryOp::And, 5)),
@@ -1365,7 +1367,9 @@ impl<'a> Parser<'a> {
             OperatorKind::Divide => Some((BinaryOp::Div, 9)),
             OperatorKind::Modulo => Some((BinaryOp::Mod, 9)),
             OperatorKind::Exponent => Some((BinaryOp::Exp, 10)),
-            OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
+            OperatorKind::Not
+            | OperatorKind::Increment
+            | OperatorKind::Decrement => None,
         }
     }
 }
