@@ -14,7 +14,7 @@ pub enum Value {
     Boolean(bool),
     Array(Vec<Value>),
     Object(HashMap<String, Value>),
-    Function { name: String, params: Vec<String>, body: Block, env: Rc<RefCell<EnvFrame>> },
+    Function { name: String, params: Vec<String>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
     Undefined,
     Null,

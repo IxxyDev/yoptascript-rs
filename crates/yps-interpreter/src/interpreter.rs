@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use yps_lexer::Span;
 use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Pattern, PostfixOp, Program, Stmt, TemplatePart, UnaryOp};
@@ -140,7 +141,7 @@ impl Interpreter {
                 let func = Value::Function {
                     name: name.name.clone(),
                     params: params.iter().map(|p| p.name.clone()).collect(),
-                    body: body.clone(),
+                    body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                 };
                 self.env.define(name.name.clone(), func, false);
@@ -497,7 +498,7 @@ impl Interpreter {
                 let func = Value::Function {
                     name: String::new(),
                     params: params.iter().map(|p| p.name.clone()).collect(),
-                    body: body.clone(),
+                    body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                 };
                 Ok(func)
