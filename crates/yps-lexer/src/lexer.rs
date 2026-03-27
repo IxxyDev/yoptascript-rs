@@ -163,14 +163,14 @@ impl<'src> Lexer<'src> {
     fn read_number(&mut self) -> Token {
         let start = self.position;
 
-        while self.current_char().is_ascii_digit() {
+        while self.current_char().is_ascii_digit() || self.current_char() == '_' {
             self.advance();
         }
 
         if self.current_char() == '.' && self.peek_char(1).is_ascii_digit() {
             self.advance();
 
-            while self.current_char().is_ascii_digit() {
+            while self.current_char().is_ascii_digit() || self.current_char() == '_' {
                 self.advance();
             }
         }
