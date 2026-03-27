@@ -1206,6 +1206,13 @@ impl<'a> Parser<'a> {
                 let end = expr.span().end;
                 Expr::Unary { op: UnaryOp::Not, expr: Box::new(expr), span: Span { start, end } }
             }
+            TokenKind::Keyword(KeywordKind::Typeof) => {
+                let start = self.current().span.start;
+                self.advance();
+                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+                let end = expr.span().end;
+                Expr::Unary { op: UnaryOp::Typeof, expr: Box::new(expr), span: Span { start, end } }
+            }
             _ => self.parse_primary()?,
         };
 
