@@ -513,6 +513,7 @@ impl Interpreter {
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
         match lit {
             Literal::Number { raw, span } => raw
+                .replace('_', "")
                 .parse::<f64>()
                 .map(Value::Number)
                 .map_err(|_| RuntimeError::new(format!("Невалидное число: '{raw}'"), *span)),
@@ -2578,5 +2579,17 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn numeric_separator() {
+        let interp = run_code(
+            r#"
+            гыы а = 1_000_000;
+            гыы б = 3.14_15;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(1_000_000.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(3.1415)));
     }
 }
