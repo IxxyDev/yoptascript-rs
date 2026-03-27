@@ -285,7 +285,12 @@ impl<'src> Lexer<'src> {
             '&' => {
                 if self.current_char() == '&' {
                     self.advance();
-                    TokenKind::Operator(OperatorKind::And)
+                    if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::AndAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::And)
+                    }
                 } else {
                     self.diagnostics.push(Diagnostic {
                         severity: Severity::Error,
@@ -298,7 +303,12 @@ impl<'src> Lexer<'src> {
             '|' => {
                 if self.current_char() == '|' {
                     self.advance();
-                    TokenKind::Operator(OperatorKind::Or)
+                    if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::OrAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::Or)
+                    }
                 } else {
                     self.diagnostics.push(Diagnostic {
                         severity: Severity::Error,

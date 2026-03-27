@@ -31,6 +31,8 @@ pub enum BinaryOp {
     Or,
     NullishCoalescing,
     NullishAssign,
+    AndAssign,
+    OrAssign,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
