@@ -1,9 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(clippy::missing_const_for_fn)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::match_same_arms)]
-
 use crate::ast::{
     BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Pattern, PostfixOp, Program, Stmt, SwitchCase,
     TemplatePart, UnaryOp,
@@ -1374,9 +1368,7 @@ impl<'a> Parser<'a> {
             OperatorKind::Divide => Some((BinaryOp::Div, 9)),
             OperatorKind::Modulo => Some((BinaryOp::Mod, 9)),
             OperatorKind::Exponent => Some((BinaryOp::Exp, 10)),
-            OperatorKind::Not
-            | OperatorKind::Increment
-            | OperatorKind::Decrement => None,
+            OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
         }
     }
 }

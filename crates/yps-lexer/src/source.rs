@@ -22,8 +22,8 @@ impl SourceFile {
         let mut line = 1;
         let mut col = 1;
 
-        for (i, ch) in self.source.chars().enumerate() {
-            if i >= offset {
+        for (byte_pos, ch) in self.source.char_indices() {
+            if byte_pos >= offset {
                 break;
             }
 

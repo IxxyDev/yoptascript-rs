@@ -65,6 +65,6 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
     }
 }
 
-pub fn builtin_names() -> Vec<&'static str> {
-    vec!["сказать", "длина", "тип", "число", "строка", "втолкнуть"]
+pub fn builtin_names() -> &'static [&'static str] {
+    &["сказать", "длина", "тип", "число", "строка", "втолкнуть"]
 }
