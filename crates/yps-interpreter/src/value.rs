@@ -32,6 +32,18 @@ impl Value {
         }
     }
 
+    pub fn typeof_str(&self) -> &'static str {
+        match self {
+            Value::Number(_) => "число",
+            Value::String(_) => "строка",
+            Value::Boolean(_) => "булево",
+            Value::Undefined => "неопределено",
+            Value::Null => "объект",
+            Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
+            Value::Array(_) | Value::Object(_) => "объект",
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",
