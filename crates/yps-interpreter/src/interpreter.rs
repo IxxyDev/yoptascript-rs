@@ -362,6 +362,14 @@ impl Interpreter {
                 .get(&ident.name)
                 .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)),
             Expr::Unary { op, expr, span } => {
+                if *op == UnaryOp::Typeof {
+                    if let Expr::Identifier(ident) = expr.as_ref() {
+                        let val = self.env.get(&ident.name).unwrap_or(Value::Undefined);
+                        return Ok(Value::String(val.typeof_str().to_string()));
+                    }
+                    let val = self.eval_expr(expr)?;
+                    return Ok(Value::String(val.typeof_str().to_string()));
+                }
                 let val = self.eval_expr(expr)?;
                 self.eval_unary(*op, val, *span)
             }
@@ -550,6 +558,7 @@ impl Interpreter {
                 _ => Err(RuntimeError::new(format!("Нельзя применить '+' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
+            UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string())),
         }
     }
 
@@ -2586,10 +2595,49 @@ mod tests {
         let interp = run_code(
             r#"
             гыы а = 1_000_000;
-            гыы б = 3.14_15;
+            гыы б = 1.23_45;
             "#,
         );
         assert_eq!(interp.get("а"), Some(Value::Number(1_000_000.0)));
-        assert_eq!(interp.get("б"), Some(Value::Number(3.1415)));
+        assert_eq!(interp.get("б"), Some(Value::Number(1.2345)));
+    }
+
+    #[test]
+    fn typeof_basic() {
+        let interp = run_code(
+            r#"
+            гыы а = чезажижан 42;
+            гыы б = чезажижан "привет";
+            гыы в = чезажижан правда;
+            гыы г = чезажижан ноль;
+            гыы д = чезажижан неибу;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::String("число".to_string())));
+        assert_eq!(interp.get("б"), Some(Value::String("строка".to_string())));
+        assert_eq!(interp.get("в"), Some(Value::String("булево".to_string())));
+        assert_eq!(interp.get("г"), Some(Value::String("объект".to_string())));
+        assert_eq!(interp.get("д"), Some(Value::String("неопределено".to_string())));
+    }
+
+    #[test]
+    fn typeof_undefined_variable() {
+        let interp = run_code(
+            r#"
+            гыы р = чезажижан несуществует;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::String("неопределено".to_string())));
+    }
+
+    #[test]
+    fn typeof_function() {
+        let interp = run_code(
+            r#"
+            йопта ф() {}
+            гыы р = чезажижан ф;
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::String("функция".to_string())));
     }
 }
