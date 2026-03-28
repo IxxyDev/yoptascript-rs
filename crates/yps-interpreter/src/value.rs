@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
-use yps_parser::ast::Block;
+use yps_parser::ast::{Block, Param};
 
 use crate::environment::EnvFrame;
 
@@ -14,7 +14,7 @@ pub enum Value {
     Boolean(bool),
     Array(Vec<Value>),
     Object(HashMap<String, Value>),
-    Function { name: String, params: Vec<String>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
+    Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
     Undefined,
     Null,
@@ -67,7 +67,8 @@ impl fmt::Debug for Value {
             Value::Array(a) => f.debug_tuple("Array").field(a).finish(),
             Value::Object(o) => f.debug_tuple("Object").field(o).finish(),
             Value::Function { name, params, .. } => {
-                write!(f, "Function {{ name: {name:?}, params: {params:?}, .. }}")
+                let param_names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();
+                write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
             Value::Undefined => write!(f, "Undefined"),
@@ -123,6 +124,7 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

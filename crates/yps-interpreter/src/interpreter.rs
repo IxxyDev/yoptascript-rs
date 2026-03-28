@@ -140,7 +140,7 @@ impl Interpreter {
             Stmt::FunctionDecl { name, params, body, .. } => {
                 let func = Value::Function {
                     name: name.name.clone(),
-                    params: params.iter().map(|p| p.name.clone()).collect(),
+                    params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                 };
@@ -497,7 +497,7 @@ impl Interpreter {
             Expr::ArrowFunction { params, body, .. } => {
                 let func = Value::Function {
                     name: String::new(),
-                    params: params.iter().map(|p| p.name.clone()).collect(),
+                    params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                 };
@@ -793,18 +793,55 @@ impl Interpreter {
         match func {
             Value::BuiltinFunction(name) => call_builtin(&name, args, span),
             Value::Function { name, params, body, env } => {
-                if args.len() != params.len() {
+                let rest_count = params.iter().filter(|p| p.is_rest).count();
+                let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
+                let positional_count = params.len() - rest_count;
+
+                if args.len() < required_count {
                     return Err(RuntimeError::new(
-                        format!("Функция '{}' ожидает {} аргумент(ов), получено {}", name, params.len(), args.len()),
+                        format!(
+                            "Функция '{}' ожидает минимум {} аргумент(ов), получено {}",
+                            name,
+                            required_count,
+                            args.len()
+                        ),
                         span,
                     ));
                 }
+                if rest_count == 0 && args.len() > positional_count {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Функция '{}' ожидает максимум {} аргумент(ов), получено {}",
+                            name,
+                            positional_count,
+                            args.len()
+                        ),
+                        span,
+                    ));
+                }
+
                 let saved_env = self.env.clone();
                 self.env = Environment::from_snapshot(env);
                 self.env.push_scope();
-                for (param, arg) in params.iter().zip(args) {
-                    self.env.define(param.clone(), arg, false);
+
+                for (i, param) in params.iter().enumerate() {
+                    if param.is_rest {
+                        let rest_start = i.min(args.len());
+                        let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                        self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                        break;
+                    }
+
+                    let value = if i < args.len() {
+                        args[i].clone()
+                    } else if let Some(default_expr) = &param.default {
+                        self.eval_expr(default_expr)?
+                    } else {
+                        Value::Undefined
+                    };
+                    self.env.define(param.name.name.clone(), value, false);
                 }
+
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env = saved_env;
                 match result? {
@@ -2640,5 +2677,171 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("р"), Some(Value::String("функция".to_string())));
+    }
+
+    #[test]
+    fn default_param_used_when_no_arg() {
+        let interp = run_code(
+            r#"
+            йопта приветствие(имя = "мир") {
+                отвечаю имя;
+            }
+            гыы р = приветствие();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::String("мир".to_string())));
+    }
+
+    #[test]
+    fn default_param_overridden_by_arg() {
+        let interp = run_code(
+            r#"
+            йопта приветствие(имя = "мир") {
+                отвечаю имя;
+            }
+            гыы р = приветствие("братан");
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::String("братан".to_string())));
+    }
+
+    #[test]
+    fn default_param_multiple() {
+        let interp = run_code(
+            r#"
+            йопта сумма(а, б = 10, в = 20) {
+                отвечаю а + б + в;
+            }
+            гыы р1 = сумма(1);
+            гыы р2 = сумма(1, 2);
+            гыы р3 = сумма(1, 2, 3);
+            "#,
+        );
+        assert_eq!(interp.get("р1"), Some(Value::Number(31.0)));
+        assert_eq!(interp.get("р2"), Some(Value::Number(23.0)));
+        assert_eq!(interp.get("р3"), Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn default_param_expression() {
+        let interp = run_code(
+            r#"
+            йопта фн(а = 2 + 3) {
+                отвечаю а;
+            }
+            гыы р = фн();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn default_param_arrow_function() {
+        let interp = run_code(
+            r#"
+            гыы фн = (а = 42) => { отвечаю а; };
+            гыы р = фн();
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn rest_param_collects_extra_args() {
+        let interp = run_code(
+            r#"
+            йопта фн(а, ...остальное) {
+                отвечаю остальное;
+            }
+            гыы р = фн(1, 2, 3, 4);
+            "#,
+        );
+        assert_eq!(
+            interp.get("р"),
+            Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0),]))
+        );
+    }
+
+    #[test]
+    fn rest_param_empty_when_no_extra_args() {
+        let interp = run_code(
+            r#"
+            йопта фн(а, ...остальное) {
+                отвечаю остальное;
+            }
+            гыы р = фн(1);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Array(vec![])));
+    }
+
+    #[test]
+    fn rest_param_only() {
+        let interp = run_code(
+            r#"
+            йопта фн(...все) {
+                отвечаю все;
+            }
+            гыы р = фн(1, 2, 3);
+            "#,
+        );
+        assert_eq!(
+            interp.get("р"),
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),]))
+        );
+    }
+
+    #[test]
+    fn rest_param_arrow_function() {
+        let interp = run_code(
+            r#"
+            гыы фн = (...арг) => { отвечаю арг; };
+            гыы р = фн(10, 20);
+            "#,
+        );
+        assert_eq!(interp.get("р"), Some(Value::Array(vec![Value::Number(10.0), Value::Number(20.0)])));
+    }
+
+    #[test]
+    fn default_and_rest_params_combined() {
+        let interp = run_code(
+            r#"
+            йопта фн(а, б = 99, ...ост) {
+                отвечаю а + б;
+            }
+            гыы р1 = фн(1);
+            гыы р2 = фн(1, 2);
+            гыы р3 = фн(1, 2, 3, 4);
+            "#,
+        );
+        assert_eq!(interp.get("р1"), Some(Value::Number(100.0)));
+        assert_eq!(interp.get("р2"), Some(Value::Number(3.0)));
+        assert_eq!(interp.get("р3"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn too_few_args_without_defaults_error() {
+        let err = run_code_err(
+            r#"
+            йопта фн(а, б) {
+                отвечаю а + б;
+            }
+            фн(1);
+            "#,
+        );
+        assert!(err.message.contains("минимум 2"));
+    }
+
+    #[test]
+    fn too_many_args_without_rest_error() {
+        let err = run_code_err(
+            r#"
+            йопта фн(а) {
+                отвечаю а;
+            }
+            фн(1, 2);
+            "#,
+        );
+        assert!(err.message.contains("максимум 1"));
     }
 }

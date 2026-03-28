@@ -1,4 +1,4 @@
-use crate::ast::{Expr, Identifier, Pattern};
+use crate::ast::{Expr, Identifier, Param, Pattern};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub enum Stmt {
     },
     FunctionDecl {
         name: Identifier,
-        params: Vec<Identifier>,
+        params: Vec<Param>,
         body: Block,
         span: Span,
     },

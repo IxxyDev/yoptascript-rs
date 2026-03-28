@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Pattern, PostfixOp, Program, Stmt, SwitchCase,
-    TemplatePart, UnaryOp,
+    BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Param, Pattern, PostfixOp, Program, Stmt,
+    SwitchCase, TemplatePart, UnaryOp,
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
@@ -232,16 +232,47 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
+        let mut had_rest = false;
         loop {
+            if had_rest {
+                self.position = saved_pos;
+                self.diagnostics.truncate(saved_diag_len);
+                return Ok(None);
+            }
+
+            let is_rest = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                self.advance();
+                had_rest = true;
+                true
+            } else {
+                false
+            };
+
             if !matches!(self.current().kind, TokenKind::Identifier) {
                 self.position = saved_pos;
                 self.diagnostics.truncate(saved_diag_len);
                 return Ok(None);
             }
             let span = self.current().span;
-            let name = self.source.slice(span).to_string();
+            let name_str = self.source.slice(span).to_string();
             self.advance();
-            params.push(Identifier { name, span });
+            let name = Identifier { name: name_str, span };
+
+            let default = if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                self.advance();
+                match self.parse_expr() {
+                    Ok(expr) => Some(expr),
+                    Err(()) => {
+                        self.position = saved_pos;
+                        self.diagnostics.truncate(saved_diag_len);
+                        return Ok(None);
+                    }
+                }
+            } else {
+                None
+            };
+
+            params.push(Param { name, default, is_rest });
 
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                 self.advance();
@@ -269,12 +300,13 @@ impl<'a> Parser<'a> {
 
     fn parse_single_param_arrow(&mut self) -> Result<Expr, ()> {
         let start = self.current().span.start;
-        let param = self.parse_identifier()?;
+        let ident = self.parse_identifier()?;
+        let param = Param { name: ident, default: None, is_rest: false };
         self.advance();
         self.parse_arrow_body(vec![param], start)
     }
 
-    fn parse_arrow_body(&mut self, params: Vec<Identifier>, start: usize) -> Result<Expr, ()> {
+    fn parse_arrow_body(&mut self, params: Vec<Param>, start: usize) -> Result<Expr, ()> {
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
             let body = self.parse_block()?;
             let end = body.span.end;
@@ -804,6 +836,46 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Continue { span: Span { start, end } })
     }
 
+    fn parse_function_params(&mut self) -> Result<Vec<Param>, ()> {
+        let mut params = Vec::new();
+        let mut had_rest = false;
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            loop {
+                if had_rest {
+                    let span = self.current().span;
+                    self.push_error(span, "Rest-параметр должен быть последним");
+                    return Err(());
+                }
+
+                let is_rest = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    self.advance();
+                    had_rest = true;
+                    true
+                } else {
+                    false
+                };
+
+                let name = self.parse_identifier()?;
+
+                let default = if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                    self.advance();
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+
+                params.push(Param { name, default, is_rest });
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(params)
+    }
+
     fn parse_function_decl(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
@@ -817,18 +889,7 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        let mut params = Vec::new();
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            loop {
-                params.push(self.parse_identifier()?);
-
-                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-        }
+        let params = self.parse_function_params()?;
 
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             let span = self.current().span;
@@ -2092,8 +2153,8 @@ mod tests {
             Stmt::FunctionDecl { name, params, body, .. } => {
                 assert_eq!(name.name, "foo");
                 assert_eq!(params.len(), 2);
-                assert_eq!(params[0].name, "x");
-                assert_eq!(params[1].name, "y");
+                assert_eq!(params[0].name.name, "x");
+                assert_eq!(params[1].name.name, "y");
                 assert_eq!(body.stmts.len(), 1);
             }
             _ => panic!("Expected FunctionDecl statement"),

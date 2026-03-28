@@ -1,5 +1,5 @@
 use crate::ast::stmt::Block;
-use crate::ast::{BinaryOp, Identifier, Literal, PostfixOp, UnaryOp};
+use crate::ast::{BinaryOp, Identifier, Literal, Param, PostfixOp, UnaryOp};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub enum Expr {
 
     Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
 
-    ArrowFunction { params: Vec<Identifier>, body: Block, span: Span },
+    ArrowFunction { params: Vec<Param>, body: Block, span: Span },
 
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
 }
