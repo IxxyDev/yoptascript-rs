@@ -1,11 +1,11 @@
 use crate::ast::{
-    BinaryOp, Block, Expr, Identifier, Literal, ObjectPatternProp, Param, Pattern, PostfixOp, Program, Stmt,
-    SwitchCase, TemplatePart, UnaryOp,
+    BinaryOp, Block, Expr, Identifier, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, PostfixOp, Program,
+    PropKey, Stmt, SwitchCase, TemplatePart, UnaryOp,
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
 const TERNARY_PRECEDENCE: u8 = 2;
-const UNARY_PRECEDENCE: u8 = 11;
+const UNARY_PRECEDENCE: u8 = 12;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -324,12 +324,23 @@ impl<'a> Parser<'a> {
 
     fn parse_array(&mut self) -> Result<Expr, ()> {
         let start = self.current().span.start;
-        self.advance(); // consume '['
+        self.advance();
 
         let mut elements = Vec::new();
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
             loop {
-                elements.push(self.parse_expr()?);
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    let spread_start = self.current().span.start;
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    let spread_end = expr.span().end;
+                    elements.push(Expr::Spread {
+                        expr: Box::new(expr),
+                        span: Span { start: spread_start, end: spread_end },
+                    });
+                } else {
+                    elements.push(self.parse_expr()?);
+                }
 
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                     self.advance();
@@ -354,21 +365,70 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        let mut properties = Vec::new();
+        let mut entries = Vec::new();
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
             loop {
-                let key = self.parse_identifier()?;
-
-                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
-                    let span = self.current().span;
-                    self.push_error(span, "Ожидалось ':' после ключа объекта");
-                    return Err(());
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    entries.push(ObjectEntry::Spread(expr));
+                } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
+                    self.advance();
+                    let key_expr = self.parse_expr()?;
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидался ']' после вычисляемого ключа");
+                        return Err(());
+                    }
+                    self.advance();
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалось ':' после ключа объекта");
+                        return Err(());
+                    }
+                    self.advance();
+                    let value = self.parse_expr()?;
+                    entries.push(ObjectEntry::Property { key: PropKey::Computed(key_expr), value });
+                } else if matches!(self.current().kind, TokenKind::StringLiteral) {
+                    let string_expr = self.parse_string();
+                    let key_expr = match &string_expr {
+                        Expr::Literal(Literal::String { value, span }) => {
+                            PropKey::Identifier(Identifier { name: value.clone(), span: *span })
+                        }
+                        _ => unreachable!(),
+                    };
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалось ':' после ключа объекта");
+                        return Err(());
+                    }
+                    self.advance();
+                    let value = self.parse_expr()?;
+                    entries.push(ObjectEntry::Property { key: key_expr, value });
+                } else {
+                    let key = self.parse_identifier()?;
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                        self.advance();
+                        let value = self.parse_expr()?;
+                        entries.push(ObjectEntry::Property { key: PropKey::Identifier(key), value });
+                    } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                        self.advance();
+                        let params = self.parse_function_params()?;
+                        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                            let span = self.current().span;
+                            self.push_error(span, "Ожидалась ')' после параметров метода");
+                            return Err(());
+                        }
+                        self.advance();
+                        let body = self.parse_block()?;
+                        let func_span = Span { start: key.span.start, end: body.span.end };
+                        let value = Expr::ArrowFunction { params, body, span: func_span };
+                        entries.push(ObjectEntry::Property { key: PropKey::Identifier(key), value });
+                    } else {
+                        let value = Expr::Identifier(key.clone());
+                        entries.push(ObjectEntry::Property { key: PropKey::Identifier(key), value });
+                    }
                 }
-                self.advance();
-
-                let value = self.parse_expr()?;
-
-                properties.push(crate::ast::ObjectProperty { key, value });
 
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                     self.advance();
@@ -386,7 +446,7 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Expr::Literal(Literal::Object { properties, span: Span { start, end } }))
+        Ok(Expr::Literal(Literal::Object { entries, span: Span { start, end } }))
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ()> {
@@ -651,6 +711,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Switch { span, .. }
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
+                | Stmt::ForOf { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
@@ -669,6 +730,7 @@ impl<'a> Parser<'a> {
                 | Stmt::Switch { span, .. }
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
+                | Stmt::ForOf { span, .. }
                 | Stmt::Empty { span } => span.end,
             },
         );
@@ -714,6 +776,7 @@ impl<'a> Parser<'a> {
             | Stmt::Switch { span, .. }
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
+            | Stmt::ForOf { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -735,6 +798,12 @@ impl<'a> Parser<'a> {
             && matches!(self.peek(1).kind, TokenKind::Keyword(KeywordKind::In))
         {
             return self.parse_for_in_rest(start);
+        }
+
+        if matches!(self.current().kind, TokenKind::Identifier)
+            && matches!(self.peek(1).kind, TokenKind::Keyword(KeywordKind::Of))
+        {
+            return self.parse_for_of_rest(start);
         }
 
         let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
@@ -800,6 +869,7 @@ impl<'a> Parser<'a> {
             | Stmt::Switch { span, .. }
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
+            | Stmt::ForOf { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
@@ -1024,10 +1094,30 @@ impl<'a> Parser<'a> {
             | Stmt::Switch { span, .. }
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
+            | Stmt::ForOf { span, .. }
             | Stmt::Empty { span } => span.end,
         };
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
+    }
+
+    fn parse_for_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+        let variable = self.parse_identifier()?;
+        self.advance();
+
+        let iterable = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после 'го'");
+            return Err(());
+        }
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+        let end = Self::stmt_end(&body);
+
+        Ok(Stmt::ForOf { variable, iterable, body, span: Span { start, end } })
     }
 
     fn parse_do_while_stmt(&mut self) -> Result<Stmt, ()> {
@@ -1139,6 +1229,28 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Switch { expr, cases, default, span: Span { start, end } })
+    }
+
+    fn stmt_end(stmt: &Stmt) -> usize {
+        match stmt {
+            Stmt::VarDecl { span, .. }
+            | Stmt::Expr { span, .. }
+            | Stmt::Block(Block { span, .. })
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::For { span, .. }
+            | Stmt::Break { span }
+            | Stmt::Continue { span }
+            | Stmt::FunctionDecl { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::TryCatch { span, .. }
+            | Stmt::Throw { span, .. }
+            | Stmt::Switch { span, .. }
+            | Stmt::DoWhile { span, .. }
+            | Stmt::ForIn { span, .. }
+            | Stmt::ForOf { span, .. }
+            | Stmt::Empty { span } => span.end,
+        }
     }
 
     fn current(&self) -> &Token {
@@ -1268,6 +1380,20 @@ impl<'a> Parser<'a> {
                 let end = expr.span().end;
                 Expr::Unary { op: UnaryOp::Typeof, expr: Box::new(expr), span: Span { start, end } }
             }
+            TokenKind::Keyword(KeywordKind::Delete) => {
+                let start = self.current().span.start;
+                self.advance();
+                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+                let end = expr.span().end;
+                Expr::Unary { op: UnaryOp::Delete, expr: Box::new(expr), span: Span { start, end } }
+            }
+            TokenKind::Keyword(KeywordKind::Void) => {
+                let start = self.current().span.start;
+                self.advance();
+                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+                let end = expr.span().end;
+                Expr::Unary { op: UnaryOp::Void, expr: Box::new(expr), span: Span { start, end } }
+            }
             _ => self.parse_primary()?,
         };
 
@@ -1305,7 +1431,18 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             loop {
-                args.push(self.parse_expr()?);
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                    let spread_start = self.current().span.start;
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    let spread_end = expr.span().end;
+                    args.push(Expr::Spread {
+                        expr: Box::new(expr),
+                        span: Span { start: spread_start, end: spread_end },
+                    });
+                } else {
+                    args.push(self.parse_expr()?);
+                }
 
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                     self.advance();
@@ -1398,38 +1535,40 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parse_binary_op(&self) -> Option<(BinaryOp, u8)> {
-        let TokenKind::Operator(op_kind) = &self.current().kind else {
-            return None;
-        };
-
-        match op_kind {
-            OperatorKind::Assign => Some((BinaryOp::Assign, 1)),
-            OperatorKind::PlusAssign => Some((BinaryOp::PlusAssign, 1)),
-            OperatorKind::MinusAssign => Some((BinaryOp::MinusAssign, 1)),
-            OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
-            OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
-            OperatorKind::ExponentAssign => Some((BinaryOp::ExpAssign, 1)),
-            OperatorKind::NullishAssign => Some((BinaryOp::NullishAssign, 1)),
-            OperatorKind::AndAssign => Some((BinaryOp::AndAssign, 1)),
-            OperatorKind::OrAssign => Some((BinaryOp::OrAssign, 1)),
-            OperatorKind::Or => Some((BinaryOp::Or, 3)),
-            OperatorKind::NullishCoalescing => Some((BinaryOp::NullishCoalescing, 4)),
-            OperatorKind::And => Some((BinaryOp::And, 5)),
-            OperatorKind::Equals => Some((BinaryOp::Equals, 6)),
-            OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 6)),
-            OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 6)),
-            OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 6)),
-            OperatorKind::Less => Some((BinaryOp::Less, 7)),
-            OperatorKind::Greater => Some((BinaryOp::Greater, 7)),
-            OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 7)),
-            OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 7)),
-            OperatorKind::Plus => Some((BinaryOp::Add, 8)),
-            OperatorKind::Minus => Some((BinaryOp::Sub, 8)),
-            OperatorKind::Multiply => Some((BinaryOp::Mul, 9)),
-            OperatorKind::Divide => Some((BinaryOp::Div, 9)),
-            OperatorKind::Modulo => Some((BinaryOp::Mod, 9)),
-            OperatorKind::Exponent => Some((BinaryOp::Exp, 10)),
-            OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
+        match &self.current().kind {
+            TokenKind::Operator(op_kind) => match op_kind {
+                OperatorKind::Assign => Some((BinaryOp::Assign, 1)),
+                OperatorKind::PlusAssign => Some((BinaryOp::PlusAssign, 1)),
+                OperatorKind::MinusAssign => Some((BinaryOp::MinusAssign, 1)),
+                OperatorKind::MulAssign => Some((BinaryOp::MulAssign, 1)),
+                OperatorKind::DivAssign => Some((BinaryOp::DivAssign, 1)),
+                OperatorKind::ExponentAssign => Some((BinaryOp::ExpAssign, 1)),
+                OperatorKind::NullishAssign => Some((BinaryOp::NullishAssign, 1)),
+                OperatorKind::AndAssign => Some((BinaryOp::AndAssign, 1)),
+                OperatorKind::OrAssign => Some((BinaryOp::OrAssign, 1)),
+                OperatorKind::Or => Some((BinaryOp::Or, 3)),
+                OperatorKind::NullishCoalescing => Some((BinaryOp::NullishCoalescing, 4)),
+                OperatorKind::And => Some((BinaryOp::And, 5)),
+                OperatorKind::Equals => Some((BinaryOp::Equals, 6)),
+                OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 6)),
+                OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 6)),
+                OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 6)),
+                OperatorKind::Less => Some((BinaryOp::Less, 7)),
+                OperatorKind::Greater => Some((BinaryOp::Greater, 7)),
+                OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 7)),
+                OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 7)),
+                OperatorKind::Pipeline => Some((BinaryOp::Pipeline, 8)),
+                OperatorKind::Plus => Some((BinaryOp::Add, 9)),
+                OperatorKind::Minus => Some((BinaryOp::Sub, 9)),
+                OperatorKind::Multiply => Some((BinaryOp::Mul, 10)),
+                OperatorKind::Divide => Some((BinaryOp::Div, 10)),
+                OperatorKind::Modulo => Some((BinaryOp::Mod, 10)),
+                OperatorKind::Exponent => Some((BinaryOp::Exp, 11)),
+                OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
+            },
+            TokenKind::Keyword(KeywordKind::Instanceof) => Some((BinaryOp::Instanceof, 7)),
+            TokenKind::Keyword(KeywordKind::In) => Some((BinaryOp::In, 7)),
+            _ => None,
         }
     }
 }
@@ -2420,10 +2559,16 @@ mod tests {
         assert_eq!(program.items.len(), 1);
         match &program.items[0] {
             Stmt::VarDecl { init, .. } => match init {
-                Expr::Literal(Literal::Object { properties, .. }) => {
-                    assert_eq!(properties.len(), 2);
-                    assert_eq!(properties[0].key.name, "x");
-                    assert_eq!(properties[1].key.name, "y");
+                Expr::Literal(Literal::Object { entries, .. }) => {
+                    assert_eq!(entries.len(), 2);
+                    match &entries[0] {
+                        ObjectEntry::Property { key: PropKey::Identifier(id), .. } => assert_eq!(id.name, "x"),
+                        _ => panic!("Expected identifier key"),
+                    }
+                    match &entries[1] {
+                        ObjectEntry::Property { key: PropKey::Identifier(id), .. } => assert_eq!(id.name, "y"),
+                        _ => panic!("Expected identifier key"),
+                    }
                 }
                 _ => panic!("Expected Object literal"),
             },
@@ -2445,8 +2590,8 @@ mod tests {
         assert_eq!(program.items.len(), 1);
         match &program.items[0] {
             Stmt::VarDecl { init, .. } => match init {
-                Expr::Literal(Literal::Object { properties, .. }) => {
-                    assert_eq!(properties.len(), 0);
+                Expr::Literal(Literal::Object { entries, .. }) => {
+                    assert_eq!(entries.len(), 0);
                 }
                 _ => panic!("Expected Object literal"),
             },
@@ -2511,9 +2656,14 @@ mod tests {
         assert_eq!(program.items.len(), 1);
         match &program.items[0] {
             Stmt::VarDecl { init, .. } => match init {
-                Expr::Literal(Literal::Object { properties, .. }) => {
-                    assert_eq!(properties.len(), 1);
-                    assert!(matches!(properties[0].value, Expr::Literal(Literal::Object { .. })));
+                Expr::Literal(Literal::Object { entries, .. }) => {
+                    assert_eq!(entries.len(), 1);
+                    match &entries[0] {
+                        ObjectEntry::Property { value, .. } => {
+                            assert!(matches!(value, Expr::Literal(Literal::Object { .. })));
+                        }
+                        _ => panic!("Expected property"),
+                    }
                 }
                 _ => panic!("Expected Object literal"),
             },

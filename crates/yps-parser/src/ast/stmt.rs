@@ -79,6 +79,12 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: Span,
     },
+    ForOf {
+        variable: Identifier,
+        iterable: Expr,
+        body: Box<Stmt>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
