@@ -9,7 +9,7 @@ pub mod stmt;
 
 pub use expr::{Expr, TemplatePart};
 pub use ident::Identifier;
-pub use literal::{Literal, ObjectProperty};
+pub use literal::{Literal, ObjectEntry, PropKey};
 pub use ops::{BinaryOp, PostfixOp, UnaryOp};
 pub use param::Param;
 pub use pattern::{ObjectPatternProp, Pattern};

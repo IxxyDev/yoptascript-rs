@@ -40,6 +40,8 @@ pub enum Expr {
     ArrowFunction { params: Vec<Param>, body: Block, span: Span },
 
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
+
+    Spread { expr: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -69,7 +71,8 @@ impl Expr {
             | Self::OptionalCall { span, .. }
             | Self::Conditional { span, .. }
             | Self::ArrowFunction { span, .. }
-            | Self::TemplateLiteral { span, .. } => *span,
+            | Self::TemplateLiteral { span, .. }
+            | Self::Spread { span, .. } => *span,
         }
     }
 }

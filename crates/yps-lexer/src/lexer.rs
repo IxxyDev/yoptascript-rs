@@ -309,10 +309,13 @@ impl<'src> Lexer<'src> {
                     } else {
                         TokenKind::Operator(OperatorKind::Or)
                     }
+                } else if self.current_char() == '>' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::Pipeline)
                 } else {
                     self.diagnostics.push(Diagnostic {
                         severity: Severity::Error,
-                        message: "одиночный '|' не поддерживается (используйте '||')".to_string(),
+                        message: "одиночный '|' не поддерживается (используйте '||' или '|>')".to_string(),
                         span: Span { start, end: self.position },
                     });
                     TokenKind::Unknown
