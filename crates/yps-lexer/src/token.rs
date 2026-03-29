@@ -78,6 +78,7 @@ pub enum OperatorKind {
     NullishAssign,
     AndAssign,
     OrAssign,
+    Pipeline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

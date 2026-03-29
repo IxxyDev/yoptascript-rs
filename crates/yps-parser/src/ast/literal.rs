@@ -2,9 +2,15 @@ use crate::ast::{Expr, Identifier};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
-pub struct ObjectProperty {
-    pub key: Identifier,
-    pub value: Expr,
+pub enum PropKey {
+    Identifier(Identifier),
+    Computed(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub enum ObjectEntry {
+    Property { key: PropKey, value: Expr },
+    Spread(Expr),
 }
 
 #[derive(Debug, Clone)]
@@ -15,5 +21,5 @@ pub enum Literal {
     Null { span: Span },
     Undefined { span: Span },
     Array { elements: Vec<Expr>, span: Span },
-    Object { properties: Vec<ObjectProperty>, span: Span },
+    Object { entries: Vec<ObjectEntry>, span: Span },
 }

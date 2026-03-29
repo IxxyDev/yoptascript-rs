@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, Literal, Pattern, PostfixOp, Program, Stmt, TemplatePart, UnaryOp};
+use yps_parser::ast::{
+    BinaryOp, Block, Expr, Literal, ObjectEntry, Pattern, PostfixOp, Program, PropKey, Stmt, TemplatePart, UnaryOp,
+};
 
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
@@ -204,6 +206,36 @@ impl Interpreter {
                 }
                 Ok(None)
             }
+            Stmt::ForOf { variable, iterable, body, span, .. } => {
+                let val = self.eval_expr(iterable)?;
+                let items: Vec<Value> = match val {
+                    Value::Array(elements) => elements,
+                    Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("Нельзя итерировать по типу '{}'", other.type_name()),
+                            *span,
+                        ));
+                    }
+                };
+                self.env.push_scope();
+                self.env.define(variable.name.clone(), Value::Undefined, false);
+                for item in items {
+                    self.env.set(&variable.name, item);
+                    if let Some(cf) = self.exec_stmt(body)? {
+                        match cf {
+                            ControlFlow::Break => break,
+                            ControlFlow::Continue => continue,
+                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                                self.env.pop_scope();
+                                return Ok(Some(cf));
+                            }
+                        }
+                    }
+                }
+                self.env.pop_scope();
+                Ok(None)
+            }
             Stmt::Switch { expr, cases, default, .. } => {
                 let switch_val = self.eval_expr(expr)?;
                 for case in cases {
@@ -371,6 +403,13 @@ impl Interpreter {
                     let val = self.eval_expr(expr)?;
                     return Ok(Value::String(val.typeof_str().to_string()));
                 }
+                if *op == UnaryOp::Delete {
+                    return self.eval_delete(expr, *span);
+                }
+                if *op == UnaryOp::Void {
+                    self.eval_expr(expr)?;
+                    return Ok(Value::Undefined);
+                }
                 let val = self.eval_expr(expr)?;
                 self.eval_unary(*op, val, *span)
             }
@@ -420,6 +459,11 @@ impl Interpreter {
                     let right = self.eval_expr(rhs)?;
                     return self.assign_to_target(lhs, right, *span);
                 }
+                if *op == BinaryOp::Pipeline {
+                    let left = self.eval_expr(lhs)?;
+                    let func = self.eval_expr(rhs)?;
+                    return self.call_function(func, vec![left], *span);
+                }
                 if *op == BinaryOp::Assign {
                     return self.eval_assignment(lhs, rhs, *span);
                 }
@@ -446,10 +490,7 @@ impl Interpreter {
             Expr::Grouping { expr, .. } => self.eval_expr(expr),
             Expr::Call { callee, args, span } => {
                 let func = self.eval_expr(callee)?;
-                let mut arg_values = Vec::with_capacity(args.len());
-                for arg in args {
-                    arg_values.push(self.eval_expr(arg)?);
-                }
+                let arg_values = self.eval_args(args)?;
                 self.call_function(func, arg_values, *span)
             }
             Expr::Index { object, index, span } => {
@@ -483,10 +524,7 @@ impl Interpreter {
                 if matches!(func, Value::Null | Value::Undefined) {
                     Ok(Value::Undefined)
                 } else {
-                    let mut arg_values = Vec::with_capacity(args.len());
-                    for arg in args {
-                        arg_values.push(self.eval_expr(arg)?);
-                    }
+                    let arg_values = self.eval_args(args)?;
                     self.call_function(func, arg_values, *span)
                 }
             }
@@ -516,6 +554,10 @@ impl Interpreter {
                 }
                 Ok(Value::String(result))
             }
+            Expr::Spread { span, .. } => Err(RuntimeError::new(
+                "Оператор '...' допустим только в массивах, объектах или аргументах вызова",
+                *span,
+            )),
         }
     }
 
@@ -533,15 +575,55 @@ impl Interpreter {
             Literal::Array { elements, .. } => {
                 let mut values = Vec::with_capacity(elements.len());
                 for el in elements {
-                    values.push(self.eval_expr(el)?);
+                    if let Expr::Spread { expr, span } = el {
+                        let val = self.eval_expr(expr)?;
+                        match val {
+                            Value::Array(arr) => values.extend(arr),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Нельзя развернуть тип '{}' в массив", val.type_name()),
+                                    *span,
+                                ));
+                            }
+                        }
+                    } else {
+                        values.push(self.eval_expr(el)?);
+                    }
                 }
                 Ok(Value::Array(values))
             }
-            Literal::Object { properties, .. } => {
+            Literal::Object { entries, span } => {
                 let mut map = HashMap::new();
-                for prop in properties {
-                    let val = self.eval_expr(&prop.value)?;
-                    map.insert(prop.key.name.clone(), val);
+                for entry in entries {
+                    match entry {
+                        ObjectEntry::Property { key, value } => {
+                            let key_str = match key {
+                                PropKey::Identifier(ident) => ident.name.clone(),
+                                PropKey::Computed(expr) => {
+                                    let k = self.eval_expr(expr)?;
+                                    k.to_string()
+                                }
+                            };
+                            let val = self.eval_expr(value)?;
+                            map.insert(key_str, val);
+                        }
+                        ObjectEntry::Spread(expr) => {
+                            let val = self.eval_expr(expr)?;
+                            match val {
+                                Value::Object(src) => {
+                                    for (k, v) in src {
+                                        map.insert(k, v);
+                                    }
+                                }
+                                other => {
+                                    return Err(RuntimeError::new(
+                                        format!("Нельзя развернуть тип '{}' в объект", other.type_name()),
+                                        *span,
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
                 Ok(Value::Object(map))
             }
@@ -560,6 +642,8 @@ impl Interpreter {
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
             UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string())),
+            UnaryOp::Delete => Ok(Value::Boolean(true)),
+            UnaryOp::Void => Ok(Value::Undefined),
         }
     }
 
@@ -593,6 +677,27 @@ impl Interpreter {
             BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
+            BinaryOp::Pipeline => unreachable!("handled in eval_expr"),
+            BinaryOp::Instanceof => Ok(Value::Boolean(left.type_name() == right.type_name())),
+            BinaryOp::In => match right {
+                Value::Object(map) => {
+                    let key = left.to_string();
+                    Ok(Value::Boolean(map.contains_key(&key)))
+                }
+                Value::Array(arr) => {
+                    let key = match &left {
+                        Value::Number(n) => *n as usize,
+                        _ => {
+                            return Err(RuntimeError::new("Индекс массива должен быть числом", span));
+                        }
+                    };
+                    Ok(Value::Boolean(key < arr.len()))
+                }
+                _ => Err(RuntimeError::new(
+                    format!("Правая сторона 'из' должна быть объектом или массивом, получено '{}'", right.type_name()),
+                    span,
+                )),
+            },
             BinaryOp::And
             | BinaryOp::Or
             | BinaryOp::NullishCoalescing
@@ -869,6 +974,65 @@ impl Interpreter {
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
                 span,
             )),
+        }
+    }
+
+    fn eval_args(&mut self, args: &[Expr]) -> Result<Vec<Value>, RuntimeError> {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+            if let Expr::Spread { expr, span } = arg {
+                let val = self.eval_expr(expr)?;
+                match val {
+                    Value::Array(arr) => values.extend(arr),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Нельзя развернуть тип '{}' в аргументы", val.type_name()),
+                            *span,
+                        ));
+                    }
+                }
+            } else {
+                values.push(self.eval_expr(arg)?);
+            }
+        }
+        Ok(values)
+    }
+
+    fn eval_delete(&mut self, expr: &Expr, span: Span) -> Result<Value, RuntimeError> {
+        match expr {
+            Expr::Member { object, property, .. } => {
+                let mut path = Vec::new();
+                let root_name = self.collect_access_path(
+                    &Expr::Member { object: object.clone(), property: property.clone(), span },
+                    &mut path,
+                    span,
+                )?;
+                path.reverse();
+                if path.len() == 1
+                    && let Some(Value::Object(map)) = self.env.get(&root_name).as_mut()
+                {
+                    let mut map = map.clone();
+                    map.remove(&property.name);
+                    self.env.set(&root_name, Value::Object(map));
+                }
+                Ok(Value::Boolean(true))
+            }
+            Expr::Index { object, index, .. } => {
+                let idx = self.eval_expr(index)?;
+                let mut path = Vec::new();
+                let root_name = self.collect_access_path(object, &mut path, span)?;
+                path.reverse();
+                if path.is_empty()
+                    && let Some(Value::Object(map)) = self.env.get(&root_name).as_mut()
+                {
+                    let key = idx.to_string();
+                    let mut map = map.clone();
+                    map.remove(&key);
+                    self.env.set(&root_name, Value::Object(map));
+                }
+                Ok(Value::Boolean(true))
+            }
+            _ => Ok(Value::Boolean(true)),
         }
     }
 
@@ -2843,5 +3007,218 @@ mod tests {
             "#,
         );
         assert!(err.message.contains("максимум 1"));
+    }
+
+    #[test]
+    fn spread_in_array() {
+        let i = run_code(
+            r#"
+            гыы а = [1, 2, 3];
+            гыы б = [0, ...а, 4];
+            гыы длн = 0;
+            го (гыы и = 0; и < 5; и++) {
+                длн = длн + 1;
+            }
+            гыы рез = б[0] + б[1] + б[2] + б[3] + б[4];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn spread_in_call() {
+        let i = run_code(
+            r#"
+            йопта сумма(а, б, в) {
+                отвечаю а + б + в;
+            }
+            гыы арг = [1, 2, 3];
+            гыы рез = сумма(...арг);
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn spread_in_object() {
+        let i = run_code(
+            r#"
+            гыы а = {x: 1, y: 2};
+            гыы б = {...а, z: 3};
+            гыы рез = б["x"] + б["y"] + б["z"];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn computed_property_name() {
+        let i = run_code(
+            r#"
+            гыы ключ = "привет";
+            гыы о = {[ключ]: 42};
+            гыы рез = о["привет"];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn shorthand_property() {
+        let i = run_code(
+            r#"
+            гыы х = 10;
+            гыы у = 20;
+            гыы о = {х, у};
+            гыы рез = о["х"] + о["у"];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(30.0)));
+    }
+
+    #[test]
+    fn method_shorthand_in_object() {
+        let i = run_code(
+            r#"
+            гыы о = {
+                удвоить(н) {
+                    отвечаю н * 2;
+                }
+            };
+            гыы рез = о.удвоить(5);
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn for_of_array() {
+        let i = run_code(
+            r#"
+            гыы сумма = 0;
+            гыы массив = [1, 2, 3, 4, 5];
+            го (элем сашаГрей массив) {
+                сумма = сумма + элем;
+            }
+            "#,
+        );
+        assert_eq!(i.get("сумма"), Some(Value::Number(15.0)));
+    }
+
+    #[test]
+    fn for_of_string() {
+        let i = run_code(
+            r#"
+            гыы рез = "";
+            го (ч сашаГрей "abc") {
+                рез = рез + ч + "-";
+            }
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("a-b-c-".to_string())));
+    }
+
+    #[test]
+    fn delete_object_property() {
+        let i = run_code(
+            r#"
+            гыы о = {а: 1, б: 2};
+            ёбнуть о.а;
+            гыы рез = чезажижан о["а"];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("неопределено".to_string())));
+    }
+
+    #[test]
+    fn instanceof_operator() {
+        let i = run_code(
+            r#"
+            гыы рез = 42 шкура 10;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn in_operator() {
+        let i = run_code(
+            r#"
+            гыы о = {х: 1, у: 2};
+            гыы р1 = "х" из о;
+            гыы р2 = "з" из о;
+            "#,
+        );
+        assert_eq!(i.get("р1"), Some(Value::Boolean(true)));
+        assert_eq!(i.get("р2"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn pipeline_operator() {
+        let i = run_code(
+            r#"
+            йопта удвоить(н) {
+                отвечаю н * 2;
+            }
+            йопта прибавитьОдин(н) {
+                отвечаю н + 1;
+            }
+            гыы рез = 5 |> удвоить |> прибавитьОдин;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(11.0)));
+    }
+
+    #[test]
+    fn void_operator() {
+        let i = run_code(
+            r#"
+            гыы рез = куку 42;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Undefined));
+    }
+
+    #[test]
+    fn string_key_in_object() {
+        let i = run_code(
+            r#"
+            гыы о = {"моё имя": 42};
+            гыы рез = о["моё имя"];
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn for_of_with_break() {
+        let i = run_code(
+            r#"
+            гыы рез = 0;
+            го (э сашаГрей [1, 2, 3, 4, 5]) {
+                вилкойвглаз (э === 4) {
+                    харэ;
+                }
+                рез = рез + э;
+            }
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn for_of_with_continue() {
+        let i = run_code(
+            r#"
+            гыы рез = 0;
+            го (э сашаГрей [1, 2, 3, 4, 5]) {
+                вилкойвглаз (э === 3) {
+                    двигай;
+                }
+                рез = рез + э;
+            }
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(12.0)));
     }
 }

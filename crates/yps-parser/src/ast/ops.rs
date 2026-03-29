@@ -4,6 +4,8 @@ pub enum UnaryOp {
     Minus,
     Not,
     Typeof,
+    Delete,
+    Void,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +36,9 @@ pub enum BinaryOp {
     NullishAssign,
     AndAssign,
     OrAssign,
+    Pipeline,
+    Instanceof,
+    In,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
