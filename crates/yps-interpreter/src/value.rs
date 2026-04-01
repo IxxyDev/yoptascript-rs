@@ -7,6 +7,19 @@ use yps_parser::ast::{Block, Param};
 
 use crate::environment::EnvFrame;
 
+pub type MethodDef = (Vec<Param>, Rc<Block>, Rc<RefCell<EnvFrame>>);
+
+#[derive(Clone)]
+pub struct ClassDef {
+    pub name: String,
+    pub constructor: Option<MethodDef>,
+    pub methods: HashMap<String, MethodDef>,
+    pub static_methods: HashMap<String, MethodDef>,
+    pub static_fields: HashMap<String, Value>,
+    pub field_inits: Vec<(String, Option<Rc<Block>>)>,
+    pub parent: Option<Box<ClassDef>>,
+}
+
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
@@ -16,6 +29,7 @@ pub enum Value {
     Object(HashMap<String, Value>),
     Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
+    Class(Rc<ClassDef>),
     Undefined,
     Null,
 }
@@ -40,7 +54,7 @@ impl Value {
             Value::Undefined => "неопределено",
             Value::Null => "объект",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
-            Value::Array(_) | Value::Object(_) => "объект",
+            Value::Array(_) | Value::Object(_) | Value::Class(_) => "объект",
         }
     }
 
@@ -52,6 +66,7 @@ impl Value {
             Value::Array(_) => "массив",
             Value::Object(_) => "объект",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
+            Value::Class(_) => "класс",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -71,6 +86,7 @@ impl fmt::Debug for Value {
                 write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
+            Value::Class(cls) => write!(f, "Class({})", cls.name),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -114,6 +130,7 @@ impl fmt::Display for Value {
             Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
+            Value::Class(cls) => write!(f, "[класс {}]", cls.name),
         }
     }
 }
@@ -125,6 +142,7 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,
