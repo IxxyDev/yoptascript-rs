@@ -1,6 +1,6 @@
 use crate::ast::{
-    BinaryOp, Block, Expr, Identifier, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, PostfixOp, Program,
-    PropKey, Stmt, SwitchCase, TemplatePart, UnaryOp,
+    BinaryOp, Block, ClassMember, Expr, Identifier, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, PostfixOp,
+    Program, PropKey, Stmt, SwitchCase, TemplatePart, UnaryOp,
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
@@ -77,6 +77,16 @@ impl<'a> Parser<'a> {
             }
             TokenKind::TemplateNoSub => Ok(self.parse_template_nosub()),
             TokenKind::TemplateHead => self.parse_template_literal(),
+            TokenKind::Keyword(KeywordKind::This) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::This { span })
+            }
+            TokenKind::Keyword(KeywordKind::Super) => {
+                let span = self.current().span;
+                self.advance();
+                Ok(Expr::Super { span })
+            }
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object(),
             _ => {
@@ -469,6 +479,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
             TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
             TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
+            TokenKind::Keyword(KeywordKind::Class) => self.parse_class_decl(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -712,7 +723,8 @@ impl<'a> Parser<'a> {
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
-                | Stmt::Empty { span } => span.end,
+                | Stmt::Empty { span }
+                | Stmt::ClassDecl { span, .. } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
                 Stmt::VarDecl { span, .. }
@@ -731,7 +743,8 @@ impl<'a> Parser<'a> {
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
-                | Stmt::Empty { span } => span.end,
+                | Stmt::Empty { span }
+                | Stmt::ClassDecl { span, .. } => span.end,
             },
         );
 
@@ -777,7 +790,8 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
-            | Stmt::Empty { span } => span.end,
+            | Stmt::Empty { span }
+            | Stmt::ClassDecl { span, .. } => span.end,
         };
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
@@ -870,7 +884,8 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
-            | Stmt::Empty { span } => span.end,
+            | Stmt::Empty { span }
+            | Stmt::ClassDecl { span, .. } => span.end,
         };
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
@@ -1095,7 +1110,8 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
-            | Stmt::Empty { span } => span.end,
+            | Stmt::Empty { span }
+            | Stmt::ClassDecl { span, .. } => span.end,
         };
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
@@ -1249,7 +1265,8 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
-            | Stmt::Empty { span } => span.end,
+            | Stmt::Empty { span }
+            | Stmt::ClassDecl { span, .. } => span.end,
         }
     }
 
@@ -1394,6 +1411,7 @@ impl<'a> Parser<'a> {
                 let end = expr.span().end;
                 Expr::Unary { op: UnaryOp::Void, expr: Box::new(expr), span: Span { start, end } }
             }
+            TokenKind::Keyword(KeywordKind::New) => self.parse_new_expr()?,
             _ => self.parse_primary()?,
         };
 
@@ -1531,6 +1549,138 @@ impl<'a> Parser<'a> {
             let property = self.parse_identifier()?;
             let end = property.span.end;
             Ok(Expr::OptionalMember { object: Box::new(object), property, span: Span { start, end } })
+        }
+    }
+
+    fn parse_new_expr(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let mut callee = self.parse_primary()?;
+        while matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Dot)) {
+            callee = self.parse_member(callee)?;
+        }
+
+        let mut args = Vec::new();
+        let end;
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            self.advance();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                loop {
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                        let spread_start = self.current().span.start;
+                        self.advance();
+                        let expr = self.parse_expr()?;
+                        let spread_end = expr.span().end;
+                        args.push(Expr::Spread {
+                            expr: Box::new(expr),
+                            span: Span { start: spread_start, end: spread_end },
+                        });
+                    } else {
+                        args.push(self.parse_expr()?);
+                    }
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ')' после аргументов конструктора");
+                return Err(());
+            }
+            end = self.current().span.end;
+            self.advance();
+        } else {
+            end = callee.span().end;
+        }
+
+        Ok(Expr::New { callee: Box::new(callee), args, span: Span { start, end } })
+    }
+
+    fn parse_class_decl(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let name = self.parse_identifier()?;
+
+        let super_class = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Extends)) {
+            self.advance();
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '{' после имени класса");
+            return Err(());
+        }
+        self.advance();
+
+        let mut members = Vec::new();
+        while !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace) | TokenKind::Eof) {
+            members.push(self.parse_class_member(&name.name)?);
+        }
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '}' в конце класса");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::ClassDecl { name, super_class, members, span: Span { start, end } })
+    }
+
+    fn parse_class_member(&mut self, class_name: &str) -> Result<ClassMember, ()> {
+        let start = self.current().span.start;
+
+        let is_static = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Static)) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
+        let member_name = self.parse_identifier()?;
+
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            self.advance();
+            let params = self.parse_function_params()?;
+
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ')' после параметров метода");
+                return Err(());
+            }
+            self.advance();
+
+            let body = self.parse_block()?;
+            let end = body.span.end;
+
+            if !is_static && member_name.name == class_name {
+                Ok(ClassMember::Constructor { params, body, span: Span { start, end } })
+            } else {
+                Ok(ClassMember::Method { name: member_name, params, body, is_static, span: Span { start, end } })
+            }
+        } else {
+            let init = if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                self.advance();
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+
+            if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+                self.advance();
+            }
+
+            let end = self.current().span.start;
+            Ok(ClassMember::Field { name: member_name, init, is_static, span: Span { start, end } })
         }
     }
 

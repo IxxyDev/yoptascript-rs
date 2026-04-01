@@ -42,6 +42,12 @@ pub enum Expr {
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
 
     Spread { expr: Box<Expr>, span: Span },
+
+    This { span: Span },
+
+    New { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+
+    Super { span: Span },
 }
 
 impl Expr {
@@ -72,7 +78,10 @@ impl Expr {
             | Self::Conditional { span, .. }
             | Self::ArrowFunction { span, .. }
             | Self::TemplateLiteral { span, .. }
-            | Self::Spread { span, .. } => *span,
+            | Self::Spread { span, .. }
+            | Self::This { span, .. }
+            | Self::New { span, .. }
+            | Self::Super { span, .. } => *span,
         }
     }
 }
