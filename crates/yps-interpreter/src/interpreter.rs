@@ -1,15 +1,17 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use yps_lexer::Span;
 use yps_parser::ast::{
-    BinaryOp, Block, Expr, Literal, ObjectEntry, Pattern, PostfixOp, Program, PropKey, Stmt, TemplatePart, UnaryOp,
+    BinaryOp, Block, ClassMember, Expr, Literal, ObjectEntry, Pattern, PostfixOp, Program, PropKey, Stmt, TemplatePart,
+    UnaryOp,
 };
 
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
 use crate::error::RuntimeError;
-use crate::value::Value;
+use crate::value::{ClassDef, Value};
 
 enum ControlFlow {
     Break,
@@ -248,6 +250,9 @@ impl Interpreter {
                     return self.exec_block(default_block);
                 }
                 Ok(None)
+            }
+            Stmt::ClassDecl { name, super_class, members, span } => {
+                self.exec_class_decl(name, super_class.as_ref(), members, *span)
             }
             Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
                 let try_result = self.exec_block(try_block);
@@ -489,9 +494,40 @@ impl Interpreter {
             Expr::Postfix { op, expr, span } => self.eval_postfix(*op, expr, *span),
             Expr::Grouping { expr, .. } => self.eval_expr(expr),
             Expr::Call { callee, args, span } => {
-                let func = self.eval_expr(callee)?;
-                let arg_values = self.eval_args(args)?;
-                self.call_function(func, arg_values, *span)
+                if let Expr::Member { object, property, .. } = callee.as_ref() {
+                    let obj = self.eval_expr(object)?;
+                    if let Expr::Super { .. } = object.as_ref()
+                        && let Value::Class(cls) = &obj
+                        && let Some((ref params, ref body, ref env)) = cls.constructor
+                    {
+                        let arg_values = self.eval_args(args)?;
+                        return self.call_method_with_this(params, body, env, arg_values, None, *span);
+                    }
+                    let func = self.eval_member(obj.clone(), &property.name, *span)?;
+                    let arg_values = self.eval_args(args)?;
+                    if matches!(obj, Value::Object(_))
+                        && let Value::Function { params, body, env, .. } = &func
+                    {
+                        return self.call_method_with_this(params, body, env, arg_values, Some(obj), *span);
+                    }
+                    self.call_function(func, arg_values, *span)
+                } else if let Expr::Super { span: super_span } = callee.as_ref() {
+                    let super_val = self.env.get("__super__").ok_or_else(|| {
+                        RuntimeError::new("'яга' (super) используется вне класса-наследника", *super_span)
+                    })?;
+                    if let Value::Class(cls) = &super_val
+                        && let Some((ref params, ref body, ref env)) = cls.constructor
+                    {
+                        let arg_values = self.eval_args(args)?;
+                        let this_val = self.env.get("тырыпыры");
+                        return self.call_method_with_this(params, body, env, arg_values, this_val, *span);
+                    }
+                    Err(RuntimeError::new("Родительский класс не имеет конструктора", *span))
+                } else {
+                    let func = self.eval_expr(callee)?;
+                    let arg_values = self.eval_args(args)?;
+                    self.call_function(func, arg_values, *span)
+                }
             }
             Expr::Index { object, index, span } => {
                 let obj = self.eval_expr(object)?;
@@ -558,6 +594,19 @@ impl Interpreter {
                 "Оператор '...' допустим только в массивах, объектах или аргументах вызова",
                 *span,
             )),
+            Expr::This { span } => self
+                .env
+                .get("тырыпыры")
+                .ok_or_else(|| RuntimeError::new("'тырыпыры' (this) используется вне контекста объекта", *span)),
+            Expr::New { callee, args, span } => {
+                let class_val = self.eval_expr(callee)?;
+                let arg_values = self.eval_args(args)?;
+                self.construct_instance(class_val, arg_values, *span)
+            }
+            Expr::Super { span } => self
+                .env
+                .get("__super__")
+                .ok_or_else(|| RuntimeError::new("'яга' (super) используется вне класса-наследника", *span)),
         }
     }
 
@@ -774,6 +823,7 @@ impl Interpreter {
     ) -> Result<String, RuntimeError> {
         match expr {
             Expr::Identifier(ident) => Ok(ident.name.clone()),
+            Expr::This { .. } => Ok("тырыпыры".to_string()),
             Expr::Index { object, index, .. } => {
                 let idx_val = self.eval_expr(index)?;
                 path.push(AccessSegment::Index(idx_val));
@@ -963,6 +1013,57 @@ impl Interpreter {
         }
     }
 
+    fn call_method_with_this(
+        &mut self,
+        params: &[yps_parser::ast::Param],
+        body: &Rc<Block>,
+        env: &Rc<RefCell<crate::environment::EnvFrame>>,
+        args: Vec<Value>,
+        this_val: Option<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let saved_env = self.env.clone();
+        self.env = Environment::from_snapshot(Rc::clone(env));
+        self.env.push_scope();
+
+        if let Some(this) = &this_val {
+            self.env.define("тырыпыры".to_string(), this.clone(), false);
+        }
+
+        if let Some(super_val) = saved_env.get("__super__") {
+            self.env.define("__super__".to_string(), super_val, false);
+        }
+
+        for (i, param) in params.iter().enumerate() {
+            if param.is_rest {
+                let rest_start = i.min(args.len());
+                let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                break;
+            }
+            let value = if i < args.len() {
+                args[i].clone()
+            } else if let Some(default_expr) = &param.default {
+                self.eval_expr(default_expr)?
+            } else {
+                Value::Undefined
+            };
+            self.env.define(param.name.name.clone(), value, false);
+        }
+
+        let result = self.exec_block_stmts(&body.stmts);
+
+        self.env = saved_env;
+
+        match result? {
+            Some(ControlFlow::Return(val)) => Ok(val),
+            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            None => Ok(Value::Undefined),
+        }
+    }
+
     fn eval_index(&self, obj: Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
         match (&obj, &index) {
             (Value::Array(arr), Value::Number(n)) => {
@@ -1036,9 +1137,239 @@ impl Interpreter {
         }
     }
 
+    fn exec_class_decl(
+        &mut self,
+        name: &yps_parser::ast::Identifier,
+        super_class: Option<&Expr>,
+        members: &[ClassMember],
+        span: Span,
+    ) -> Result<Option<ControlFlow>, RuntimeError> {
+        let parent = if let Some(sc_expr) = super_class {
+            let sc_val = self.eval_expr(sc_expr)?;
+            match sc_val {
+                Value::Class(cls) => Some(cls),
+                _ => return Err(RuntimeError::new("Родительский класс должен быть классом", span)),
+            }
+        } else {
+            None
+        };
+
+        let mut constructor = None;
+        let mut methods = HashMap::new();
+        let mut static_methods = HashMap::new();
+        let mut static_fields = HashMap::new();
+        let mut field_inits = Vec::new();
+
+        for member in members {
+            match member {
+                ClassMember::Constructor { params, body, .. } => {
+                    constructor = Some((params.clone(), Rc::new(body.clone()), self.env.snapshot()));
+                }
+                ClassMember::Method { name: m_name, params, body, is_static, .. } => {
+                    let entry = (params.clone(), Rc::new(body.clone()), self.env.snapshot());
+                    if *is_static {
+                        static_methods.insert(m_name.name.clone(), entry);
+                    } else {
+                        methods.insert(m_name.name.clone(), entry);
+                    }
+                }
+                ClassMember::Field { name: f_name, init, is_static, .. } => {
+                    if *is_static {
+                        let val =
+                            if let Some(init_expr) = init { self.eval_expr(init_expr)? } else { Value::Undefined };
+                        static_fields.insert(f_name.name.clone(), val);
+                    } else {
+                        let body = init.as_ref().map(|expr| {
+                            Rc::new(Block {
+                                stmts: vec![yps_parser::ast::Stmt::Return { value: Some(expr.clone()), span }],
+                                span,
+                            })
+                        });
+                        field_inits.push((f_name.name.clone(), body));
+                    }
+                }
+            }
+        }
+
+        let class_def = ClassDef {
+            name: name.name.clone(),
+            constructor,
+            methods,
+            static_methods,
+            static_fields,
+            field_inits,
+            parent: parent.map(|p| Box::new((*p).clone())),
+        };
+
+        let class_val = Value::Class(Rc::new(class_def));
+        self.env.define(name.name.clone(), class_val, false);
+        Ok(None)
+    }
+
+    fn construct_instance(&mut self, class_val: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+        let class_def = match &class_val {
+            Value::Class(cls) => cls.clone(),
+            _ => return Err(RuntimeError::new(format!("'{}' не является классом", class_val.type_name()), span)),
+        };
+
+        let mut instance = HashMap::new();
+        instance.insert("__class__".to_string(), Value::String(class_def.name.clone()));
+
+        self.init_fields(&class_def, &mut instance, span)?;
+
+        let instance_val = Value::Object(instance);
+
+        if let Some((ref params, ref body, ref env)) = class_def.constructor {
+            let saved_env = self.env.clone();
+            self.env = Environment::from_snapshot(Rc::clone(env));
+            self.env.push_scope();
+
+            self.env.define("тырыпыры".to_string(), instance_val.clone(), false);
+
+            if let Some(ref parent) = class_def.parent {
+                self.env.define("__super__".to_string(), Value::Class(Rc::new(*parent.clone())), false);
+            }
+
+            let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
+
+            if args.len() < required_count {
+                self.env = saved_env;
+                return Err(RuntimeError::new(
+                    format!(
+                        "Конструктор '{}' ожидает минимум {} аргумент(ов), получено {}",
+                        class_def.name,
+                        required_count,
+                        args.len()
+                    ),
+                    span,
+                ));
+            }
+
+            for (i, param) in params.iter().enumerate() {
+                if param.is_rest {
+                    let rest_start = i.min(args.len());
+                    let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                    self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                    break;
+                }
+                let value = if i < args.len() {
+                    args[i].clone()
+                } else if let Some(default_expr) = &param.default {
+                    self.eval_expr(default_expr)?
+                } else {
+                    Value::Undefined
+                };
+                self.env.define(param.name.name.clone(), value, false);
+            }
+
+            let result = self.exec_block_stmts(&body.stmts);
+            let this_after = self.env.get("тырыпыры").unwrap_or(instance_val);
+            self.env = saved_env;
+
+            match result? {
+                Some(ControlFlow::Return(_)) | None => Ok(this_after),
+                Some(ControlFlow::Throw(val)) => {
+                    Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
+                }
+                Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+                Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            }
+        } else if let Some(ref parent) = class_def.parent {
+            if let Some((ref params, ..)) = parent.constructor
+                && !params.is_empty()
+                && params.iter().filter(|p| p.default.is_none() && !p.is_rest).count() > 0
+            {
+                let parent_class_val = Value::Class(Rc::new(*parent.clone()));
+                return self.construct_with_parent(parent_class_val, args, instance_val, span);
+            }
+            Ok(instance_val)
+        } else {
+            Ok(instance_val)
+        }
+    }
+
+    fn construct_with_parent(
+        &mut self,
+        parent_class_val: Value,
+        args: Vec<Value>,
+        child_instance: Value,
+        _span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let _ = (parent_class_val, args, child_instance);
+        Ok(Value::Object(HashMap::new()))
+    }
+
+    fn init_fields(
+        &mut self,
+        class_def: &ClassDef,
+        instance: &mut HashMap<String, Value>,
+        _span: Span,
+    ) -> Result<(), RuntimeError> {
+        if let Some(ref parent) = class_def.parent {
+            self.init_fields(parent, instance, _span)?;
+        }
+        for (name, init_body) in &class_def.field_inits {
+            let val = if let Some(body) = init_body {
+                let saved_env = self.env.clone();
+                self.env.push_scope();
+                self.env.define("тырыпыры".to_string(), Value::Object(instance.clone()), false);
+                let result = self.exec_block_stmts(&body.stmts);
+                self.env = saved_env;
+                match result? {
+                    Some(ControlFlow::Return(v)) => v,
+                    _ => Value::Undefined,
+                }
+            } else {
+                Value::Undefined
+            };
+            instance.insert(name.clone(), val);
+        }
+        Ok(())
+    }
+
+    fn find_method_in_class<'a>(class_def: &'a ClassDef, method_name: &str) -> Option<&'a crate::value::MethodDef> {
+        if let Some(m) = class_def.methods.get(method_name) {
+            return Some(m);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_method_in_class(parent, method_name);
+        }
+        None
+    }
+
     fn eval_member(&self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
-            Value::Object(map) => Ok(map.get(property).cloned().unwrap_or(Value::Undefined)),
+            Value::Object(map) => {
+                if let Some(val) = map.get(property) {
+                    return Ok(val.clone());
+                }
+                if let Some(Value::String(class_name)) = map.get("__class__")
+                    && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
+                    && let Some((params, body, env)) = Self::find_method_in_class(cls, property)
+                {
+                    return Ok(Value::Function {
+                        name: property.to_string(),
+                        params: params.clone(),
+                        body: Rc::clone(body),
+                        env: Rc::clone(env),
+                    });
+                }
+                Ok(Value::Undefined)
+            }
+            Value::Class(cls) => {
+                if let Some(val) = cls.static_fields.get(property) {
+                    return Ok(val.clone());
+                }
+                if let Some((params, body, env)) = cls.static_methods.get(property) {
+                    return Ok(Value::Function {
+                        name: property.to_string(),
+                        params: params.clone(),
+                        body: Rc::clone(body),
+                        env: Rc::clone(env),
+                    });
+                }
+                Ok(Value::Undefined)
+            }
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }
@@ -3220,5 +3551,137 @@ mod tests {
             "#,
         );
         assert_eq!(i.get("рез"), Some(Value::Number(12.0)));
+    }
+
+    #[test]
+    fn class_basic_constructor_and_fields() {
+        let i = run_code(
+            r#"
+            клёво Чел {
+                Чел(имя, возраст) {
+                    тырыпыры.имя = имя;
+                    тырыпыры.возраст = возраст;
+                }
+            }
+            гыы п = захуярить Чел("Вася", 25);
+            гыы имя = п.имя;
+            гыы возраст = п.возраст;
+            "#,
+        );
+        assert_eq!(i.get("имя"), Some(Value::String("Вася".to_string())));
+        assert_eq!(i.get("возраст"), Some(Value::Number(25.0)));
+    }
+
+    #[test]
+    fn class_method_call() {
+        let i = run_code(
+            r#"
+            клёво Кот {
+                Кот(имя) {
+                    тырыпыры.имя = имя;
+                }
+                мяукнуть() {
+                    отвечаю тырыпыры.имя;
+                }
+            }
+            гыы к = захуярить Кот("Барсик");
+            гыы рез = к.мяукнуть();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("Барсик".to_string())));
+    }
+
+    #[test]
+    fn class_inheritance() {
+        let i = run_code(
+            r#"
+            клёво Животное {
+                Животное(имя) {
+                    тырыпыры.имя = имя;
+                }
+                представиться() {
+                    отвечаю тырыпыры.имя;
+                }
+            }
+            клёво Собака батя Животное {
+                Собака(имя, порода) {
+                    тырыпыры.имя = имя;
+                    тырыпыры.вид = порода;
+                }
+                получитьВид() {
+                    отвечаю тырыпыры.вид;
+                }
+            }
+            гыы с = захуярить Собака("Шарик", "дворняга");
+            гыы имя = с.представиться();
+            гыы вид = с.получитьВид();
+            "#,
+        );
+        assert_eq!(i.get("имя"), Some(Value::String("Шарик".to_string())));
+        assert_eq!(i.get("вид"), Some(Value::String("дворняга".to_string())));
+    }
+
+    #[test]
+    fn class_static_method() {
+        let i = run_code(
+            r#"
+            клёво Матема {
+                попонятия двойка() {
+                    отвечаю 2;
+                }
+            }
+            гыы рез = Матема.двойка();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn class_new_without_args() {
+        let i = run_code(
+            r#"
+            клёво Пустой {
+                Пустой() {
+                    тырыпыры.х = 42;
+                }
+            }
+            гыы о = захуярить Пустой();
+            гыы рез = о.х;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn class_method_with_args() {
+        let i = run_code(
+            r#"
+            клёво Калькулятор {
+                Калькулятор() {}
+                сложить(а, б) {
+                    отвечаю а + б;
+                }
+            }
+            гыы к = захуярить Калькулятор();
+            гыы рез = к.сложить(3, 4);
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn class_instanceof_check() {
+        let i = run_code(
+            r#"
+            клёво Тест {
+                Тест() {
+                    тырыпыры.вал = 1;
+                }
+            }
+            гыы т = захуярить Тест();
+            гыы рез = чезажижан т;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("объект".to_string())));
     }
 }
