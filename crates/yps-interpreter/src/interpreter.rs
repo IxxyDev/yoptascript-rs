@@ -508,7 +508,9 @@ impl Interpreter {
                     if matches!(obj, Value::Object(_))
                         && let Value::Function { params, body, env, .. } = &func
                     {
-                        return self.call_method_with_this(params, body, env, arg_values, Some(obj), *span);
+                        let result = self.call_method_returning_this(params, body, env, arg_values, obj, *span)?;
+                        self.write_back_object(object, result.1, *span)?;
+                        return Ok(result.0);
                     }
                     self.call_function(func, arg_values, *span)
                 } else if let Expr::Super { span: super_span } = callee.as_ref() {
@@ -672,6 +674,38 @@ impl Interpreter {
                                 }
                             }
                         }
+                        ObjectEntry::Getter { key, body, .. } => {
+                            let key_str = match key {
+                                PropKey::Identifier(ident) => ident.name.clone(),
+                                PropKey::Computed(expr) => {
+                                    let k = self.eval_expr(expr)?;
+                                    k.to_string()
+                                }
+                            };
+                            let getter_fn = Value::Function {
+                                name: format!("get {key_str}"),
+                                params: vec![],
+                                body: Rc::new(body.clone()),
+                                env: self.env.snapshot(),
+                            };
+                            map.insert(format!("__get_{key_str}__"), getter_fn);
+                        }
+                        ObjectEntry::Setter { key, param, body, .. } => {
+                            let key_str = match key {
+                                PropKey::Identifier(ident) => ident.name.clone(),
+                                PropKey::Computed(expr) => {
+                                    let k = self.eval_expr(expr)?;
+                                    k.to_string()
+                                }
+                            };
+                            let setter_fn = Value::Function {
+                                name: format!("set {key_str}"),
+                                params: vec![param.clone()],
+                                body: Rc::new(body.clone()),
+                                env: self.env.snapshot(),
+                            };
+                            map.insert(format!("__set_{key_str}__"), setter_fn);
+                        }
                     }
                 }
                 Ok(Value::Object(map))
@@ -796,7 +830,28 @@ impl Interpreter {
                 self.set_variable(&ident.name, value.clone(), span)?;
                 Ok(value)
             }
-            Expr::Index { .. } | Expr::Member { .. } => {
+            Expr::Member { object, property, .. } => {
+                if let Some(result) = self.try_call_setter(object, &property.name, value.clone(), span)? {
+                    return Ok(result);
+                }
+                if property.name.starts_with('#') {
+                    self.check_private_access_for_set(object, &property.name, span)?;
+                }
+                let mut path = Vec::new();
+                let root_name = self.collect_access_path(target, &mut path, span)?;
+                path.reverse();
+                if self.env.is_const(&root_name) {
+                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
+                }
+                let mut root = self
+                    .env
+                    .get(&root_name)
+                    .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
+                Self::set_at_path(&mut root, &path, value.clone(), span)?;
+                self.env.set(&root_name, root);
+                Ok(value)
+            }
+            Expr::Index { .. } => {
                 let mut path = Vec::new();
                 let root_name = self.collect_access_path(target, &mut path, span)?;
                 path.reverse();
@@ -813,6 +868,111 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
         }
+    }
+
+    fn try_call_setter(
+        &mut self,
+        object_expr: &Expr,
+        property: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<Option<Value>, RuntimeError> {
+        let obj = self.eval_expr(object_expr)?;
+        match &obj {
+            Value::Object(map) => {
+                let setter_key = format!("__set_{property}__");
+                if let Some(Value::Function { params, body, env, .. }) = map.get(&setter_key) {
+                    let params = params.clone();
+                    let body = Rc::clone(body);
+                    let env = Rc::clone(env);
+                    let updated = self.call_setter_returning_this(&params, &body, &env, value.clone(), obj, span)?;
+                    self.write_back_object(object_expr, updated, span)?;
+                    return Ok(Some(value));
+                }
+                if let Some(Value::String(class_name)) = map.get("__class__")
+                    && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
+                    && let Some((params, body, env)) = Self::find_setter_in_class(cls, property)
+                {
+                    let params = params.clone();
+                    let body = Rc::clone(body);
+                    let env = Rc::clone(env);
+                    let updated =
+                        self.call_setter_returning_this(&params, &body, &env, value.clone(), obj.clone(), span)?;
+                    self.write_back_object(object_expr, updated, span)?;
+                    return Ok(Some(value));
+                }
+                Ok(None)
+            }
+            Value::Class(cls) => {
+                if let Some((params, body, env)) = cls.static_setters.get(property) {
+                    self.call_method_with_this(params, body, env, vec![value.clone()], None, span)?;
+                    return Ok(Some(value));
+                }
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn call_setter_returning_this(
+        &mut self,
+        params: &[yps_parser::ast::Param],
+        body: &Rc<Block>,
+        env: &Rc<RefCell<crate::environment::EnvFrame>>,
+        value: Value,
+        this_val: Value,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let saved_env = self.env.clone();
+        self.env = Environment::from_snapshot(Rc::clone(env));
+        self.env.push_scope();
+        self.env.define("тырыпыры".to_string(), this_val.clone(), false);
+        if let Some(param) = params.first() {
+            self.env.define(param.name.name.clone(), value, false);
+        }
+        let result = self.exec_block_stmts(&body.stmts);
+        let updated_this = self.env.get("тырыпыры").unwrap_or(this_val);
+        self.env = saved_env;
+        match result? {
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            _ => Ok(updated_this),
+        }
+    }
+
+    fn write_back_object(&mut self, object_expr: &Expr, updated: Value, span: Span) -> Result<(), RuntimeError> {
+        match object_expr {
+            Expr::Identifier(ident) => {
+                if self.env.is_const(&ident.name) {
+                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{}'", ident.name), span));
+                }
+                self.env.set(&ident.name, updated);
+                Ok(())
+            }
+            Expr::This { .. } => {
+                self.env.set("тырыпыры", updated);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn check_private_access_for_set(
+        &self,
+        _object_expr: &Expr,
+        property: &str,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if !property.starts_with('#') {
+            return Ok(());
+        }
+        let in_method = self.env.get("тырыпыры").is_some();
+        if !in_method {
+            return Err(RuntimeError::new(
+                format!("Нельзя обращаться к приватному полю '{property}' за пределами класса"),
+                span,
+            ));
+        }
+        Ok(())
     }
 
     fn collect_access_path(
@@ -910,6 +1070,56 @@ impl Interpreter {
             return Err(RuntimeError::new(format!("Переменная '{name}' не определена"), span));
         }
         Ok(())
+    }
+
+    fn call_method_returning_this(
+        &mut self,
+        params: &[yps_parser::ast::Param],
+        body: &Rc<Block>,
+        env: &Rc<RefCell<crate::environment::EnvFrame>>,
+        args: Vec<Value>,
+        this_val: Value,
+        span: Span,
+    ) -> Result<(Value, Value), RuntimeError> {
+        let saved_env = self.env.clone();
+        self.env = Environment::from_snapshot(Rc::clone(env));
+        self.env.push_scope();
+
+        self.env.define("тырыпыры".to_string(), this_val.clone(), false);
+
+        if let Some(super_val) = saved_env.get("__super__") {
+            self.env.define("__super__".to_string(), super_val, false);
+        }
+
+        for (i, param) in params.iter().enumerate() {
+            if param.is_rest {
+                let rest_start = i.min(args.len());
+                let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                break;
+            }
+            let value = if i < args.len() {
+                args[i].clone()
+            } else if let Some(default_expr) = &param.default {
+                self.eval_expr(default_expr)?
+            } else {
+                Value::Undefined
+            };
+            self.env.define(param.name.name.clone(), value, false);
+        }
+
+        let result = self.exec_block_stmts(&body.stmts);
+        let updated_this = self.env.get("тырыпыры").unwrap_or(this_val);
+
+        self.env = saved_env;
+
+        match result? {
+            Some(ControlFlow::Return(val)) => Ok((val, updated_this)),
+            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            None => Ok((Value::Undefined, updated_this)),
+        }
     }
 
     fn numeric_op(
@@ -1159,6 +1369,10 @@ impl Interpreter {
         let mut static_methods = HashMap::new();
         let mut static_fields = HashMap::new();
         let mut field_inits = Vec::new();
+        let mut getters = HashMap::new();
+        let mut setters = HashMap::new();
+        let mut static_getters = HashMap::new();
+        let mut static_setters = HashMap::new();
 
         for member in members {
             match member {
@@ -1188,6 +1402,22 @@ impl Interpreter {
                         field_inits.push((f_name.name.clone(), body));
                     }
                 }
+                ClassMember::Getter { name: g_name, body, is_static, .. } => {
+                    let entry = (Vec::new(), Rc::new(body.clone()), self.env.snapshot());
+                    if *is_static {
+                        static_getters.insert(g_name.name.clone(), entry);
+                    } else {
+                        getters.insert(g_name.name.clone(), entry);
+                    }
+                }
+                ClassMember::Setter { name: s_name, param, body, is_static, .. } => {
+                    let entry = (vec![param.clone()], Rc::new(body.clone()), self.env.snapshot());
+                    if *is_static {
+                        static_setters.insert(s_name.name.clone(), entry);
+                    } else {
+                        setters.insert(s_name.name.clone(), entry);
+                    }
+                }
             }
         }
 
@@ -1198,6 +1428,10 @@ impl Interpreter {
             static_methods,
             static_fields,
             field_inits,
+            getters,
+            setters,
+            static_getters,
+            static_setters,
             parent: parent.map(|p| Box::new((*p).clone())),
         };
 
@@ -1337,26 +1571,85 @@ impl Interpreter {
         None
     }
 
-    fn eval_member(&self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
+    fn find_getter_in_class<'a>(class_def: &'a ClassDef, name: &str) -> Option<&'a crate::value::MethodDef> {
+        if let Some(g) = class_def.getters.get(name) {
+            return Some(g);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_getter_in_class(parent, name);
+        }
+        None
+    }
+
+    fn find_setter_in_class<'a>(class_def: &'a ClassDef, name: &str) -> Option<&'a crate::value::MethodDef> {
+        if let Some(s) = class_def.setters.get(name) {
+            return Some(s);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_setter_in_class(parent, name);
+        }
+        None
+    }
+
+    fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
             Value::Object(map) => {
+                if property.starts_with('#') {
+                    let in_class =
+                        if let Some(Value::String(class_name)) = map.get("__class__") {
+                            self.env.get("тырыпыры").is_some()
+                                && self
+                                    .env
+                                    .get("тырыпыры")
+                                    .and_then(|this| {
+                                        if let Value::Object(m) = &this { m.get("__class__").cloned() } else { None }
+                                    })
+                                    .is_some_and(|c| if let Value::String(cn) = c { cn == *class_name } else { false })
+                        } else {
+                            false
+                        };
+                    if !in_class {
+                        return Err(RuntimeError::new(
+                            format!("Нельзя обращаться к приватному полю '{property}' за пределами класса"),
+                            span,
+                        ));
+                    }
+                }
+
+                let getter_key = format!("__get_{property}__");
+                if let Some(Value::Function { params, body, env, .. }) = map.get(&getter_key) {
+                    let params = params.clone();
+                    let body = Rc::clone(body);
+                    let env = Rc::clone(env);
+                    return self.call_method_with_this(&params, &body, &env, vec![], Some(obj), span);
+                }
                 if let Some(val) = map.get(property) {
                     return Ok(val.clone());
                 }
                 if let Some(Value::String(class_name)) = map.get("__class__")
                     && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
-                    && let Some((params, body, env)) = Self::find_method_in_class(cls, property)
                 {
-                    return Ok(Value::Function {
-                        name: property.to_string(),
-                        params: params.clone(),
-                        body: Rc::clone(body),
-                        env: Rc::clone(env),
-                    });
+                    if let Some((params, body, env)) = Self::find_getter_in_class(cls, property) {
+                        let params = params.clone();
+                        let body = Rc::clone(body);
+                        let env = Rc::clone(env);
+                        return self.call_method_with_this(&params, &body, &env, vec![], Some(obj), span);
+                    }
+                    if let Some((params, body, env)) = Self::find_method_in_class(cls, property) {
+                        return Ok(Value::Function {
+                            name: property.to_string(),
+                            params: params.clone(),
+                            body: Rc::clone(body),
+                            env: Rc::clone(env),
+                        });
+                    }
                 }
                 Ok(Value::Undefined)
             }
             Value::Class(cls) => {
+                if let Some((params, body, env)) = cls.static_getters.get(property) {
+                    return self.call_method_with_this(params, body, env, vec![], None, span);
+                }
                 if let Some(val) = cls.static_fields.get(property) {
                     return Ok(val.clone());
                 }
@@ -3683,5 +3976,143 @@ mod tests {
             "#,
         );
         assert_eq!(i.get("рез"), Some(Value::String("объект".to_string())));
+    }
+
+    #[test]
+    fn private_field_access_inside_class() {
+        let i = run_code(
+            r#"
+            клёво Счёт {
+                Счёт(нач) {
+                    тырыпыры.#баланс = нач;
+                }
+                получить() {
+                    отвечаю тырыпыры.#баланс;
+                }
+                добавить(с) {
+                    тырыпыры.#баланс = тырыпыры.#баланс + с;
+                }
+            }
+            гыы с = захуярить Счёт(100);
+            с.добавить(50);
+            гыы рез = с.получить();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(150.0)));
+    }
+
+    #[test]
+    fn private_field_access_outside_class_fails() {
+        let err = run_code_err(
+            r#"
+            клёво Кошелёк {
+                Кошелёк() {
+                    тырыпыры.#бабки = 500;
+                }
+            }
+            гыы к = захуярить Кошелёк();
+            гыы х = к.#бабки;
+            "#,
+        );
+        assert!(err.message.contains("приватному полю"));
+    }
+
+    #[test]
+    fn private_field_declaration() {
+        let i = run_code(
+            r#"
+            клёво Бокс {
+                #значение = 42;
+                получить() {
+                    отвечаю тырыпыры.#значение;
+                }
+            }
+            гыы б = захуярить Бокс();
+            гыы рез = б.получить();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn class_getter() {
+        let i = run_code(
+            r#"
+            клёво Круг {
+                Круг(р) {
+                    тырыпыры.радиус = р;
+                }
+                get площадь() {
+                    отвечаю 3 * тырыпыры.радиус * тырыпыры.радиус;
+                }
+            }
+            гыы к = захуярить Круг(10);
+            гыы рез = к.площадь;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(300.0)));
+    }
+
+    #[test]
+    fn class_setter() {
+        let i = run_code(
+            r#"
+            клёво Ящик {
+                Ящик() {
+                    тырыпыры.ширина = 0;
+                    тырыпыры.высота = 0;
+                }
+                get площадь() {
+                    отвечаю тырыпыры.ширина * тырыпыры.высота;
+                }
+                set размер(с) {
+                    тырыпыры.ширина = с;
+                    тырыпыры.высота = с;
+                }
+            }
+            гыы я = захуярить Ящик();
+            я.размер = 5;
+            гыы рез = я.площадь;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(25.0)));
+    }
+
+    #[test]
+    fn object_getter_setter() {
+        let i = run_code(
+            r#"
+            гыы об = {
+                _имя: "мир",
+                get имя() {
+                    отвечаю тырыпыры._имя;
+                },
+                set имя(н) {
+                    тырыпыры._имя = н;
+                }
+            };
+            гыы до = об.имя;
+            об.имя = "всем";
+            гыы после = об.имя;
+            "#,
+        );
+        assert_eq!(i.get("до"), Some(Value::String("мир".to_string())));
+        assert_eq!(i.get("после"), Some(Value::String("всем".to_string())));
+    }
+
+    #[test]
+    fn static_getter() {
+        let i = run_code(
+            r#"
+            клёво Конфиг {
+                попонятия #версия = 1;
+                попонятия get версия() {
+                    отвечаю 42;
+                }
+            }
+            гыы рез = Конфиг.версия;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
     }
 }
