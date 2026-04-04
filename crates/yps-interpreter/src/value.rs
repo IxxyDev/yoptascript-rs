@@ -17,6 +17,10 @@ pub struct ClassDef {
     pub static_methods: HashMap<String, MethodDef>,
     pub static_fields: HashMap<String, Value>,
     pub field_inits: Vec<(String, Option<Rc<Block>>)>,
+    pub getters: HashMap<String, MethodDef>,
+    pub setters: HashMap<String, MethodDef>,
+    pub static_getters: HashMap<String, MethodDef>,
+    pub static_setters: HashMap<String, MethodDef>,
     pub parent: Option<Box<ClassDef>>,
 }
 

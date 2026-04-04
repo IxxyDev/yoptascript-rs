@@ -415,6 +415,66 @@ impl<'a> Parser<'a> {
                     self.advance();
                     let value = self.parse_expr()?;
                     entries.push(ObjectEntry::Property { key: key_expr, value });
+                } else if matches!(self.current().kind, TokenKind::Identifier)
+                    && self.source.slice(self.current().span) == "get"
+                    && matches!(self.peek(1).kind, TokenKind::Identifier)
+                {
+                    let gs_start = self.current().span.start;
+                    self.advance();
+                    let key = self.parse_identifier()?;
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалась '(' после имени геттера");
+                        return Err(());
+                    }
+                    self.advance();
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Геттер не принимает параметров");
+                        return Err(());
+                    }
+                    self.advance();
+                    let body = self.parse_block()?;
+                    let gs_end = body.span.end;
+                    entries.push(ObjectEntry::Getter {
+                        key: PropKey::Identifier(key),
+                        body,
+                        span: Span { start: gs_start, end: gs_end },
+                    });
+                } else if matches!(self.current().kind, TokenKind::Identifier)
+                    && self.source.slice(self.current().span) == "set"
+                    && matches!(self.peek(1).kind, TokenKind::Identifier)
+                {
+                    let gs_start = self.current().span.start;
+                    self.advance();
+                    let key = self.parse_identifier()?;
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалась '(' после имени сеттера");
+                        return Err(());
+                    }
+                    self.advance();
+                    let params = self.parse_function_params()?;
+                    if params.len() != 1 {
+                        let span = self.current().span;
+                        self.push_error(span, "Сеттер принимает ровно один параметр");
+                        return Err(());
+                    }
+                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалась ')' после параметра сеттера");
+                        return Err(());
+                    }
+                    self.advance();
+                    let body = self.parse_block()?;
+                    let gs_end = body.span.end;
+                    let param = params.into_iter().next().unwrap();
+                    entries.push(ObjectEntry::Setter {
+                        key: PropKey::Identifier(key),
+                        param,
+                        body,
+                        span: Span { start: gs_start, end: gs_end },
+                    });
                 } else {
                     let key = self.parse_identifier()?;
                     if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
@@ -1502,7 +1562,14 @@ impl<'a> Parser<'a> {
         let start = object.span().start;
         self.advance();
 
-        let property = self.parse_identifier()?;
+        let property = if matches!(self.current().kind, TokenKind::PrivateIdentifier) {
+            let span = self.current().span;
+            let name = self.source.slice(span).to_string();
+            self.advance();
+            Identifier { name, span }
+        } else {
+            self.parse_identifier()?
+        };
 
         let end = property.span.end;
 
@@ -1646,7 +1713,73 @@ impl<'a> Parser<'a> {
             false
         };
 
-        let member_name = self.parse_identifier()?;
+        if matches!(self.current().kind, TokenKind::Identifier)
+            && self.source.slice(self.current().span) == "get"
+            && !matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen))
+        {
+            self.advance();
+            let (member_name, is_private) = self.parse_member_name()?;
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась '(' после имени геттера");
+                return Err(());
+            }
+            self.advance();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Геттер не принимает параметров");
+                return Err(());
+            }
+            self.advance();
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            return Ok(ClassMember::Getter {
+                name: member_name,
+                body,
+                is_static,
+                is_private,
+                span: Span { start, end },
+            });
+        }
+
+        if matches!(self.current().kind, TokenKind::Identifier)
+            && self.source.slice(self.current().span) == "set"
+            && !matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen))
+        {
+            self.advance();
+            let (member_name, is_private) = self.parse_member_name()?;
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась '(' после имени сеттера");
+                return Err(());
+            }
+            self.advance();
+            let params = self.parse_function_params()?;
+            if params.len() != 1 {
+                let span = self.current().span;
+                self.push_error(span, "Сеттер принимает ровно один параметр");
+                return Err(());
+            }
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ')' после параметра сеттера");
+                return Err(());
+            }
+            self.advance();
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            let param = params.into_iter().next().unwrap();
+            return Ok(ClassMember::Setter {
+                name: member_name,
+                param,
+                body,
+                is_static,
+                is_private,
+                span: Span { start, end },
+            });
+        }
+
+        let (member_name, is_private) = self.parse_member_name()?;
 
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             self.advance();
@@ -1662,10 +1795,17 @@ impl<'a> Parser<'a> {
             let body = self.parse_block()?;
             let end = body.span.end;
 
-            if !is_static && member_name.name == class_name {
+            if !is_static && !is_private && member_name.name == class_name {
                 Ok(ClassMember::Constructor { params, body, span: Span { start, end } })
             } else {
-                Ok(ClassMember::Method { name: member_name, params, body, is_static, span: Span { start, end } })
+                Ok(ClassMember::Method {
+                    name: member_name,
+                    params,
+                    body,
+                    is_static,
+                    is_private,
+                    span: Span { start, end },
+                })
             }
         } else {
             let init = if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
@@ -1680,7 +1820,19 @@ impl<'a> Parser<'a> {
             }
 
             let end = self.current().span.start;
-            Ok(ClassMember::Field { name: member_name, init, is_static, span: Span { start, end } })
+            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, span: Span { start, end } })
+        }
+    }
+
+    fn parse_member_name(&mut self) -> Result<(Identifier, bool), ()> {
+        if matches!(self.current().kind, TokenKind::PrivateIdentifier) {
+            let span = self.current().span;
+            let name = self.source.slice(span).to_string();
+            self.advance();
+            Ok((Identifier { name, span }, true))
+        } else {
+            let ident = self.parse_identifier()?;
+            Ok((ident, false))
         }
     }
 

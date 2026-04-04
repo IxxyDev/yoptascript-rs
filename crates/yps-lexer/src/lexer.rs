@@ -41,6 +41,10 @@ impl<'src> Lexer<'src> {
 
         let ch = self.current_char();
 
+        if ch == '#' && (self.peek_char(1).is_alphabetic() || self.peek_char(1) == '_') {
+            return self.read_private_identifier();
+        }
+
         if ch.is_alphabetic() || ch == '_' {
             return self.read_identifier();
         }
@@ -129,6 +133,18 @@ impl<'src> Lexer<'src> {
         };
 
         Token { kind, span }
+    }
+
+    fn read_private_identifier(&mut self) -> Token {
+        let start = self.position;
+        self.advance();
+
+        while self.current_char().is_alphanumeric() || self.current_char() == '_' {
+            self.advance();
+        }
+
+        let end = self.position;
+        Token { kind: TokenKind::PrivateIdentifier, span: Span { start, end } }
     }
 
     fn read_string(&mut self) -> Token {

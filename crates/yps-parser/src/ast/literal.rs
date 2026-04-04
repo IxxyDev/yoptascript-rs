@@ -1,4 +1,4 @@
-use crate::ast::{Expr, Identifier};
+use crate::ast::{Expr, Identifier, Param};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
@@ -11,6 +11,8 @@ pub enum PropKey {
 pub enum ObjectEntry {
     Property { key: PropKey, value: Expr },
     Spread(Expr),
+    Getter { key: PropKey, body: crate::ast::Block, span: Span },
+    Setter { key: PropKey, param: Param, body: crate::ast::Block, span: Span },
 }
 
 #[derive(Debug, Clone)]

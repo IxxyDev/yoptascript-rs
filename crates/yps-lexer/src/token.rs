@@ -102,6 +102,7 @@ pub enum PunctuationKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     Identifier,
+    PrivateIdentifier,
     Number,
     StringLiteral,
     Keyword(KeywordKind),
