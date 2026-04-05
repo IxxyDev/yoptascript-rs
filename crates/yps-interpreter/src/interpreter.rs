@@ -27,6 +27,7 @@ enum AccessSegment {
 
 pub struct Interpreter {
     env: Environment,
+    pending_initializers: Vec<Value>,
 }
 
 impl Default for Interpreter {
@@ -41,7 +42,7 @@ impl Interpreter {
         for name in builtin_names() {
             env.define(name.to_string(), Value::BuiltinFunction(name.to_string()), true);
         }
-        Self { env }
+        Self { env, pending_initializers: Vec::new() }
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
@@ -1155,6 +1156,15 @@ impl Interpreter {
     }
 
     fn call_function(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+        if let Value::BuiltinFunction(ref bname) = func {
+            if bname == "__добавитьИнициализатор__" {
+                if let Some(init_fn) = args.into_iter().next() {
+                    self.pending_initializers.push(init_fn);
+                    return Ok(Value::Undefined);
+                }
+                return Err(RuntimeError::new("добавитьИнициализатор ожидает функцию", span));
+            }
+        }
         match func {
             Value::BuiltinFunction(name) => call_builtin(&name, args, span),
             Value::Function { name, params, body, env } => {
@@ -1347,12 +1357,61 @@ impl Interpreter {
         }
     }
 
+    fn build_decorator_context(
+        &self,
+        kind: &str,
+        name: &str,
+        is_static: bool,
+        is_private: bool,
+    ) -> Value {
+        let mut ctx = HashMap::new();
+        ctx.insert("вид".to_string(), Value::String(kind.to_string()));
+        ctx.insert("имя".to_string(), Value::String(name.to_string()));
+        ctx.insert("статичное".to_string(), Value::Boolean(is_static));
+        ctx.insert("приватное".to_string(), Value::Boolean(is_private));
+        ctx.insert(
+            "добавитьИнициализатор".to_string(),
+            Value::BuiltinFunction("__добавитьИнициализатор__".to_string()),
+        );
+        Value::Object(ctx)
+    }
+
+    fn apply_member_decorators(
+        &mut self,
+        value: Value,
+        decorator_fns: &[Value],
+        kind: &str,
+        name: &str,
+        is_static: bool,
+        is_private: bool,
+        span: Span,
+    ) -> Result<(Value, Vec<Value>), RuntimeError> {
+        if decorator_fns.is_empty() {
+            return Ok((value, vec![]));
+        }
+
+        let mut current = value;
+        let mut collected_initializers = Vec::new();
+
+        for decorator_fn in decorator_fns.iter().rev() {
+            self.pending_initializers.clear();
+            let context = self.build_decorator_context(kind, name, is_static, is_private);
+            let result = self.call_function(decorator_fn.clone(), vec![current.clone(), context], span)?;
+            collected_initializers.extend(self.pending_initializers.drain(..));
+            if !matches!(result, Value::Undefined) {
+                current = result;
+            }
+        }
+
+        Ok((current, collected_initializers))
+    }
+
     fn exec_class_decl(
         &mut self,
         name: &yps_parser::ast::Identifier,
         super_class: Option<&Expr>,
         members: &[ClassMember],
-        _decorators: &[Expr],
+        decorators: &[Expr],
         span: Span,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
         let parent = if let Some(sc_expr) = super_class {
@@ -1365,6 +1424,35 @@ impl Interpreter {
             None
         };
 
+        // --- PASS 1: Evaluate ALL decorator expressions top-to-bottom ---
+        let mut class_dec_fns = Vec::new();
+        for dec_expr in decorators {
+            class_dec_fns.push(self.eval_expr(dec_expr)?);
+        }
+
+        struct MemberDecFns {
+            decorator_fns: Vec<Value>,
+        }
+        let mut member_dec_fns: Vec<Option<MemberDecFns>> = Vec::new();
+        for member in members {
+            let dec_exprs = match member {
+                ClassMember::Method { decorators, .. }
+                | ClassMember::Field { decorators, .. }
+                | ClassMember::Getter { decorators, .. }
+                | ClassMember::Setter { decorators, .. } => decorators,
+                ClassMember::Constructor { .. } => {
+                    member_dec_fns.push(None);
+                    continue;
+                }
+            };
+            let mut fns = Vec::new();
+            for dec_expr in dec_exprs {
+                fns.push(self.eval_expr(dec_expr)?);
+            }
+            member_dec_fns.push(Some(MemberDecFns { decorator_fns: fns }));
+        }
+
+        // --- PASS 2: Process members, apply decorators by category ---
         let mut constructor = None;
         let mut methods = HashMap::new();
         let mut static_methods = HashMap::new();
@@ -1374,54 +1462,120 @@ impl Interpreter {
         let mut setters = HashMap::new();
         let mut static_getters = HashMap::new();
         let mut static_setters = HashMap::new();
+        let mut static_inits = Vec::new();
+        let mut instance_inits = Vec::new();
 
-        for member in members {
+        // Pass 2a: methods, getters, setters (applied first per TC39)
+        for (i, member) in members.iter().enumerate() {
+            let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
             match member {
                 ClassMember::Constructor { params, body, .. } => {
                     constructor = Some((params.clone(), Rc::new(body.clone()), self.env.snapshot()));
                 }
-                ClassMember::Method { name: m_name, params, body, is_static, .. } => {
-                    let entry = (params.clone(), Rc::new(body.clone()), self.env.snapshot());
+                ClassMember::Method { name: m_name, params, body, is_static, is_private, .. } => {
+                    let method_fn = Value::Function {
+                        name: m_name.name.clone(),
+                        params: params.clone(),
+                        body: Rc::new(body.clone()),
+                        env: self.env.snapshot(),
+                    };
+                    let (decorated, inits) = self.apply_member_decorators(
+                        method_fn, dec_fns, "метод", &m_name.name, *is_static, *is_private, span,
+                    )?;
+                    let entry = match decorated {
+                        Value::Function { params, body, env, .. } => (params, body, env),
+                        _ => return Err(RuntimeError::new("Декоратор метода должен вернуть функцию", span)),
+                    };
                     if *is_static {
                         static_methods.insert(m_name.name.clone(), entry);
+                        static_inits.extend(inits);
                     } else {
                         methods.insert(m_name.name.clone(), entry);
+                        instance_inits.extend(inits);
                     }
                 }
-                ClassMember::Field { name: f_name, init, is_static, .. } => {
-                    if *is_static {
-                        let val =
-                            if let Some(init_expr) = init { self.eval_expr(init_expr)? } else { Value::Undefined };
-                        static_fields.insert(f_name.name.clone(), val);
-                    } else {
-                        let body = init.as_ref().map(|expr| {
-                            Rc::new(Block {
-                                stmts: vec![yps_parser::ast::Stmt::Return { value: Some(expr.clone()), span }],
-                                span,
-                            })
-                        });
-                        field_inits.push((f_name.name.clone(), body));
-                    }
-                }
-                ClassMember::Getter { name: g_name, body, is_static, .. } => {
-                    let entry = (Vec::new(), Rc::new(body.clone()), self.env.snapshot());
+                ClassMember::Getter { name: g_name, body, is_static, is_private, .. } => {
+                    let getter_fn = Value::Function {
+                        name: g_name.name.clone(),
+                        params: vec![],
+                        body: Rc::new(body.clone()),
+                        env: self.env.snapshot(),
+                    };
+                    let (decorated, inits) = self.apply_member_decorators(
+                        getter_fn, dec_fns, "геттер", &g_name.name, *is_static, *is_private, span,
+                    )?;
+                    let entry = match decorated {
+                        Value::Function { params, body, env, .. } => (params, body, env),
+                        _ => return Err(RuntimeError::new("Декоратор геттера должен вернуть функцию", span)),
+                    };
                     if *is_static {
                         static_getters.insert(g_name.name.clone(), entry);
+                        static_inits.extend(inits);
                     } else {
                         getters.insert(g_name.name.clone(), entry);
+                        instance_inits.extend(inits);
                     }
                 }
-                ClassMember::Setter { name: s_name, param, body, is_static, .. } => {
-                    let entry = (vec![param.clone()], Rc::new(body.clone()), self.env.snapshot());
+                ClassMember::Setter { name: s_name, param, body, is_static, is_private, .. } => {
+                    let setter_fn = Value::Function {
+                        name: s_name.name.clone(),
+                        params: vec![param.clone()],
+                        body: Rc::new(body.clone()),
+                        env: self.env.snapshot(),
+                    };
+                    let (decorated, inits) = self.apply_member_decorators(
+                        setter_fn, dec_fns, "сеттер", &s_name.name, *is_static, *is_private, span,
+                    )?;
+                    let entry = match decorated {
+                        Value::Function { params, body, env, .. } => (params, body, env),
+                        _ => return Err(RuntimeError::new("Декоратор сеттера должен вернуть функцию", span)),
+                    };
                     if *is_static {
                         static_setters.insert(s_name.name.clone(), entry);
+                        static_inits.extend(inits);
                     } else {
                         setters.insert(s_name.name.clone(), entry);
+                        instance_inits.extend(inits);
                     }
+                }
+                ClassMember::Field { .. } => {}
+            }
+        }
+
+        // Pass 2b: fields (applied after methods/getters/setters per TC39)
+        for (i, member) in members.iter().enumerate() {
+            if let ClassMember::Field { name: f_name, init, is_static, is_private, .. } = member {
+                let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
+                let (init_transform, inits) = self.apply_member_decorators(
+                    Value::Undefined, dec_fns, "поле", &f_name.name, *is_static, *is_private, span,
+                )?;
+                let transform =
+                    if matches!(init_transform, Value::Undefined) { None } else { Some(init_transform) };
+
+                if *is_static {
+                    let base_val =
+                        if let Some(init_expr) = init { self.eval_expr(init_expr)? } else { Value::Undefined };
+                    let val = if let Some(ref tf) = transform {
+                        self.call_function(tf.clone(), vec![base_val], span)?
+                    } else {
+                        base_val
+                    };
+                    static_fields.insert(f_name.name.clone(), val);
+                    static_inits.extend(inits);
+                } else {
+                    let body = init.as_ref().map(|expr| {
+                        Rc::new(Block {
+                            stmts: vec![yps_parser::ast::Stmt::Return { value: Some(expr.clone()), span }],
+                            span,
+                        })
+                    });
+                    field_inits.push((f_name.name.clone(), body, transform));
+                    instance_inits.extend(inits);
                 }
             }
         }
 
+        // --- PASS 3: Build ClassDef, apply class decorators ---
         let class_def = ClassDef {
             name: name.name.clone(),
             constructor,
@@ -1434,9 +1588,25 @@ impl Interpreter {
             static_getters,
             static_setters,
             parent: parent.map(|p| Box::new((*p).clone())),
+            instance_initializers: instance_inits,
         };
 
-        let class_val = Value::Class(Rc::new(class_def));
+        let mut class_val = Value::Class(Rc::new(class_def));
+
+        for decorator_fn in class_dec_fns.iter().rev() {
+            self.pending_initializers.clear();
+            let context = self.build_decorator_context("класс", &name.name, false, false);
+            let result = self.call_function(decorator_fn.clone(), vec![class_val.clone(), context], span)?;
+            static_inits.extend(self.pending_initializers.drain(..));
+            if !matches!(result, Value::Undefined) {
+                class_val = result;
+            }
+        }
+
+        for init in &static_inits {
+            self.call_function(init.clone(), vec![], span)?;
+        }
+
         self.env.define(name.name.clone(), class_val, false);
         Ok(None)
     }
@@ -1452,7 +1622,16 @@ impl Interpreter {
 
         self.init_fields(&class_def, &mut instance, span)?;
 
-        let instance_val = Value::Object(instance);
+        let mut instance_val = Value::Object(instance);
+
+        for init in &class_def.instance_initializers {
+            let saved = self.env.clone();
+            self.env.push_scope();
+            self.env.define("тырыпыры".to_string(), instance_val.clone(), false);
+            self.call_function(init.clone(), vec![], span)?;
+            instance_val = self.env.get("тырыпыры").unwrap_or(instance_val);
+            self.env = saved;
+        }
 
         if let Some((ref params, ref body, ref env)) = class_def.constructor {
             let saved_env = self.env.clone();
@@ -1538,13 +1717,13 @@ impl Interpreter {
         &mut self,
         class_def: &ClassDef,
         instance: &mut HashMap<String, Value>,
-        _span: Span,
+        span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(ref parent) = class_def.parent {
-            self.init_fields(parent, instance, _span)?;
+            self.init_fields(parent, instance, span)?;
         }
-        for (name, init_body) in &class_def.field_inits {
-            let val = if let Some(body) = init_body {
+        for (name, init_body, transform) in &class_def.field_inits {
+            let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
                 self.env.push_scope();
                 self.env.define("тырыпыры".to_string(), Value::Object(instance.clone()), false);
@@ -1556,6 +1735,11 @@ impl Interpreter {
                 }
             } else {
                 Value::Undefined
+            };
+            let val = if let Some(tf) = transform {
+                self.call_function(tf.clone(), vec![base_val], span)?
+            } else {
+                base_val
             };
             instance.insert(name.clone(), val);
         }
@@ -4115,5 +4299,216 @@ mod tests {
             "#,
         );
         assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_method_decorator() {
+        let interp = run_code(
+            r#"
+            йопта обёртка(метод, контекст) {
+                отвечаю (...аргс) => {
+                    отвечаю метод(аргс[0], аргс[1]) * 2;
+                };
+            }
+
+            клёво К {
+                @обёртка
+                сложить(а, б) {
+                    отвечаю а + б;
+                }
+            }
+
+            гыы к = захуярить К();
+            гыы рез = к.сложить(3, 4);
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Number(14.0)));
+    }
+
+    #[test]
+    fn test_field_decorator() {
+        let interp = run_code(
+            r#"
+            йопта удвоить(_, контекст) {
+                отвечаю (начальное) => {
+                    отвечаю начальное * 2;
+                };
+            }
+
+            клёво К {
+                @удвоить
+                значение = 21;
+            }
+
+            гыы к = захуярить К();
+            гыы рез = к.значение;
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_class_decorator() {
+        let interp = run_code(
+            r#"
+            гыы сохр = ноль;
+            йопта запомнить(класс, контекст) {
+                сохр = контекст;
+                отвечаю класс;
+            }
+
+            @запомнить
+            клёво МойКласс { }
+            "#,
+        );
+        let ctx = interp.get("сохр").unwrap();
+        match ctx {
+            Value::Object(map) => {
+                assert_eq!(map.get("вид"), Some(&Value::String("класс".to_string())));
+                assert_eq!(map.get("имя"), Some(&Value::String("МойКласс".to_string())));
+                assert_eq!(map.get("статичное"), Some(&Value::Boolean(false)));
+                assert_eq!(map.get("приватное"), Some(&Value::Boolean(false)));
+            }
+            _ => panic!("Expected Object context"),
+        }
+    }
+
+    #[test]
+    fn test_class_decorator_passthrough() {
+        let interp = run_code(
+            r#"
+            йопта нуп(класс, контекст) {
+                отвечаю класс;
+            }
+
+            @нуп
+            клёво К {
+                метод() { отвечаю 42; }
+            }
+
+            гыы к = захуярить К();
+            гыы рез = к.метод();
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_add_initializer_instance() {
+        let interp = run_code(
+            r#"
+            гыы счётчик = 0;
+            йопта отслеживание(метод, контекст) {
+                контекст.добавитьИнициализатор(() => {
+                    счётчик += 1;
+                });
+                отвечаю метод;
+            }
+
+            клёво К {
+                @отслеживание
+                метод() { }
+            }
+
+            гыы к1 = захуярить К();
+            гыы к2 = захуярить К();
+            гыы рез = счётчик;
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_add_initializer_static() {
+        let interp = run_code(
+            r#"
+            гыы инициализирован = лож;
+            йопта регистрация(_, контекст) {
+                контекст.добавитьИнициализатор(() => {
+                    инициализирован = правда;
+                });
+            }
+
+            клёво К {
+                @регистрация
+                попонятия х = 1;
+            }
+
+            гыы рез = инициализирован;
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn test_decorator_execution_order() {
+        let interp = run_code(
+            r#"
+            гыы журнал = [];
+            йопта д(тег) {
+                журнал = втолкнуть(журнал, "выч:" + тег);
+                отвечаю (значение, контекст) => {
+                    журнал = втолкнуть(журнал, "прим:" + тег + ">" + контекст.вид);
+                    отвечаю значение;
+                };
+            }
+
+            @д("класс")
+            клёво К {
+                @д("метод")
+                м() { }
+
+                @д("поле")
+                х = 1;
+            }
+
+            гыы рез = журнал;
+            "#,
+        );
+        let log = interp.get("рез").unwrap();
+        match log {
+            Value::Array(items) => {
+                let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                assert_eq!(
+                    strs,
+                    vec![
+                        "выч:класс",
+                        "выч:метод",
+                        "выч:поле",
+                        "прим:метод>метод",
+                        "прим:поле>поле",
+                        "прим:класс>класс",
+                    ]
+                );
+            }
+            _ => panic!("Expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_decorators_order() {
+        let interp = run_code(
+            r#"
+            гыы журнал = [];
+            йопта первый(м, к) { журнал = втолкнуть(журнал, "первый"); отвечаю м; }
+            йопта второй(м, к) { журнал = втолкнуть(журнал, "второй"); отвечаю м; }
+
+            клёво К {
+                @первый
+                @второй
+                метод() { }
+            }
+
+            гыы рез = журнал;
+            "#,
+        );
+        let log = interp.get("рез").unwrap();
+        match log {
+            Value::Array(items) => {
+                let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                assert_eq!(strs, vec!["второй", "первый"]);
+            }
+            _ => panic!("Expected Array"),
+        }
     }
 }
