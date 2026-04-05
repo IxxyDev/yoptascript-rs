@@ -1700,7 +1700,7 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::ClassDecl { name, super_class, members, span: Span { start, end } })
+        Ok(Stmt::ClassDecl { name, super_class, members, decorators: vec![], span: Span { start, end } })
     }
 
     fn parse_class_member(&mut self, class_name: &str) -> Result<ClassMember, ()> {
@@ -1738,6 +1738,7 @@ impl<'a> Parser<'a> {
                 body,
                 is_static,
                 is_private,
+                decorators: vec![],
                 span: Span { start, end },
             });
         }
@@ -1775,6 +1776,7 @@ impl<'a> Parser<'a> {
                 body,
                 is_static,
                 is_private,
+                decorators: vec![],
                 span: Span { start, end },
             });
         }
@@ -1804,6 +1806,7 @@ impl<'a> Parser<'a> {
                     body,
                     is_static,
                     is_private,
+                    decorators: vec![],
                     span: Span { start, end },
                 })
             }
@@ -1820,7 +1823,7 @@ impl<'a> Parser<'a> {
             }
 
             let end = self.current().span.start;
-            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, span: Span { start, end } })
+            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, decorators: vec![], span: Span { start, end } })
         }
     }
 
