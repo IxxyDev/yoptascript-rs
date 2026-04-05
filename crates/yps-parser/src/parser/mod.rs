@@ -540,6 +540,16 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
             TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
             TokenKind::Keyword(KeywordKind::Class) => self.parse_class_decl(),
+            TokenKind::Punctuation(PunctuationKind::At) => {
+                let decorators = self.parse_decorators()?;
+                if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Class)) {
+                    self.parse_class_decl_with_decorators(decorators)
+                } else {
+                    let span = self.current().span;
+                    self.push_error(span, "Декораторы можно применять только к классам");
+                    Err(())
+                }
+            }
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_block().map(Stmt::Block),
             TokenKind::Punctuation(PunctuationKind::Semicolon) => {
                 let span = self.current().span;
@@ -1667,7 +1677,21 @@ impl<'a> Parser<'a> {
         Ok(Expr::New { callee: Box::new(callee), args, span: Span { start, end } })
     }
 
+    fn parse_decorators(&mut self) -> Result<Vec<Expr>, ()> {
+        let mut decorators = Vec::new();
+        while matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::At)) {
+            self.advance();
+            let expr = self.parse_prefix()?;
+            decorators.push(expr);
+        }
+        Ok(decorators)
+    }
+
     fn parse_class_decl(&mut self) -> Result<Stmt, ()> {
+        self.parse_class_decl_with_decorators(vec![])
+    }
+
+    fn parse_class_decl_with_decorators(&mut self, decorators: Vec<Expr>) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
 
@@ -1700,10 +1724,12 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::ClassDecl { name, super_class, members, decorators: vec![], span: Span { start, end } })
+        Ok(Stmt::ClassDecl { name, super_class, members, decorators, span: Span { start, end } })
     }
 
     fn parse_class_member(&mut self, class_name: &str) -> Result<ClassMember, ()> {
+        let decorators = self.parse_decorators()?;
+
         let start = self.current().span.start;
 
         let is_static = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Static)) {
@@ -1738,7 +1764,7 @@ impl<'a> Parser<'a> {
                 body,
                 is_static,
                 is_private,
-                decorators: vec![],
+                decorators,
                 span: Span { start, end },
             });
         }
@@ -1776,7 +1802,7 @@ impl<'a> Parser<'a> {
                 body,
                 is_static,
                 is_private,
-                decorators: vec![],
+                decorators,
                 span: Span { start, end },
             });
         }
@@ -1798,6 +1824,10 @@ impl<'a> Parser<'a> {
             let end = body.span.end;
 
             if !is_static && !is_private && member_name.name == class_name {
+                if !decorators.is_empty() {
+                    self.push_error(Span { start, end }, "Декораторы нельзя применять к конструктору");
+                    return Err(());
+                }
                 Ok(ClassMember::Constructor { params, body, span: Span { start, end } })
             } else {
                 Ok(ClassMember::Method {
@@ -1806,7 +1836,7 @@ impl<'a> Parser<'a> {
                     body,
                     is_static,
                     is_private,
-                    decorators: vec![],
+                    decorators,
                     span: Span { start, end },
                 })
             }
@@ -1823,7 +1853,7 @@ impl<'a> Parser<'a> {
             }
 
             let end = self.current().span.start;
-            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, decorators: vec![], span: Span { start, end } })
+            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, decorators, span: Span { start, end } })
         }
     }
 
@@ -3056,5 +3086,63 @@ mod tests {
     fn test_parse_ternary_missing_colon() {
         let result = parse_expr_from_source("правда ? 1 2");
         assert!(result.is_err());
+    }
+
+    fn parse_program_from_source(src: &str) -> (Program, Vec<Diagnostic>) {
+        let source = SourceFile::new("test.yop".to_string(), src.to_string());
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        Parser::new(&tokens, &source).parse_program()
+    }
+
+    #[test]
+    fn test_parse_class_decorator() {
+        let (program, diags) = parse_program_from_source("@лог клёво Животное { }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::ClassDecl { decorators, .. } => assert_eq!(decorators.len(), 1),
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_member_decorator() {
+        let (program, diags) = parse_program_from_source("клёво Ж { @лог метод() { } }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::ClassDecl { members, .. } => match &members[0] {
+                ClassMember::Method { decorators, .. } => assert_eq!(decorators.len(), 1),
+                other => panic!("Expected Method, got {other:?}"),
+            },
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_decorators() {
+        let (program, diags) = parse_program_from_source("@а @б клёво К { @в @г метод() { } }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::ClassDecl { decorators, members, .. } => {
+                assert_eq!(decorators.len(), 2);
+                match &members[0] {
+                    ClassMember::Method { decorators, .. } => assert_eq!(decorators.len(), 2),
+                    other => panic!("Expected Method, got {other:?}"),
+                }
+            }
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_decorator_with_args() {
+        let (program, diags) = parse_program_from_source("@лог(\"инфо\") клёво К { }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::ClassDecl { decorators, .. } => {
+                assert_eq!(decorators.len(), 1);
+                assert!(matches!(decorators[0], Expr::Call { .. }));
+            }
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        }
     }
 }
