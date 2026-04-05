@@ -1853,7 +1853,14 @@ impl<'a> Parser<'a> {
             }
 
             let end = self.current().span.start;
-            Ok(ClassMember::Field { name: member_name, init, is_static, is_private, decorators, span: Span { start, end } })
+            Ok(ClassMember::Field {
+                name: member_name,
+                init,
+                is_static,
+                is_private,
+                decorators,
+                span: Span { start, end },
+            })
         }
     }
 

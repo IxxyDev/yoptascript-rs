@@ -3,11 +3,45 @@ use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
 pub enum ClassMember {
-    Constructor { params: Vec<Param>, body: Block, span: Span },
-    Method { name: Identifier, params: Vec<Param>, body: Block, is_static: bool, is_private: bool, decorators: Vec<Expr>, span: Span },
-    Field { name: Identifier, init: Option<Expr>, is_static: bool, is_private: bool, decorators: Vec<Expr>, span: Span },
-    Getter { name: Identifier, body: Block, is_static: bool, is_private: bool, decorators: Vec<Expr>, span: Span },
-    Setter { name: Identifier, param: Param, body: Block, is_static: bool, is_private: bool, decorators: Vec<Expr>, span: Span },
+    Constructor {
+        params: Vec<Param>,
+        body: Block,
+        span: Span,
+    },
+    Method {
+        name: Identifier,
+        params: Vec<Param>,
+        body: Block,
+        is_static: bool,
+        is_private: bool,
+        decorators: Vec<Expr>,
+        span: Span,
+    },
+    Field {
+        name: Identifier,
+        init: Option<Expr>,
+        is_static: bool,
+        is_private: bool,
+        decorators: Vec<Expr>,
+        span: Span,
+    },
+    Getter {
+        name: Identifier,
+        body: Block,
+        is_static: bool,
+        is_private: bool,
+        decorators: Vec<Expr>,
+        span: Span,
+    },
+    Setter {
+        name: Identifier,
+        param: Param,
+        body: Block,
+        is_static: bool,
+        is_private: bool,
+        decorators: Vec<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
