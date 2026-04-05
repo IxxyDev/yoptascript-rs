@@ -1156,14 +1156,14 @@ impl Interpreter {
     }
 
     fn call_function(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
-        if let Value::BuiltinFunction(ref bname) = func {
-            if bname == "__добавитьИнициализатор__" {
-                if let Some(init_fn) = args.into_iter().next() {
-                    self.pending_initializers.push(init_fn);
-                    return Ok(Value::Undefined);
-                }
-                return Err(RuntimeError::new("добавитьИнициализатор ожидает функцию", span));
+        if let Value::BuiltinFunction(ref bname) = func
+            && bname == "__добавитьИнициализатор__"
+        {
+            if let Some(init_fn) = args.into_iter().next() {
+                self.pending_initializers.push(init_fn);
+                return Ok(Value::Undefined);
             }
+            return Err(RuntimeError::new("добавитьИнициализатор ожидает функцию", span));
         }
         match func {
             Value::BuiltinFunction(name) => call_builtin(&name, args, span),
@@ -1357,13 +1357,7 @@ impl Interpreter {
         }
     }
 
-    fn build_decorator_context(
-        &self,
-        kind: &str,
-        name: &str,
-        is_static: bool,
-        is_private: bool,
-    ) -> Value {
+    fn build_decorator_context(&self, kind: &str, name: &str, is_static: bool, is_private: bool) -> Value {
         let mut ctx = HashMap::new();
         ctx.insert("вид".to_string(), Value::String(kind.to_string()));
         ctx.insert("имя".to_string(), Value::String(name.to_string()));
@@ -1376,6 +1370,7 @@ impl Interpreter {
         Value::Object(ctx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_member_decorators(
         &mut self,
         value: Value,
@@ -1397,7 +1392,7 @@ impl Interpreter {
             self.pending_initializers.clear();
             let context = self.build_decorator_context(kind, name, is_static, is_private);
             let result = self.call_function(decorator_fn.clone(), vec![current.clone(), context], span)?;
-            collected_initializers.extend(self.pending_initializers.drain(..));
+            collected_initializers.append(&mut self.pending_initializers);
             if !matches!(result, Value::Undefined) {
                 current = result;
             }
@@ -1480,7 +1475,13 @@ impl Interpreter {
                         env: self.env.snapshot(),
                     };
                     let (decorated, inits) = self.apply_member_decorators(
-                        method_fn, dec_fns, "метод", &m_name.name, *is_static, *is_private, span,
+                        method_fn,
+                        dec_fns,
+                        "метод",
+                        &m_name.name,
+                        *is_static,
+                        *is_private,
+                        span,
                     )?;
                     let entry = match decorated {
                         Value::Function { params, body, env, .. } => (params, body, env),
@@ -1502,7 +1503,13 @@ impl Interpreter {
                         env: self.env.snapshot(),
                     };
                     let (decorated, inits) = self.apply_member_decorators(
-                        getter_fn, dec_fns, "геттер", &g_name.name, *is_static, *is_private, span,
+                        getter_fn,
+                        dec_fns,
+                        "геттер",
+                        &g_name.name,
+                        *is_static,
+                        *is_private,
+                        span,
                     )?;
                     let entry = match decorated {
                         Value::Function { params, body, env, .. } => (params, body, env),
@@ -1524,7 +1531,13 @@ impl Interpreter {
                         env: self.env.snapshot(),
                     };
                     let (decorated, inits) = self.apply_member_decorators(
-                        setter_fn, dec_fns, "сеттер", &s_name.name, *is_static, *is_private, span,
+                        setter_fn,
+                        dec_fns,
+                        "сеттер",
+                        &s_name.name,
+                        *is_static,
+                        *is_private,
+                        span,
                     )?;
                     let entry = match decorated {
                         Value::Function { params, body, env, .. } => (params, body, env),
@@ -1547,10 +1560,15 @@ impl Interpreter {
             if let ClassMember::Field { name: f_name, init, is_static, is_private, .. } = member {
                 let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
                 let (init_transform, inits) = self.apply_member_decorators(
-                    Value::Undefined, dec_fns, "поле", &f_name.name, *is_static, *is_private, span,
+                    Value::Undefined,
+                    dec_fns,
+                    "поле",
+                    &f_name.name,
+                    *is_static,
+                    *is_private,
+                    span,
                 )?;
-                let transform =
-                    if matches!(init_transform, Value::Undefined) { None } else { Some(init_transform) };
+                let transform = if matches!(init_transform, Value::Undefined) { None } else { Some(init_transform) };
 
                 if *is_static {
                     let base_val =
@@ -1597,7 +1615,7 @@ impl Interpreter {
             self.pending_initializers.clear();
             let context = self.build_decorator_context("класс", &name.name, false, false);
             let result = self.call_function(decorator_fn.clone(), vec![class_val.clone(), context], span)?;
-            static_inits.extend(self.pending_initializers.drain(..));
+            static_inits.append(&mut self.pending_initializers);
             if !matches!(result, Value::Undefined) {
                 class_val = result;
             }
@@ -1736,11 +1754,8 @@ impl Interpreter {
             } else {
                 Value::Undefined
             };
-            let val = if let Some(tf) = transform {
-                self.call_function(tf.clone(), vec![base_val], span)?
-            } else {
-                base_val
-            };
+            let val =
+                if let Some(tf) = transform { self.call_function(tf.clone(), vec![base_val], span)? } else { base_val };
             instance.insert(name.clone(), val);
         }
         Ok(())
