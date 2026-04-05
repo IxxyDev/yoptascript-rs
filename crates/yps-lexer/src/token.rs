@@ -97,6 +97,7 @@ pub enum PunctuationKind {
     Question,
     OptionalChain,
     Arrow,
+    At,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
