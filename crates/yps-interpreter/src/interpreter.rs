@@ -251,8 +251,8 @@ impl Interpreter {
                 }
                 Ok(None)
             }
-            Stmt::ClassDecl { name, super_class, members, span } => {
-                self.exec_class_decl(name, super_class.as_ref(), members, *span)
+            Stmt::ClassDecl { name, super_class, members, decorators, span } => {
+                self.exec_class_decl(name, super_class.as_ref(), members, decorators, *span)
             }
             Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
                 let try_result = self.exec_block(try_block);
@@ -1352,6 +1352,7 @@ impl Interpreter {
         name: &yps_parser::ast::Identifier,
         super_class: Option<&Expr>,
         members: &[ClassMember],
+        _decorators: &[Expr],
         span: Span,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
         let parent = if let Some(sc_expr) = super_class {

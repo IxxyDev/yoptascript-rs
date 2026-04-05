@@ -390,6 +390,7 @@ impl<'src> Lexer<'src> {
                     TokenKind::Punctuation(PunctuationKind::Question)
                 }
             }
+            '@' => TokenKind::Punctuation(PunctuationKind::At),
             _ => {
                 self.diagnostics.push(Diagnostic {
                     severity: Severity::Error,
@@ -478,5 +479,19 @@ impl<'src> Lexer<'src> {
         while matches!(self.current_char(), ' ' | '\t' | '\n' | '\r') {
             self.advance();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_at_token() {
+        let source = SourceFile::new("test.yop".to_string(), "@декоратор".to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "Unexpected diagnostics: {diags:?}");
+        assert_eq!(tokens[0].kind, TokenKind::Punctuation(PunctuationKind::At));
+        assert_eq!(tokens[1].kind, TokenKind::Identifier);
     }
 }
