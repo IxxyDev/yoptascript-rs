@@ -2,6 +2,7 @@ pub mod builtins;
 pub mod environment;
 pub mod error;
 pub mod interpreter;
+pub mod stdlib;
 pub mod value;
 
 pub use error::RuntimeError;
