@@ -4965,6 +4965,50 @@ mod tests {
     }
 
     #[test]
+    fn test_huynya_parse_int() {
+        let interp = run_code(
+            r#"
+            гыы а = Хуйня.разобратьЦелое("42");
+            гыы б = Хуйня.разобратьЦелое("  -17  ");
+            гыы в = Хуйня.разобратьЦелое("1010", 2);
+            гыы г = Хуйня.разобратьЦелое("ff", 16);
+            гыы д = Хуйня.разобратьЦелое("123abc");
+            гыы е = Хуйня.разобратьЦелое("xyz");
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(42.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(-17.0)));
+        assert_eq!(interp.get("в"), Some(Value::Number(10.0)));
+        assert_eq!(interp.get("г"), Some(Value::Number(255.0)));
+        assert_eq!(interp.get("д"), Some(Value::Number(123.0)));
+        if let Some(Value::Number(n)) = interp.get("е") {
+            assert!(n.is_nan(), "ожидалось NaN, получено {n}");
+        } else {
+            panic!("ожидалось Number(NaN)");
+        }
+    }
+
+    #[test]
+    fn test_huynya_parse_float() {
+        let interp = run_code(
+            r#"
+            гыы а = Хуйня.разобратьЧисло("2.5");
+            гыы б = Хуйня.разобратьЧисло("  -2.5e2  ");
+            гыы в = Хуйня.разобратьЧисло("123abc");
+            гыы г = Хуйня.разобратьЧисло("");
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(2.5)));
+        assert_eq!(interp.get("б"), Some(Value::Number(-250.0)));
+        if let Some(Value::Number(n)) = interp.get("г") {
+            assert!(n.is_nan());
+        } else {
+            panic!("ожидалось NaN");
+        }
+        let _ = interp.get("в");
+    }
+
+    #[test]
     fn test_spread_set_into_array() {
         let interp = run_code(
             r#"
