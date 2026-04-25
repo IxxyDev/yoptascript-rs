@@ -92,6 +92,9 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
             }
             out.push('}');
         }
+        Value::Map(_) => {
+            return Err(RuntimeError::new("Карту нельзя сериализовать в JSON напрямую — используйте записи()", span));
+        }
         Value::Function { .. } | Value::BuiltinFunction(_) | Value::Class(_) => {
             return Err(RuntimeError::new("Функции/классы нельзя сериализовать в JSON", span));
         }
