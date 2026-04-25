@@ -305,6 +305,9 @@ impl Interpreter {
 
                 result
             }
+            Stmt::Import { span, .. } | Stmt::Export { span, .. } => {
+                Err(RuntimeError::new("Модули пока не реализованы — используется на верхнем уровне CLI", *span))
+            }
         }
     }
 
