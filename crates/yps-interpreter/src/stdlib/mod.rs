@@ -4,6 +4,7 @@ pub mod map;
 pub mod math;
 pub mod number;
 pub mod object;
+pub mod set;
 pub mod string;
 
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ pub fn call_method(
         Value::String(_) => string::call(interp, receiver, method, args, span),
         Value::Number(_) => number::call_instance(interp, receiver, method, args, span),
         Value::Map(_) => map::call(interp, receiver, method, args, span),
+        Value::Set(_) => set::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -57,6 +59,9 @@ pub fn call_static_namespaced(
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
     }
+    if namespaced == "Набор" {
+        return Some(set::construct(args, span));
+    }
     None
 }
 
@@ -68,6 +73,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Жсон".to_string(), json::build_object()),
         ("Помойка".to_string(), array::build_object()),
         ("Карта".to_string(), Value::BuiltinFunction("Карта".to_string())),
+        ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
     ]
 }
 
