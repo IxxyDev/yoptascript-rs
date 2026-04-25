@@ -1634,6 +1634,9 @@ impl Interpreter {
     }
 
     fn construct_instance(&mut self, class_val: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+        if let Value::BuiltinFunction(_) = &class_val {
+            return self.call_function(class_val, args, span);
+        }
         let class_def = match &class_val {
             Value::Class(cls) => cls.clone(),
             _ => return Err(RuntimeError::new(format!("'{}' не является классом", class_val.type_name()), span)),
@@ -4882,6 +4885,72 @@ mod tests {
                 Value::Number(9.0),
             ]))
         );
+    }
+
+    #[test]
+    fn test_kosyak_construct() {
+        let interp = run_code(
+            r#"
+            гыы е = захуярить Косяк("плохо");
+            гыы имя = е.name;
+            гыы сообщ = е.message;
+            "#,
+        );
+        assert_eq!(interp.get("имя"), Some(Value::String("Косяк".to_string())));
+        assert_eq!(interp.get("сообщ"), Some(Value::String("плохо".to_string())));
+    }
+
+    #[test]
+    fn test_kosyak_without_new() {
+        let interp = run_code(
+            r#"
+            гыы е = Косяк("сообщение");
+            гыы имя = е.name;
+            "#,
+        );
+        assert_eq!(interp.get("имя"), Some(Value::String("Косяк".to_string())));
+    }
+
+    #[test]
+    fn test_kosyak_throw_catch() {
+        let interp = run_code(
+            r#"
+            гыы пойман = ноль;
+            хапнуть {
+                кидай захуярить Косяк("упало");
+            } гоп (е) {
+                пойман = е.message;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("пойман"), Some(Value::String("упало".to_string())));
+    }
+
+    #[test]
+    fn test_kosyak_with_cause() {
+        let interp = run_code(
+            r#"
+            гыы первый = захуярить Косяк("первая ошибка");
+            гыы второй = захуярить Косяк("обёртка", { cause: первый });
+            гыы причина = второй.cause;
+            гыы сообщ = причина.message;
+            "#,
+        );
+        assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_eto_kosyak() {
+        let interp = run_code(
+            r#"
+            гыы а = этоКосяк(захуярить Косяк("ой"));
+            гыы б = этоКосяк("просто строка");
+            гыы в = этоКосяк({ name: "Другое" });
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("б"), Some(Value::Boolean(false)));
+        assert_eq!(interp.get("в"), Some(Value::Boolean(false)));
     }
 
     #[test]

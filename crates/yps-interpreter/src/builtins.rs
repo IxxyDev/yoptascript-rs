@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
@@ -5,6 +7,8 @@ use crate::value::Value;
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     match name {
+        "Косяк" => construct_kosyak(args, span),
+        "этоКосяк" => is_kosyak(args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             println!("{}", parts.join(" "));
@@ -66,5 +70,36 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
 }
 
 pub fn builtin_names() -> &'static [&'static str] {
-    &["сказать", "длина", "тип", "число", "строка", "втолкнуть"]
+    &["сказать", "длина", "тип", "число", "строка", "втолкнуть", "Косяк", "этоКосяк"]
+}
+
+fn construct_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("'Косяк' ожидает минимум 1 аргумент (сообщение)", span));
+    }
+    let mut iter = args.into_iter();
+    let message = iter.next().unwrap();
+    let opts = iter.next();
+    let mut map = HashMap::new();
+    map.insert("name".to_string(), Value::String("Косяк".to_string()));
+    map.insert("message".to_string(), Value::String(message.to_string()));
+    if let Some(Value::Object(o)) = opts
+        && let Some(cause) = o.get("cause")
+    {
+        map.insert("cause".to_string(), cause.clone());
+    }
+    Ok(Value::Object(map))
+}
+
+fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("'этоКосяк' ожидает 1 аргумент", span));
+    }
+    if let Value::Object(map) = &args[0]
+        && let Some(Value::String(name)) = map.get("name")
+        && name == "Косяк"
+    {
+        return Ok(Value::Boolean(true));
+    }
+    Ok(Value::Boolean(false))
 }
