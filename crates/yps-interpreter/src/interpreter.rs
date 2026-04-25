@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use yps_lexer::Span;
 use yps_parser::ast::{
-    BinaryOp, Block, ClassMember, Expr, Literal, ObjectEntry, Pattern, PostfixOp, Program, PropKey, Stmt, TemplatePart,
-    UnaryOp,
+    BinaryOp, Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, Pattern, PostfixOp, Program,
+    PropKey, Stmt, TemplatePart, UnaryOp,
 };
 
 use crate::builtins::{builtin_names, call_builtin};
@@ -28,6 +29,9 @@ enum AccessSegment {
 pub struct Interpreter {
     env: Environment,
     pending_initializers: Vec<Value>,
+    base_path: Option<PathBuf>,
+    module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
+    current_exports: HashMap<String, Value>,
 }
 
 impl Default for Interpreter {
@@ -45,7 +49,71 @@ impl Interpreter {
         for (name, value) in crate::stdlib::build_globals() {
             env.define(name, value, true);
         }
-        Self { env, pending_initializers: Vec::new() }
+        Self {
+            env,
+            pending_initializers: Vec::new(),
+            base_path: None,
+            module_cache: Rc::new(RefCell::new(HashMap::new())),
+            current_exports: HashMap::new(),
+        }
+    }
+
+    pub fn set_base_path(&mut self, path: PathBuf) {
+        self.base_path = Some(path);
+    }
+
+    fn resolve_module_path(&self, source: &str, span: Span) -> Result<PathBuf, RuntimeError> {
+        let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
+        let mut candidate = base.join(source);
+        if candidate.extension().is_none() {
+            candidate.set_extension("yop");
+        }
+        candidate
+            .canonicalize()
+            .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))
+    }
+
+    fn load_module(&mut self, source: &str, span: Span) -> Result<HashMap<String, Value>, RuntimeError> {
+        let resolved = self.resolve_module_path(source, span)?;
+
+        if let Some(cached) = self.module_cache.borrow().get(&resolved) {
+            return Ok(cached.clone());
+        }
+
+        let code = std::fs::read_to_string(&resolved).map_err(|e| {
+            RuntimeError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span)
+        })?;
+        let source_file = yps_lexer::SourceFile::new(resolved.display().to_string(), code);
+        let lexer = yps_lexer::Lexer::new(&source_file);
+        let (tokens, lex_diags) = lexer.tokenize();
+        if !lex_diags.is_empty() {
+            return Err(RuntimeError::new(
+                format!("Ошибки лексера в модуле '{}': {:?}", resolved.display(), lex_diags),
+                span,
+            ));
+        }
+        let parser = yps_parser::Parser::new(&tokens, &source_file);
+        let (program, parse_diags) = parser.parse_program();
+        if !parse_diags.is_empty() {
+            return Err(RuntimeError::new(
+                format!("Ошибки парсера в модуле '{}': {:?}", resolved.display(), parse_diags),
+                span,
+            ));
+        }
+
+        let mut sub = Interpreter::new();
+        sub.module_cache = Rc::clone(&self.module_cache);
+        sub.base_path = resolved.parent().map(Path::to_path_buf);
+
+        let exports = sub.run_module(&program, &resolved)?;
+        Ok(exports)
+    }
+
+    pub fn run_module(&mut self, program: &Program, path: &Path) -> Result<HashMap<String, Value>, RuntimeError> {
+        self.run(program)?;
+        let exports = std::mem::take(&mut self.current_exports);
+        self.module_cache.borrow_mut().insert(path.to_path_buf(), exports.clone());
+        Ok(exports)
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
@@ -305,9 +373,55 @@ impl Interpreter {
 
                 result
             }
-            Stmt::Import { span, .. } | Stmt::Export { span, .. } => {
-                Err(RuntimeError::new("Модули пока не реализованы — используется на верхнем уровне CLI", *span))
+            Stmt::Import { specifiers, source, span } => {
+                let exports = self.load_module(source, *span)?;
+                for spec in specifiers {
+                    match spec {
+                        ImportSpec::Default { local } => {
+                            let val = exports.get("default").cloned().unwrap_or(Value::Undefined);
+                            self.env.define(local.name.clone(), val, true);
+                        }
+                        ImportSpec::Named { imported, local } => {
+                            let val = exports.get(&imported.name).cloned().ok_or_else(|| {
+                                RuntimeError::new(
+                                    format!("Модуль '{source}' не экспортирует '{}'", imported.name),
+                                    *span,
+                                )
+                            })?;
+                            self.env.define(local.name.clone(), val, true);
+                        }
+                        ImportSpec::Namespace { local } => {
+                            let mut map = HashMap::new();
+                            for (k, v) in exports.iter() {
+                                map.insert(k.clone(), v.clone());
+                            }
+                            self.env.define(local.name.clone(), Value::Object(map), true);
+                        }
+                    }
+                }
+                Ok(None)
             }
+            Stmt::Export { kind, span } => match kind {
+                ExportKind::Declaration(decl) => {
+                    let names = collect_decl_names(decl);
+                    let result = self.exec_stmt(decl)?;
+                    for name in names {
+                        if let Some(val) = self.env.get(&name) {
+                            self.current_exports.insert(name, val);
+                        }
+                    }
+                    Ok(result)
+                }
+                ExportKind::Named(idents) => {
+                    for ident in idents {
+                        let val = self.env.get(&ident.name).ok_or_else(|| {
+                            RuntimeError::new(format!("Нельзя экспортировать неопределённое '{}'", ident.name), *span)
+                        })?;
+                        self.current_exports.insert(ident.name.clone(), val);
+                    }
+                    Ok(None)
+                }
+            },
         }
     }
 
@@ -1911,6 +2025,44 @@ impl Interpreter {
                 Ok(Value::Undefined)
             }
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
+        }
+    }
+}
+
+fn collect_decl_names(stmt: &Stmt) -> Vec<String> {
+    match stmt {
+        Stmt::VarDecl { pattern, .. } => {
+            let mut names = Vec::new();
+            collect_pattern_names(pattern, &mut names);
+            names
+        }
+        Stmt::FunctionDecl { name, .. } | Stmt::ClassDecl { name, .. } => vec![name.name.clone()],
+        _ => Vec::new(),
+    }
+}
+
+fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
+    match pattern {
+        Pattern::Identifier(ident) => out.push(ident.name.clone()),
+        Pattern::Array { elements, rest, .. } => {
+            for el in elements.iter().flatten() {
+                collect_pattern_names(el, out);
+            }
+            if let Some(r) = rest {
+                collect_pattern_names(r, out);
+            }
+        }
+        Pattern::Object { properties, rest, .. } => {
+            for prop in properties {
+                if let Some(value) = &prop.value {
+                    collect_pattern_names(value, out);
+                } else {
+                    out.push(prop.key.name.clone());
+                }
+            }
+            if let Some(r) = rest {
+                collect_pattern_names(r, out);
+            }
         }
     }
 }
