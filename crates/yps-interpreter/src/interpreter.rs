@@ -507,7 +507,7 @@ impl Interpreter {
                         let arg_values = self.eval_args(args)?;
                         return self.call_method_with_this(params, body, env, arg_values, None, *span);
                     }
-                    if matches!(obj, Value::Array(_) | Value::String(_) | Value::Number(_)) {
+                    if matches!(obj, Value::Array(_) | Value::String(_) | Value::Number(_) | Value::Map(_)) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
                             crate::stdlib::call_method(self, obj, &property.name, arg_values, *span)?;
@@ -1806,12 +1806,19 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
+            Value::Map(entries) => {
+                if property == "size" || property == "размер" {
+                    return Ok(Value::Number(entries.len() as f64));
+                }
+                Ok(Value::Undefined)
+            }
             Value::String(s) => {
                 if property == "length" || property == "длина" {
                     return Ok(Value::Number(s.chars().count() as f64));
                 }
                 Ok(Value::Undefined)
             }
+            Value::BuiltinFunction(name) => Ok(Value::BuiltinFunction(format!("{name}.{property}"))),
             Value::Object(map) => {
                 if property.starts_with('#') {
                     let in_class =
@@ -4937,6 +4944,133 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_karta_basic_operations() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта();
+            к.set("а", 1);
+            к.set("б", 2);
+            гыы есть = к.has("а");
+            гыы значение = к.get("б");
+            гыы размер = к.size;
+            "#,
+        );
+        assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("значение"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("размер"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_karta_construct_from_pairs() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта([["а", 1], ["б", 2]]);
+            гыы а = к.get("а");
+            гыы б = к.get("б");
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_karta_delete_clear() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта([["а", 1], ["б", 2], ["в", 3]]);
+            к.delete("б");
+            гыы есть = к.has("б");
+            гыы рдо = к.size;
+            к.clear();
+            гыы рпосле = к.size;
+            "#,
+        );
+        assert_eq!(interp.get("есть"), Some(Value::Boolean(false)));
+        assert_eq!(interp.get("рдо"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("рпосле"), Some(Value::Number(0.0)));
+    }
+
+    #[test]
+    fn test_karta_keys_values_entries_preserve_insertion_order() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта();
+            к.set("первый", 1);
+            к.set("второй", 2);
+            к.set("третий", 3);
+            гыы клч = к.keys();
+            гыы знч = к.values();
+            "#,
+        );
+        assert_eq!(
+            interp.get("клч"),
+            Some(Value::Array(vec![
+                Value::String("первый".to_string()),
+                Value::String("второй".to_string()),
+                Value::String("третий".to_string()),
+            ]))
+        );
+        assert_eq!(
+            interp.get("знч"),
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]))
+        );
+    }
+
+    #[test]
+    fn test_karta_overwrite_keeps_position() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта();
+            к.set("а", 1);
+            к.set("б", 2);
+            к.set("а", 99);
+            гыы знч = к.values();
+            "#,
+        );
+        assert_eq!(interp.get("знч"), Some(Value::Array(vec![Value::Number(99.0), Value::Number(2.0)])));
+    }
+
+    #[test]
+    fn test_karta_static_ot_par() {
+        let interp = run_code(
+            r#"
+            гыы к = Карта.отПар([["x", 10], ["y", 20]]);
+            гыы x = к.get("x");
+            "#,
+        );
+        assert_eq!(interp.get("x"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn test_karta_for_each() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта([["а", 1], ["б", 2]]);
+            гыы сумма = 0;
+            к.forEach((значение, ключ) => {
+                сумма += значение;
+            });
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_karta_keys_supports_non_string() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта();
+            к.set(1, "один");
+            к.set(2, "два");
+            гыы а = к.get(1);
+            гыы б = к.get(2);
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::String("один".to_string())));
+        assert_eq!(interp.get("б"), Some(Value::String("два".to_string())));
     }
 
     #[test]

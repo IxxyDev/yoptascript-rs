@@ -8,7 +8,7 @@ use crate::value::Value;
 pub fn build_object() -> Value {
     object_of(&[
         ("являетсяПомойкой", builtin("Помойка.являетсяПомойкой")),
-        ("из", builtin("Помойка.из")),
+        ("извне", builtin("Помойка.извне")),
         ("нового", builtin("Помойка.нового")),
     ])
 }
@@ -24,12 +24,12 @@ pub fn call_static(
             require_args(&args, 1, span, "Помойка.являетсяПомойкой")?;
             Ok(Value::Boolean(matches!(&args[0], Value::Array(_))))
         }
-        "из" => {
-            require_args(&args, 1, span, "Помойка.из")?;
+        "извне" => {
+            require_args(&args, 1, span, "Помойка.извне")?;
             match &args[0] {
                 Value::Array(a) => Ok(Value::Array(a.clone())),
                 Value::String(s) => Ok(Value::Array(s.chars().map(|c| Value::String(c.to_string())).collect())),
-                other => Err(RuntimeError::new(format!("Помойка.из не поддерживает '{}'", other.type_name()), span)),
+                other => Err(RuntimeError::new(format!("Помойка.извне не поддерживает '{}'", other.type_name()), span)),
             }
         }
         "нового" => Ok(Value::Array(args)),
