@@ -135,6 +135,28 @@ pub enum Stmt {
         decorators: Vec<Expr>,
         span: Span,
     },
+    Import {
+        specifiers: Vec<ImportSpec>,
+        source: String,
+        span: Span,
+    },
+    Export {
+        kind: ExportKind,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportSpec {
+    Default { local: Identifier },
+    Named { imported: Identifier, local: Identifier },
+    Namespace { local: Identifier },
+}
+
+#[derive(Debug, Clone)]
+pub enum ExportKind {
+    Declaration(Box<Stmt>),
+    Named(Vec<Identifier>),
 }
 
 #[derive(Debug, Clone)]

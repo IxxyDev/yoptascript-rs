@@ -794,7 +794,9 @@ impl<'a> Parser<'a> {
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
                 | Stmt::Empty { span }
-                | Stmt::ClassDecl { span, .. } => span.end,
+                | Stmt::ClassDecl { span, .. }
+                | Stmt::Import { span, .. }
+                | Stmt::Export { span, .. } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
                 Stmt::VarDecl { span, .. }
@@ -814,7 +816,9 @@ impl<'a> Parser<'a> {
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
                 | Stmt::Empty { span }
-                | Stmt::ClassDecl { span, .. } => span.end,
+                | Stmt::ClassDecl { span, .. }
+                | Stmt::Import { span, .. }
+                | Stmt::Export { span, .. } => span.end,
             },
         );
 
@@ -861,7 +865,9 @@ impl<'a> Parser<'a> {
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
             | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. } => span.end,
+            | Stmt::ClassDecl { span, .. }
+            | Stmt::Import { span, .. }
+            | Stmt::Export { span, .. } => span.end,
         };
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
@@ -955,7 +961,9 @@ impl<'a> Parser<'a> {
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
             | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. } => span.end,
+            | Stmt::ClassDecl { span, .. }
+            | Stmt::Import { span, .. }
+            | Stmt::Export { span, .. } => span.end,
         };
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
@@ -1181,7 +1189,9 @@ impl<'a> Parser<'a> {
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
             | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. } => span.end,
+            | Stmt::ClassDecl { span, .. }
+            | Stmt::Import { span, .. }
+            | Stmt::Export { span, .. } => span.end,
         };
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
@@ -1336,7 +1346,9 @@ impl<'a> Parser<'a> {
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
             | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. } => span.end,
+            | Stmt::ClassDecl { span, .. }
+            | Stmt::Import { span, .. }
+            | Stmt::Export { span, .. } => span.end,
         }
     }
 

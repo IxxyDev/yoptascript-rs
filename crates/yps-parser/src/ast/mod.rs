@@ -14,4 +14,4 @@ pub use ops::{BinaryOp, PostfixOp, UnaryOp};
 pub use param::Param;
 pub use pattern::{ObjectPatternProp, Pattern};
 pub use program::Program;
-pub use stmt::{Block, ClassMember, Stmt, SwitchCase};
+pub use stmt::{Block, ClassMember, ExportKind, ImportSpec, Stmt, SwitchCase};
