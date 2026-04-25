@@ -217,6 +217,8 @@ impl Interpreter {
                 let items: Vec<Value> = match val {
                     Value::Array(elements) => elements,
                     Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                    Value::Set(s) => s,
+                    Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),
@@ -4953,6 +4955,44 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_for_of_set() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([10, 20, 30]);
+            гыы сумма = 0;
+            го (х сашаГрей н) {
+                сумма += х;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(Value::Number(60.0)));
+    }
+
+    #[test]
+    fn test_for_of_map_yields_pairs() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта([["а", 1], ["б", 2], ["в", 3]]);
+            гыы ключи = [];
+            гыы суммаЗнч = 0;
+            го (пара сашаГрей к) {
+                ключи.push(пара[0]);
+                суммаЗнч += пара[1];
+            }
+            "#,
+        );
+        assert_eq!(
+            interp.get("ключи"),
+            Some(Value::Array(vec![
+                Value::String("а".to_string()),
+                Value::String("б".to_string()),
+                Value::String("в".to_string()),
+            ]))
+        );
+        assert_eq!(interp.get("суммаЗнч"), Some(Value::Number(6.0)));
     }
 
     #[test]
