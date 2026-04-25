@@ -6,6 +6,7 @@ ignore = []
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [licenses]
 confidence-threshold = 0.8
