@@ -540,6 +540,8 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
             TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
             TokenKind::Keyword(KeywordKind::Class) => self.parse_class_decl(),
+            TokenKind::Keyword(KeywordKind::Import) => self.parse_import_stmt(),
+            TokenKind::Keyword(KeywordKind::Export) => self.parse_export_stmt(),
             TokenKind::Punctuation(PunctuationKind::At) => {
                 let decorators = self.parse_decorators()?;
                 if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Class)) {
@@ -1137,6 +1139,120 @@ impl<'a> Parser<'a> {
             .unwrap_or(try_block.span.end);
 
         Ok(Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, span: Span { start, end } })
+    }
+
+    fn parse_import_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let mut specifiers: Vec<crate::ast::ImportSpec> = Vec::new();
+
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            self.advance();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+                loop {
+                    let imported = self.parse_identifier()?;
+                    let local = imported.clone();
+                    specifiers.push(crate::ast::ImportSpec::Named { imported, local });
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась '}' в списке импортов");
+                return Err(());
+            }
+            self.advance();
+        } else if matches!(self.current().kind, TokenKind::Identifier) {
+            let local = self.parse_identifier()?;
+            specifiers.push(crate::ast::ImportSpec::Default { local });
+        } else {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался идентификатор или '{' после 'спиздить'");
+            return Err(());
+        }
+
+        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::In)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалось 'из' в импорте");
+            return Err(());
+        }
+        self.advance();
+
+        let source = if matches!(self.current().kind, TokenKind::StringLiteral) {
+            let span = self.current().span;
+            let raw = self.source.slice(span);
+            let inner = &raw[1..raw.len() - 1];
+            let value = Self::unescape_string(inner);
+            self.advance();
+            value
+        } else {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась строка-путь модуля");
+            return Err(());
+        };
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после импорта");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Import { specifiers, source, span: Span { start, end } })
+    }
+
+    fn parse_export_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            self.advance();
+            let mut names: Vec<crate::ast::Identifier> = Vec::new();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+                loop {
+                    names.push(self.parse_identifier()?);
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась '}' в списке экспортов");
+                return Err(());
+            }
+            self.advance();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалась ';' после экспорта");
+                return Err(());
+            }
+            let end = self.current().span.end;
+            self.advance();
+            return Ok(Stmt::Export { kind: crate::ast::ExportKind::Named(names), span: Span { start, end } });
+        }
+
+        let inner = self.parse_statement()?;
+        let end = match &inner {
+            Stmt::VarDecl { span, .. }
+            | Stmt::FunctionDecl { span, .. }
+            | Stmt::ClassDecl { span, .. }
+            | Stmt::Expr { span, .. } => span.end,
+            _ => {
+                let span = self.current().span;
+                self.push_error(span, "После 'предъява' ожидается переменная, функция или класс");
+                return Err(());
+            }
+        };
+        Ok(Stmt::Export { kind: crate::ast::ExportKind::Declaration(Box::new(inner)), span: Span { start, end } })
     }
 
     fn parse_throw_stmt(&mut self) -> Result<Stmt, ()> {
@@ -3162,6 +3278,71 @@ mod tests {
                 assert!(matches!(decorators[0], Expr::Call { .. }));
             }
             other => panic!("Expected ClassDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_import_default() {
+        let (program, diags) = parse_program_from_source(r#"спиздить кент из "./модуль";"#);
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::Import { specifiers, source, .. } => {
+                assert_eq!(source, "./модуль");
+                assert_eq!(specifiers.len(), 1);
+                assert!(matches!(&specifiers[0], crate::ast::ImportSpec::Default { local } if local.name == "кент"));
+            }
+            other => panic!("Expected Import, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_import_named() {
+        let (program, diags) = parse_program_from_source(r#"спиздить { foo, bar } из "./м";"#);
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::Import { specifiers, source, .. } => {
+                assert_eq!(source, "./м");
+                assert_eq!(specifiers.len(), 2);
+            }
+            other => panic!("Expected Import, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_export_named() {
+        let (program, diags) = parse_program_from_source(r#"предъява { foo, bar };"#);
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::Export { kind: crate::ast::ExportKind::Named(names), .. } => {
+                assert_eq!(names.len(), 2);
+                assert_eq!(names[0].name, "foo");
+                assert_eq!(names[1].name, "bar");
+            }
+            other => panic!("Expected Export Named, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_export_declaration() {
+        let (program, diags) = parse_program_from_source("предъява гыы x = 5;");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::Export { kind: crate::ast::ExportKind::Declaration(decl), .. } => {
+                assert!(matches!(decl.as_ref(), Stmt::VarDecl { .. }));
+            }
+            other => panic!("Expected Export Declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_export_function_decl() {
+        let (program, diags) = parse_program_from_source("предъява йопта приветствие() { }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::Export { kind: crate::ast::ExportKind::Declaration(decl), .. } => {
+                assert!(matches!(decl.as_ref(), Stmt::FunctionDecl { .. }));
+            }
+            other => panic!("Expected Export Declaration, got {other:?}"),
         }
     }
 }
