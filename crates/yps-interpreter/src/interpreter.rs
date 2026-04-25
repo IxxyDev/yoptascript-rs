@@ -507,7 +507,10 @@ impl Interpreter {
                         let arg_values = self.eval_args(args)?;
                         return self.call_method_with_this(params, body, env, arg_values, None, *span);
                     }
-                    if matches!(obj, Value::Array(_) | Value::String(_) | Value::Number(_) | Value::Map(_)) {
+                    if matches!(
+                        obj,
+                        Value::Array(_) | Value::String(_) | Value::Number(_) | Value::Map(_) | Value::Set(_)
+                    ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
                             crate::stdlib::call_method(self, obj, &property.name, arg_values, *span)?;
@@ -1809,6 +1812,12 @@ impl Interpreter {
             Value::Map(entries) => {
                 if property == "size" || property == "размер" {
                     return Ok(Value::Number(entries.len() as f64));
+                }
+                Ok(Value::Undefined)
+            }
+            Value::Set(items) => {
+                if property == "size" || property == "размер" {
+                    return Ok(Value::Number(items.len() as f64));
                 }
                 Ok(Value::Undefined)
             }
@@ -4944,6 +4953,110 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_nabor_basic_operations() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор();
+            н.add(1);
+            н.add(2);
+            н.add(2);
+            гыы есть = н.has(1);
+            гыы размер = н.size;
+            "#,
+        );
+        assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("размер"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_nabor_construct_from_array() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([1, 2, 2, 3, 3, 3]);
+            гыы размер = н.size;
+            "#,
+        );
+        assert_eq!(interp.get("размер"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_nabor_delete_clear() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([1, 2, 3]);
+            гыы убрал = н.delete(2);
+            гыы естьЛи = н.has(2);
+            н.clear();
+            гыы пустой = н.size;
+            "#,
+        );
+        assert_eq!(interp.get("убрал"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("естьЛи"), Some(Value::Boolean(false)));
+        assert_eq!(interp.get("пустой"), Some(Value::Number(0.0)));
+    }
+
+    #[test]
+    fn test_nabor_values() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([3, 1, 2]);
+            гыы зн = н.values();
+            "#,
+        );
+        assert_eq!(
+            interp.get("зн"),
+            Some(Value::Array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]))
+        );
+    }
+
+    #[test]
+    fn test_nabor_for_each() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([10, 20, 30]);
+            гыы сумма = 0;
+            н.forEach((x) => { сумма += x; });
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(Value::Number(60.0)));
+    }
+
+    #[test]
+    fn test_nabor_set_operations() {
+        let interp = run_code(
+            r#"
+            гыы а = захуярить Набор([1, 2, 3]);
+            гыы б = захуярить Набор([3, 4, 5]);
+            гыы пересечение = а.intersection(б).size;
+            гыы объединение = а.union(б).size;
+            гыы разница = а.difference(б).size;
+            гыы симРазн = а.symmetricDifference(б).size;
+            "#,
+        );
+        assert_eq!(interp.get("пересечение"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("объединение"), Some(Value::Number(5.0)));
+        assert_eq!(interp.get("разница"), Some(Value::Number(2.0)));
+        assert_eq!(interp.get("симРазн"), Some(Value::Number(4.0)));
+    }
+
+    #[test]
+    fn test_nabor_subset_superset_disjoint() {
+        let interp = run_code(
+            r#"
+            гыы малый = захуярить Набор([1, 2]);
+            гыы большой = захуярить Набор([1, 2, 3, 4]);
+            гыы отдельный = захуярить Набор([99]);
+            гыы под = малый.isSubsetOf(большой);
+            гыы над = большой.isSupersetOf(малый);
+            гыы непер = малый.isDisjointFrom(отдельный);
+            "#,
+        );
+        assert_eq!(interp.get("под"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("над"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("непер"), Some(Value::Boolean(true)));
     }
 
     #[test]

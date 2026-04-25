@@ -33,6 +33,7 @@ pub enum Value {
     Array(Vec<Value>),
     Object(HashMap<String, Value>),
     Map(Vec<(Value, Value)>),
+    Set(Vec<Value>),
     Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
     Class(Rc<ClassDef>),
@@ -60,7 +61,7 @@ impl Value {
             Value::Undefined => "неопределено",
             Value::Null => "объект",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
-            Value::Array(_) | Value::Object(_) | Value::Class(_) | Value::Map(_) => "объект",
+            Value::Array(_) | Value::Object(_) | Value::Class(_) | Value::Map(_) | Value::Set(_) => "объект",
         }
     }
 
@@ -72,6 +73,7 @@ impl Value {
             Value::Array(_) => "массив",
             Value::Object(_) => "объект",
             Value::Map(_) => "карта",
+            Value::Set(_) => "набор",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
             Value::Class(_) => "класс",
             Value::Undefined => "неопределено",
@@ -89,6 +91,7 @@ impl fmt::Debug for Value {
             Value::Array(a) => f.debug_tuple("Array").field(a).finish(),
             Value::Object(o) => f.debug_tuple("Object").field(o).finish(),
             Value::Map(m) => f.debug_tuple("Map").field(m).finish(),
+            Value::Set(s) => f.debug_tuple("Set").field(s).finish(),
             Value::Function { name, params, .. } => {
                 let param_names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();
                 write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
@@ -145,6 +148,16 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            Value::Set(items) => {
+                write!(f, "Набор(")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
+            }
             Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
@@ -161,6 +174,7 @@ impl PartialEq for Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
+            (Value::Set(a), Value::Set(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
