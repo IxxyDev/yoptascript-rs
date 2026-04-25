@@ -648,6 +648,11 @@ impl Interpreter {
                         let val = self.eval_expr(expr)?;
                         match val {
                             Value::Array(arr) => values.extend(arr),
+                            Value::Set(s) => values.extend(s),
+                            Value::Map(entries) => {
+                                values.extend(entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])));
+                            }
+                            Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!("Нельзя развернуть тип '{}' в массив", val.type_name()),
@@ -1314,6 +1319,8 @@ impl Interpreter {
                 let val = self.eval_expr(expr)?;
                 match val {
                     Value::Array(arr) => values.extend(arr),
+                    Value::Set(s) => values.extend(s),
+                    Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Нельзя развернуть тип '{}' в аргументы", val.type_name()),
@@ -4955,6 +4962,71 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_spread_set_into_array() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([1, 2, 3]);
+            гыы а = [0, ...н, 4];
+            "#,
+        );
+        assert_eq!(
+            interp.get("а"),
+            Some(Value::Array(vec![
+                Value::Number(0.0),
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+                Value::Number(4.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_spread_map_into_array() {
+        let interp = run_code(
+            r#"
+            гыы к = захуярить Карта([["а", 1], ["б", 2]]);
+            гыы а = [...к];
+            "#,
+        );
+        assert_eq!(
+            interp.get("а"),
+            Some(Value::Array(vec![
+                Value::Array(vec![Value::String("а".to_string()), Value::Number(1.0)]),
+                Value::Array(vec![Value::String("б".to_string()), Value::Number(2.0)]),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_spread_string_into_array() {
+        let interp = run_code(
+            r#"
+            гыы а = [..."абв"];
+            "#,
+        );
+        assert_eq!(
+            interp.get("а"),
+            Some(Value::Array(vec![
+                Value::String("а".to_string()),
+                Value::String("б".to_string()),
+                Value::String("в".to_string()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_spread_set_into_args() {
+        let interp = run_code(
+            r#"
+            гыы н = захуярить Набор([1, 5, 3, 9, 2]);
+            гыы макс = Матан.макс(...н);
+            "#,
+        );
+        assert_eq!(interp.get("макс"), Some(Value::Number(9.0)));
     }
 
     #[test]
