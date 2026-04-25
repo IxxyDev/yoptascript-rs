@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 use yps_interpreter::Interpreter;
@@ -48,6 +49,9 @@ fn main() {
     }
 
     let mut interpreter = Interpreter::new();
+    if let Some(parent) = PathBuf::from(filename).parent().map(PathBuf::from) {
+        interpreter.set_base_path(parent);
+    }
     if let Err(e) = interpreter.run(&program) {
         let (line, col) = source.position(e.span.start);
         eprintln!("{filename}:{line}:{col}: {e}");
