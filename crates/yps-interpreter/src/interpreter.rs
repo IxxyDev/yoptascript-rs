@@ -5120,6 +5120,26 @@ mod tests {
     }
 
     #[test]
+    fn test_kent_group_by() {
+        let interp = run_code(
+            r#"
+            гыы числа = [1, 2, 3, 4, 5, 6, 7];
+            гыы по_чётности = Кент.группировать(числа, (n) => n % 2 === 0 ? "чётные" : "нечётные");
+            гыы чётные = по_чётности["чётные"];
+            гыы нечётные = по_чётности["нечётные"];
+            "#,
+        );
+        assert_eq!(
+            interp.get("чётные"),
+            Some(Value::Array(vec![Value::Number(2.0), Value::Number(4.0), Value::Number(6.0)]))
+        );
+        assert_eq!(
+            interp.get("нечётные"),
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(3.0), Value::Number(5.0), Value::Number(7.0),]))
+        );
+    }
+
+    #[test]
     fn test_huynya_parse_int() {
         let interp = run_code(
             r#"

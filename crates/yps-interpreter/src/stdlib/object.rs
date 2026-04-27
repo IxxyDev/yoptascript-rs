@@ -15,11 +15,12 @@ pub fn build_object() -> Value {
         ("назначить", builtin("Кент.назначить")),
         ("имеетСвоё", builtin("Кент.имеетСвоё")),
         ("изЗаписей", builtin("Кент.изЗаписей")),
+        ("группировать", builtin("Кент.группировать")),
     ])
 }
 
 pub fn call_static(
-    _interp: &mut Interpreter,
+    interp: &mut Interpreter,
     method: &str,
     args: Vec<Value>,
     span: Span,
@@ -93,6 +94,46 @@ pub fn call_static(
                 Value::Object(map) => Ok(Value::Boolean(map.contains_key(&key))),
                 _ => Err(RuntimeError::new("Кент.имеетСвоё ожидает объект", span)),
             }
+        }
+        "группировать" => {
+            require_args(&args, 2, span, "Кент.группировать")?;
+            let mut iter = args.into_iter();
+            let collection = iter.next().unwrap();
+            let callback = iter.next().unwrap();
+            let items: Vec<Value> = match collection {
+                Value::Array(a) => a,
+                Value::Set(s) => s,
+                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+                Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                other => {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Кент.группировать ожидает массив/набор/карту/строку, получено '{}'",
+                            other.type_name()
+                        ),
+                        span,
+                    ));
+                }
+            };
+            let mut groups: HashMap<String, Vec<Value>> = HashMap::new();
+            let mut order: Vec<String> = Vec::new();
+            for (i, item) in items.into_iter().enumerate() {
+                let key_val =
+                    interp.call_function(callback.clone(), vec![item.clone(), Value::Number(i as f64)], span)?;
+                let key = key_val.to_string();
+                let entry = groups.entry(key.clone()).or_insert_with(|| {
+                    order.push(key.clone());
+                    Vec::new()
+                });
+                entry.push(item);
+            }
+            let mut result = HashMap::new();
+            for k in order {
+                if let Some(vals) = groups.remove(&k) {
+                    result.insert(k, Value::Array(vals));
+                }
+            }
+            Ok(Value::Object(result))
         }
         "изЗаписей" => {
             require_args(&args, 1, span, "Кент.изЗаписей")?;
