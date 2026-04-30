@@ -5085,10 +5085,7 @@ mod tests {
                 Value::Number(5.0),
             ]))
         );
-        assert_eq!(
-            interp.get("удалённые"),
-            Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0)]))
-        );
+        assert_eq!(interp.get("удалённые"), Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0)])));
     }
 
     #[test]
@@ -5101,12 +5098,7 @@ mod tests {
         );
         assert_eq!(
             interp.get("а"),
-            Some(Value::Array(vec![
-                Value::Number(1.0),
-                Value::Number(2.0),
-                Value::Number(3.0),
-                Value::Number(4.0),
-            ]))
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0),]))
         );
         assert_eq!(
             interp.get("б"),
