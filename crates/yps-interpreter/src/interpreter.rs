@@ -5068,6 +5068,59 @@ mod tests {
     }
 
     #[test]
+    fn test_stdlib_array_splice() {
+        let interp = run_code(
+            r#"
+            гыы а = [1, 2, 3, 4, 5];
+            гыы удалённые = а.splice(1, 2, 9, 9);
+            "#,
+        );
+        assert_eq!(
+            interp.get("а"),
+            Some(Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(9.0),
+                Value::Number(9.0),
+                Value::Number(4.0),
+                Value::Number(5.0),
+            ]))
+        );
+        assert_eq!(
+            interp.get("удалённые"),
+            Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0)]))
+        );
+    }
+
+    #[test]
+    fn test_stdlib_array_to_spliced() {
+        let interp = run_code(
+            r#"
+            гыы а = [1, 2, 3, 4];
+            гыы б = а.toSpliced(1, 1, 8, 9);
+            "#,
+        );
+        assert_eq!(
+            interp.get("а"),
+            Some(Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+                Value::Number(4.0),
+            ]))
+        );
+        assert_eq!(
+            interp.get("б"),
+            Some(Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(8.0),
+                Value::Number(9.0),
+                Value::Number(3.0),
+                Value::Number(4.0),
+            ]))
+        );
+    }
+
+    #[test]
     fn test_kosyak_construct() {
         let interp = run_code(
             r#"
