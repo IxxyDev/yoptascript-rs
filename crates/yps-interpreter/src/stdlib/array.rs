@@ -350,6 +350,14 @@ pub fn call(
                 Ok((Value::Array(new_arr), None))
             }
         }
+        "splice" | "вырезать" => {
+            let (new_arr, removed) = splice_impl(arr, &args, span)?;
+            Ok((Value::Array(removed), Some(Value::Array(new_arr))))
+        }
+        "toSpliced" | "вырезанный" => {
+            let (new_arr, _removed) = splice_impl(arr, &args, span)?;
+            Ok((Value::Array(new_arr), None))
+        }
         "with" | "сЗаменой" => {
             require_args(&args, 2, span, "with")?;
             let idx = as_number(&args[0], span, "with")? as isize;
@@ -372,6 +380,22 @@ fn normalize_index(idx: isize, len: isize) -> isize {
 
 fn values_equal(a: &Value, b: &Value) -> bool {
     a == b
+}
+
+fn splice_impl(arr: Vec<Value>, args: &[Value], span: Span) -> Result<(Vec<Value>, Vec<Value>), RuntimeError> {
+    let len = arr.len() as isize;
+    let start_raw = if args.is_empty() { 0 } else { as_number(&args[0], span, "splice")? as isize };
+    let start = if start_raw < 0 { (len + start_raw).max(0) } else { start_raw.min(len) } as usize;
+    let delete_count = if args.len() < 2 {
+        arr.len() - start
+    } else {
+        let n = as_number(&args[1], span, "splice")? as isize;
+        n.max(0).min(len - start as isize) as usize
+    };
+    let inserts: Vec<Value> = if args.len() > 2 { args[2..].to_vec() } else { Vec::new() };
+    let mut new_arr = arr;
+    let removed: Vec<Value> = new_arr.splice(start..start + delete_count, inserts).collect();
+    Ok((new_arr, removed))
 }
 
 fn flatten(arr: Vec<Value>, depth: isize) -> Vec<Value> {
