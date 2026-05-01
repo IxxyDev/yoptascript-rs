@@ -106,6 +106,35 @@ pub fn call(
             let pairs: Vec<Value> = entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect();
             Ok((Value::Array(pairs), None))
         }
+        "getOrInsert" | "взятьИлиВставить" => {
+            require_args(&args, 2, span, "getOrInsert")?;
+            let mut entries = entries;
+            let mut iter = args.into_iter();
+            let key = iter.next().unwrap();
+            let default = iter.next().unwrap();
+            let val = if let Some(idx) = find_index(&entries, &key) {
+                entries[idx].1.clone()
+            } else {
+                entries.push((key, default.clone()));
+                default
+            };
+            Ok((val, Some(Value::Map(entries))))
+        }
+        "getOrInsertComputed" | "взятьИлиВычислить" => {
+            require_args(&args, 2, span, "getOrInsertComputed")?;
+            let mut entries = entries;
+            let mut iter = args.into_iter();
+            let key = iter.next().unwrap();
+            let callback = iter.next().unwrap();
+            let val = if let Some(idx) = find_index(&entries, &key) {
+                entries[idx].1.clone()
+            } else {
+                let computed = interp.call_function(callback, vec![key.clone()], span)?;
+                entries.push((key, computed.clone()));
+                computed
+            };
+            Ok((val, Some(Value::Map(entries))))
+        }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();

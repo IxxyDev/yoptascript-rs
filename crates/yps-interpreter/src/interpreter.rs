@@ -5113,6 +5113,41 @@ mod tests {
     }
 
     #[test]
+    fn test_karta_get_or_insert() {
+        let interp = run_code(
+            r#"
+            гыы м = захуярить Карта();
+            м.set("а", 1);
+            гыы существ = м.getOrInsert("а", 99);
+            гыы новое = м.getOrInsert("б", 7);
+            гыы итог = м.get("б");
+            "#,
+        );
+        assert_eq!(interp.get("существ"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("новое"), Some(Value::Number(7.0)));
+        assert_eq!(interp.get("итог"), Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn test_karta_get_or_insert_computed() {
+        let interp = run_code(
+            r#"
+            гыы м = захуярить Карта();
+            гыы вызовов = 0;
+            гыы вычислить = (к) => {
+                вызовов += 1;
+                отвечаю к + "!";
+            };
+            гыы а = м.getOrInsertComputed("привет", вычислить);
+            гыы б = м.getOrInsertComputed("привет", вычислить);
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::String("привет!".to_string())));
+        assert_eq!(interp.get("б"), Some(Value::String("привет!".to_string())));
+        assert_eq!(interp.get("вызовов"), Some(Value::Number(1.0)));
+    }
+
+    #[test]
     fn test_kosyak_construct() {
         let interp = run_code(
             r#"
