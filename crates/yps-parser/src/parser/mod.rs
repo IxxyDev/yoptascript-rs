@@ -832,8 +832,8 @@ impl<'a> Parser<'a> {
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
                 | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
+                | Stmt::Using { span, .. }
+                | Stmt::Debugger { span, .. } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
                 Stmt::VarDecl { span, .. }
@@ -856,8 +856,8 @@ impl<'a> Parser<'a> {
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
                 | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
+                | Stmt::Using { span, .. }
+                | Stmt::Debugger { span, .. } => span.end,
             },
         );
 
