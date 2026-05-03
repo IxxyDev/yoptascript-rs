@@ -540,6 +540,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Switch) => self.parse_switch_stmt(),
             TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
             TokenKind::Keyword(KeywordKind::Class) => self.parse_class_decl(),
+            TokenKind::Keyword(KeywordKind::Using) => self.parse_using_stmt(),
             TokenKind::Keyword(KeywordKind::Import) => self.parse_import_stmt(),
             TokenKind::Keyword(KeywordKind::Export) => self.parse_export_stmt(),
             TokenKind::Punctuation(PunctuationKind::At) => {
@@ -585,6 +586,30 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::VarDecl { pattern, init, is_const, span: Span { start, end } })
+    }
+
+    fn parse_using_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current().span.start;
+        self.advance();
+
+        let name = self.parse_identifier()?;
+        if !matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидался '=' после имени ресурса в 'юзай'");
+            return Err(());
+        }
+        self.advance();
+
+        let init = self.parse_expr()?;
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ';' после объявления 'юзай'");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+
+        Ok(Stmt::Using { name, init, span: Span { start, end } })
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern, ()> {
@@ -798,7 +823,8 @@ impl<'a> Parser<'a> {
                 | Stmt::Empty { span }
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
-                | Stmt::Export { span, .. } => span.end,
+                | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
                 Stmt::VarDecl { span, .. }
@@ -820,7 +846,8 @@ impl<'a> Parser<'a> {
                 | Stmt::Empty { span }
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
-                | Stmt::Export { span, .. } => span.end,
+                | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
             },
         );
 
@@ -869,7 +896,8 @@ impl<'a> Parser<'a> {
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. } => span.end,
+            | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
         };
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
@@ -965,7 +993,8 @@ impl<'a> Parser<'a> {
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. } => span.end,
+            | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
         };
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
@@ -1307,7 +1336,8 @@ impl<'a> Parser<'a> {
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. } => span.end,
+            | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
         };
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
@@ -1464,7 +1494,8 @@ impl<'a> Parser<'a> {
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. } => span.end,
+            | Stmt::Export { span, .. }
+            | Stmt::Using { span, .. } => span.end,
         }
     }
 
