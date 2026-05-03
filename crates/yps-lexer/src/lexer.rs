@@ -109,7 +109,7 @@ impl<'src> Lexer<'src> {
                 TokenKind::Keyword(KeywordKind::Default)
             }
             "крутани" | "крч" => TokenKind::Keyword(KeywordKind::DoWhile),
-            "из" => TokenKind::Keyword(KeywordKind::In),
+            "из" | "чоунастут" => TokenKind::Keyword(KeywordKind::In),
             "клёво" | "клево" => TokenKind::Keyword(KeywordKind::Class),
             "батя" => TokenKind::Keyword(KeywordKind::Extends),
             "яга" => TokenKind::Keyword(KeywordKind::Super),
@@ -119,7 +119,8 @@ impl<'src> Lexer<'src> {
             "чезажижан" => TokenKind::Keyword(KeywordKind::Typeof),
             "шкура" => TokenKind::Keyword(KeywordKind::Instanceof),
             "пиздюли" => TokenKind::Keyword(KeywordKind::GeneratorFn),
-            "поебалу" | "поебалуна" => TokenKind::Keyword(KeywordKind::Yield),
+            "поебалу" => TokenKind::Keyword(KeywordKind::Yield),
+            "поебалуна" => TokenKind::Keyword(KeywordKind::YieldDelegate),
             "ассо" => TokenKind::Keyword(KeywordKind::Async),
             "сидетьНахуй" => TokenKind::Keyword(KeywordKind::Await),
             "спиздить" => TokenKind::Keyword(KeywordKind::Import),
@@ -129,6 +130,10 @@ impl<'src> Lexer<'src> {
             "ёбнуть" | "ебнуть" => TokenKind::Keyword(KeywordKind::Delete),
             "куку" => TokenKind::Keyword(KeywordKind::Void),
             "юзай" => TokenKind::Keyword(KeywordKind::Using),
+            "логопед" => TokenKind::Keyword(KeywordKind::Debugger),
+            "мой" => TokenKind::Keyword(KeywordKind::Private),
+            "подкрыша" => TokenKind::Keyword(KeywordKind::Protected),
+            "ебанное" => TokenKind::Keyword(KeywordKind::Public),
             _ => TokenKind::Identifier,
         };
 

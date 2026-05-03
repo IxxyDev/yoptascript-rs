@@ -140,6 +140,9 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
+    Debugger {
+        span: Span,
+    },
     Import {
         specifiers: Vec<ImportSpec>,
         source: String,

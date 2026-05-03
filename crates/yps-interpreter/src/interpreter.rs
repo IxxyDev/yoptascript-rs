@@ -49,6 +49,7 @@ impl Interpreter {
         for (name, value) in crate::stdlib::build_globals() {
             env.define(name, value, true);
         }
+        env.define("нихуя".to_string(), Value::Number(f64::NAN), true);
         Self {
             env,
             pending_initializers: Vec::new(),
@@ -373,6 +374,7 @@ impl Interpreter {
 
                 result
             }
+            Stmt::Debugger { .. } => Ok(None),
             Stmt::Using { name, init, span } => {
                 let value = self.eval_expr(init)?;
                 if !matches!(value, Value::Null | Value::Undefined) {
@@ -5853,6 +5855,45 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("стр"), Some(Value::String("Симбол(м)".to_string())));
+    }
+
+    #[test]
+    fn dict_alias_chounastoot_for_in() {
+        let interp = run_code(
+            r#"
+            гыы об = { а: 1, б: 2 };
+            гыы ключи = [];
+            го (гыы к чоунастут об) {
+                ключи.push(к);
+            }
+            гыы длина = ключи.length;
+            "#,
+        );
+        assert_eq!(interp.get("длина"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn dict_alias_nan_global() {
+        let interp = run_code(
+            r#"
+            гыы н = нихуя;
+            гыы это_нан = Хуйня.нихуя(н);
+            "#,
+        );
+        assert_eq!(interp.get("это_нан"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn dict_debugger_is_noop() {
+        let interp = run_code(
+            r#"
+            гыы а = 1;
+            логопед;
+            гыы б = 2;
+            "#,
+        );
+        assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
     }
 
     #[test]
