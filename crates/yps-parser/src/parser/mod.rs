@@ -541,6 +541,14 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::DoWhile) => self.parse_do_while_stmt(),
             TokenKind::Keyword(KeywordKind::Class) => self.parse_class_decl(),
             TokenKind::Keyword(KeywordKind::Using) => self.parse_using_stmt(),
+            TokenKind::Keyword(KeywordKind::Debugger) => {
+                let span = self.current().span;
+                self.advance();
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
+                    self.advance();
+                }
+                Ok(Stmt::Debugger { span })
+            }
             TokenKind::Keyword(KeywordKind::Import) => self.parse_import_stmt(),
             TokenKind::Keyword(KeywordKind::Export) => self.parse_export_stmt(),
             TokenKind::Punctuation(PunctuationKind::At) => {
@@ -824,7 +832,8 @@ impl<'a> Parser<'a> {
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
                 | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
             },
             |else_stmt| match else_stmt.as_ref() {
                 Stmt::VarDecl { span, .. }
@@ -847,7 +856,8 @@ impl<'a> Parser<'a> {
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
                 | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
             },
         );
 
@@ -897,7 +907,8 @@ impl<'a> Parser<'a> {
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
             | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
         };
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
@@ -914,15 +925,30 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        if matches!(self.current().kind, TokenKind::Identifier)
-            && matches!(self.peek(1).kind, TokenKind::Keyword(KeywordKind::In))
+        let decl_offset = if matches!(
+            self.current().kind,
+            TokenKind::Keyword(KeywordKind::Gyy | KeywordKind::Uchastkoviy | KeywordKind::YasenHuy)
+        ) {
+            1
+        } else {
+            0
+        };
+
+        if matches!(self.peek(decl_offset).kind, TokenKind::Identifier)
+            && matches!(self.peek(decl_offset + 1).kind, TokenKind::Keyword(KeywordKind::In))
         {
+            if decl_offset == 1 {
+                self.advance();
+            }
             return self.parse_for_in_rest(start);
         }
 
-        if matches!(self.current().kind, TokenKind::Identifier)
-            && matches!(self.peek(1).kind, TokenKind::Keyword(KeywordKind::Of))
+        if matches!(self.peek(decl_offset).kind, TokenKind::Identifier)
+            && matches!(self.peek(decl_offset + 1).kind, TokenKind::Keyword(KeywordKind::Of))
         {
+            if decl_offset == 1 {
+                self.advance();
+            }
             return self.parse_for_of_rest(start);
         }
 
@@ -994,7 +1020,8 @@ impl<'a> Parser<'a> {
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
             | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
         };
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
@@ -1337,7 +1364,8 @@ impl<'a> Parser<'a> {
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
             | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
         };
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
@@ -1495,7 +1523,8 @@ impl<'a> Parser<'a> {
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
             | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. } => span.end,
+            | Stmt::Using { span, .. }
+            | Stmt::Debugger { span, .. } => span.end,
         }
     }
 

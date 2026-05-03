@@ -36,6 +36,7 @@ pub enum KeywordKind {
     Instanceof,
     GeneratorFn,
     Yield,
+    YieldDelegate,
     Async,
     Await,
     Import,
@@ -45,6 +46,10 @@ pub enum KeywordKind {
     Delete,
     Void,
     Using,
+    Debugger,
+    Private,
+    Protected,
+    Public,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
