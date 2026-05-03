@@ -32,6 +32,7 @@ pub struct Interpreter {
     base_path: Option<PathBuf>,
     module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
     current_exports: HashMap<String, Value>,
+    generator_buffer: Option<Vec<Value>>,
 }
 
 impl Default for Interpreter {
@@ -56,6 +57,7 @@ impl Interpreter {
             base_path: None,
             module_cache: Rc::new(RefCell::new(HashMap::new())),
             current_exports: HashMap::new(),
+            generator_buffer: None,
         }
     }
 
@@ -214,12 +216,13 @@ impl Interpreter {
             }
             Stmt::Break { .. } => Ok(Some(ControlFlow::Break)),
             Stmt::Continue { .. } => Ok(Some(ControlFlow::Continue)),
-            Stmt::FunctionDecl { name, params, body, .. } => {
+            Stmt::FunctionDecl { name, params, body, is_generator, .. } => {
                 let func = Value::Function {
                     name: name.name.clone(),
                     params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
+                    is_generator: *is_generator,
                 };
                 self.env.define(name.name.clone(), func, false);
                 Ok(None)
@@ -734,6 +737,7 @@ impl Interpreter {
                     params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
+                    is_generator: false,
                 };
                 Ok(func)
             }
@@ -767,7 +771,42 @@ impl Interpreter {
                 .env
                 .get("__super__")
                 .ok_or_else(|| RuntimeError::new("'яга' (super) используется вне класса-наследника", *span)),
+            Expr::Yield { argument, delegate, span } => self.eval_yield(argument.as_deref(), *delegate, *span),
         }
+    }
+
+    fn eval_yield(&mut self, argument: Option<&Expr>, delegate: bool, span: Span) -> Result<Value, RuntimeError> {
+        if self.generator_buffer.is_none() {
+            return Err(RuntimeError::new("'поебалу' можно использовать только внутри 'пиздюли'", span));
+        }
+        if delegate {
+            let arg = argument.ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", span))?;
+            let val = self.eval_expr(arg)?;
+            let items: Vec<Value> = match val {
+                Value::Array(elements) => elements,
+                Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                Value::Set(s) => s,
+                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("Нельзя итерировать по типу '{}' в 'поебалуна'", other.type_name()),
+                        span,
+                    ));
+                }
+            };
+            if let Some(buf) = self.generator_buffer.as_mut() {
+                buf.extend(items);
+            }
+        } else {
+            let val = match argument {
+                Some(arg) => self.eval_expr(arg)?,
+                None => Value::Undefined,
+            };
+            if let Some(buf) = self.generator_buffer.as_mut() {
+                buf.push(val);
+            }
+        }
+        Ok(Value::Undefined)
     }
 
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
@@ -850,6 +889,7 @@ impl Interpreter {
                                 params: vec![],
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
+                                is_generator: false,
                             };
                             map.insert(format!("__get_{key_str}__"), getter_fn);
                         }
@@ -866,6 +906,7 @@ impl Interpreter {
                                 params: vec![param.clone()],
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
+                                is_generator: false,
                             };
                             map.insert(format!("__set_{key_str}__"), setter_fn);
                         }
@@ -1334,7 +1375,7 @@ impl Interpreter {
                 }
                 call_builtin(&name, args, span)
             }
-            Value::Function { name, params, body, env } => {
+            Value::Function { name, params, body, env, is_generator } => {
                 let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
 
                 if args.len() < required_count {
@@ -1371,16 +1412,33 @@ impl Interpreter {
                     self.env.define(param.name.name.clone(), value, false);
                 }
 
-                let result = self.exec_block_stmts(&body.stmts);
-                self.env = saved_env;
-                match result? {
-                    Some(ControlFlow::Return(val)) => Ok(val),
-                    Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-                    Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
-                    Some(ControlFlow::Throw(val)) => {
-                        Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
+                if is_generator {
+                    let saved_buffer = self.generator_buffer.take();
+                    self.generator_buffer = Some(Vec::new());
+                    let result = self.exec_block_stmts(&body.stmts);
+                    let collected = self.generator_buffer.take().unwrap_or_default();
+                    self.generator_buffer = saved_buffer;
+                    self.env = saved_env;
+                    match result? {
+                        Some(ControlFlow::Return(_)) | None => Ok(Value::Array(collected)),
+                        Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+                        Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                        Some(ControlFlow::Throw(val)) => {
+                            Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
+                        }
                     }
-                    None => Ok(Value::Undefined),
+                } else {
+                    let result = self.exec_block_stmts(&body.stmts);
+                    self.env = saved_env;
+                    match result? {
+                        Some(ControlFlow::Return(val)) => Ok(val),
+                        Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+                        Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                        Some(ControlFlow::Throw(val)) => {
+                            Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
+                        }
+                        None => Ok(Value::Undefined),
+                    }
                 }
             }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
@@ -1629,6 +1687,7 @@ impl Interpreter {
                         params: params.clone(),
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
+                        is_generator: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         method_fn,
@@ -1657,6 +1716,7 @@ impl Interpreter {
                         params: vec![],
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
+                        is_generator: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         getter_fn,
@@ -1685,6 +1745,7 @@ impl Interpreter {
                         params: vec![param.clone()],
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
+                        is_generator: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         setter_fn,
@@ -2092,6 +2153,7 @@ impl Interpreter {
                             params: params.clone(),
                             body: Rc::clone(body),
                             env: Rc::clone(env),
+                            is_generator: false,
                         });
                     }
                 }
@@ -2110,6 +2172,7 @@ impl Interpreter {
                         params: params.clone(),
                         body: Rc::clone(body),
                         env: Rc::clone(env),
+                        is_generator: false,
                     });
                 }
                 Ok(Value::Undefined)
@@ -5938,6 +6001,101 @@ mod tests {
         assert_eq!(i.get("а"), Some(Value::Number(1.0)));
         assert_eq!(i.get("б"), Some(Value::Number(2.0)));
         assert_eq!(i.get("в"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn generator_collects_yielded_values() {
+        let i = run_code(
+            r#"
+            пиздюли диапазон(н) {
+                го (гыы и = 0; и < н; и += 1) {
+                    поебалу и;
+                }
+            }
+            гыы рез = диапазон(3);
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)])));
+    }
+
+    #[test]
+    fn generator_yield_without_argument() {
+        let i = run_code(
+            r#"
+            пиздюли пусто() {
+                поебалу;
+                поебалу;
+            }
+            гыы рез = пусто();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Undefined, Value::Undefined])));
+    }
+
+    #[test]
+    fn generator_yield_delegate_flattens_iterable() {
+        let i = run_code(
+            r#"
+            пиздюли вн() {
+                поебалу 10;
+                поебалу 20;
+            }
+            пиздюли внеш() {
+                поебалу 1;
+                поебалуна вн();
+                поебалу 2;
+            }
+            гыы рез = внеш();
+            "#,
+        );
+        assert_eq!(
+            i.get("рез"),
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(10.0), Value::Number(20.0), Value::Number(2.0),]))
+        );
+    }
+
+    #[test]
+    fn generator_iterable_in_for_of() {
+        let i = run_code(
+            r#"
+            пиздюли тройка() {
+                поебалу 1;
+                поебалу 2;
+                поебалу 3;
+            }
+            гыы сумма = 0;
+            го (гыы х из тройка()) {
+                сумма += х;
+            }
+            "#,
+        );
+        assert_eq!(i.get("сумма"), Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn generator_early_return_stops_collection() {
+        let i = run_code(
+            r#"
+            пиздюли стоп() {
+                поебалу 1;
+                отвечаю;
+                поебалу 2;
+            }
+            гыы рез = стоп();
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(1.0)])));
+    }
+
+    #[test]
+    fn yield_outside_generator_errors() {
+        let err = run_code_err(
+            r#"
+            йопта обыч() { поебалу 1; }
+            обыч();
+            "#,
+        );
+        assert!(err.message.contains("пиздюли"));
     }
 
     #[test]
