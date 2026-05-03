@@ -6,6 +6,7 @@ pub mod number;
 pub mod object;
 pub mod set;
 pub mod string;
+pub mod symbol;
 
 use std::collections::HashMap;
 
@@ -28,6 +29,7 @@ pub fn call_method(
         Value::Number(_) => number::call_instance(interp, receiver, method, args, span),
         Value::Map(_) => map::call(interp, receiver, method, args, span),
         Value::Set(_) => set::call(interp, receiver, method, args, span),
+        Value::Symbol { .. } => symbol::call_instance(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -56,11 +58,17 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("Карта.") {
         return Some(map::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("Симбол.") {
+        return Some(symbol::call_static(interp, stripped, args, span));
+    }
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
     }
     if namespaced == "Набор" {
         return Some(set::construct(args, span));
+    }
+    if namespaced == "Симбол" {
+        return Some(symbol::construct(args, span));
     }
     None
 }
@@ -74,6 +82,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Помойка".to_string(), array::build_object()),
         ("Карта".to_string(), Value::BuiltinFunction("Карта".to_string())),
         ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
+        ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
     ]
 }
 

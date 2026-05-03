@@ -37,6 +37,7 @@ pub enum Value {
     Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
     BuiltinFunction(String),
     Class(Rc<ClassDef>),
+    Symbol { description: Option<String>, id: u64 },
     Undefined,
     Null,
 }
@@ -62,6 +63,7 @@ impl Value {
             Value::Null => "объект",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
             Value::Array(_) | Value::Object(_) | Value::Class(_) | Value::Map(_) | Value::Set(_) => "объект",
+            Value::Symbol { .. } => "символ",
         }
     }
 
@@ -76,6 +78,7 @@ impl Value {
             Value::Set(_) => "набор",
             Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
             Value::Class(_) => "класс",
+            Value::Symbol { .. } => "символ",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -98,6 +101,7 @@ impl fmt::Debug for Value {
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
             Value::Class(cls) => write!(f, "Class({})", cls.name),
+            Value::Symbol { description, id } => write!(f, "Symbol({description:?}, id={id})"),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -162,6 +166,8 @@ impl fmt::Display for Value {
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
+            Value::Symbol { description: Some(d), .. } => write!(f, "Симбол({d})"),
+            Value::Symbol { description: None, .. } => write!(f, "Симбол()"),
         }
     }
 }
@@ -176,6 +182,7 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Set(a), Value::Set(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
+            (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

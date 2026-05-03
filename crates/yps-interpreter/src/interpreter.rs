@@ -647,7 +647,12 @@ impl Interpreter {
                     }
                     if matches!(
                         obj,
-                        Value::Array(_) | Value::String(_) | Value::Number(_) | Value::Map(_) | Value::Set(_)
+                        Value::Array(_)
+                            | Value::String(_)
+                            | Value::Number(_)
+                            | Value::Map(_)
+                            | Value::Set(_)
+                            | Value::Symbol { .. }
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
@@ -2026,7 +2031,20 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
-            Value::BuiltinFunction(name) => Ok(Value::BuiltinFunction(format!("{name}.{property}"))),
+            Value::BuiltinFunction(name) => {
+                if name == "Симбол"
+                    && let Some(sym) = crate::stdlib::symbol::well_known(property)
+                {
+                    return Ok(sym);
+                }
+                Ok(Value::BuiltinFunction(format!("{name}.{property}")))
+            }
+            Value::Symbol { .. } => {
+                if let Some(v) = crate::stdlib::symbol::member(&obj, property) {
+                    return Ok(v);
+                }
+                Ok(Value::Undefined)
+            }
             Value::Object(map) => {
                 if property.starts_with('#') {
                     let in_class =
@@ -5758,6 +5776,83 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("счёт"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn symbol_create_and_typeof() {
+        let interp = run_code(
+            r#"
+            гыы с = Симбол("привет");
+            гыы т = чезажижан с;
+            "#,
+        );
+        assert_eq!(interp.get("т"), Some(Value::String("символ".to_string())));
+    }
+
+    #[test]
+    fn symbol_unique_identity() {
+        let interp = run_code(
+            r#"
+            гыы а = Симбол("ключ");
+            гыы б = Симбол("ключ");
+            гыы равны = а === б;
+            гыы самСебя = а === а;
+            "#,
+        );
+        assert_eq!(interp.get("равны"), Some(Value::Boolean(false)));
+        assert_eq!(interp.get("самСебя"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn symbol_for_returns_shared() {
+        let interp = run_code(
+            r#"
+            гыы а = Симбол.для("общий");
+            гыы б = Симбол.для("общий");
+            гыы в = Симбол.для("другой");
+            гыы равны1 = а === б;
+            гыы равны2 = а === в;
+            "#,
+        );
+        assert_eq!(interp.get("равны1"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("равны2"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn symbol_description_property() {
+        let interp = run_code(
+            r#"
+            гыы с = Симбол("моёОписание");
+            гыы оп = с.описание;
+            "#,
+        );
+        assert_eq!(interp.get("оп"), Some(Value::String("моёОписание".to_string())));
+    }
+
+    #[test]
+    fn symbol_well_known_iterator_dispose() {
+        let interp = run_code(
+            r#"
+            гыы и1 = Симбол.итератор;
+            гыы и2 = Симбол.итератор;
+            гыы р1 = Симбол.расход;
+            гыы итерРасх = и1 === р1;
+            гыы итерИтер = и1 === и2;
+            "#,
+        );
+        assert_eq!(interp.get("итерРасх"), Some(Value::Boolean(false)));
+        assert_eq!(interp.get("итерИтер"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn symbol_to_string_method() {
+        let interp = run_code(
+            r#"
+            гыы с = Симбол("м");
+            гыы стр = с.вСтроку();
+            "#,
+        );
+        assert_eq!(interp.get("стр"), Some(Value::String("Симбол(м)".to_string())));
     }
 
     #[test]
