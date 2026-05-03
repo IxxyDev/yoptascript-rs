@@ -101,6 +101,9 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
         Value::Function { .. } | Value::BuiltinFunction(_) | Value::Class(_) => {
             return Err(RuntimeError::new("Функции/классы нельзя сериализовать в JSON", span));
         }
+        Value::Symbol { .. } => {
+            return Err(RuntimeError::new("Символы нельзя сериализовать в JSON", span));
+        }
     }
     Ok(())
 }
