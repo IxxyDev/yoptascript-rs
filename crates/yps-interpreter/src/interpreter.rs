@@ -5881,6 +5881,16 @@ mod tests {
     }
 
     #[test]
+    fn dict_alias_nan_is_const() {
+        let err = run_code_err(
+            r#"
+            нихуя = 1;
+            "#,
+        );
+        assert!(err.message.contains("константу") || err.message.contains("const"));
+    }
+
+    #[test]
     fn dict_debugger_is_noop() {
         let interp = run_code(
             r#"
