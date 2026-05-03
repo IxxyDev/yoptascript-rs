@@ -379,10 +379,7 @@ impl Interpreter {
                 let value = self.eval_expr(init)?;
                 if !matches!(value, Value::Null | Value::Undefined) {
                     if !Self::has_dispose_method(&value, &self.env) {
-                        return Err(RuntimeError::new(
-                            "Ресурс 'юзай' должен иметь метод 'расход'",
-                            *span,
-                        ));
+                        return Err(RuntimeError::new("Ресурс 'юзай' должен иметь метод 'расход'", *span));
                     }
                     self.env.add_disposable(value.clone());
                 }

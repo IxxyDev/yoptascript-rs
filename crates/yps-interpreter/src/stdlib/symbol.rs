@@ -43,7 +43,12 @@ pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
     Ok(Value::Symbol { description, id: fresh_id() })
 }
 
-pub fn call_static(_interp: &mut Interpreter, method: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+pub fn call_static(
+    _interp: &mut Interpreter,
+    method: &str,
+    args: Vec<Value>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
     match method {
         "для" => {
             let key = match args.into_iter().next() {
