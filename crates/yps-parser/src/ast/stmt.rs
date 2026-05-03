@@ -135,6 +135,11 @@ pub enum Stmt {
         decorators: Vec<Expr>,
         span: Span,
     },
+    Using {
+        name: Identifier,
+        init: Expr,
+        span: Span,
+    },
     Import {
         specifiers: Vec<ImportSpec>,
         source: String,
