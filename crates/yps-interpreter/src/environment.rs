@@ -8,6 +8,7 @@ use crate::value::Value;
 pub struct EnvFrame {
     bindings: HashMap<String, Value>,
     constants: HashSet<String>,
+    disposables: Vec<Value>,
     parent: Option<Rc<RefCell<EnvFrame>>>,
 }
 
@@ -28,14 +29,19 @@ impl Environment {
             current: Rc::new(RefCell::new(EnvFrame {
                 bindings: HashMap::new(),
                 constants: HashSet::new(),
+                disposables: Vec::new(),
                 parent: None,
             })),
         }
     }
 
     pub fn push_scope(&mut self) {
-        let new_frame =
-            EnvFrame { bindings: HashMap::new(), constants: HashSet::new(), parent: Some(Rc::clone(&self.current)) };
+        let new_frame = EnvFrame {
+            bindings: HashMap::new(),
+            constants: HashSet::new(),
+            disposables: Vec::new(),
+            parent: Some(Rc::clone(&self.current)),
+        };
         self.current = Rc::new(RefCell::new(new_frame));
     }
 
@@ -94,6 +100,14 @@ impl Environment {
                 None => return None,
             }
         }
+    }
+
+    pub fn add_disposable(&mut self, value: Value) {
+        self.current.borrow_mut().disposables.push(value);
+    }
+
+    pub fn take_disposables(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.current.borrow_mut().disposables)
     }
 
     pub fn set(&self, name: &str, value: Value) -> bool {
