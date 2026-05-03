@@ -5891,6 +5891,56 @@ mod tests {
     }
 
     #[test]
+    fn dict_modifier_private_field_blocks_outside_access() {
+        let err = run_code_err(
+            r#"
+            клёво К {
+                Кошелёк() {}
+                мой бабки = 500;
+            }
+            гыы к = захуярить К();
+            гыы х = к.#бабки;
+            "#,
+        );
+        assert!(err.message.contains("приватному полю"));
+    }
+
+    #[test]
+    fn dict_modifier_private_field_accessible_inside_method() {
+        let i = run_code(
+            r#"
+            клёво К {
+                мой значение = 42;
+                читать() { отвечаю тырыпыры.#значение; }
+            }
+            гыы о = захуярить К();
+            гыы р = о.читать();
+            "#,
+        );
+        assert_eq!(i.get("р"), Some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn dict_modifier_public_protected_parse_as_public() {
+        let i = run_code(
+            r#"
+            клёво К {
+                ебанное публ = 1;
+                подкрыша прот = 2;
+                ебанное взять() { отвечаю тырыпыры.публ + тырыпыры.прот; }
+            }
+            гыы о = захуярить К();
+            гыы а = о.публ;
+            гыы б = о.прот;
+            гыы в = о.взять();
+            "#,
+        );
+        assert_eq!(i.get("а"), Some(Value::Number(1.0)));
+        assert_eq!(i.get("б"), Some(Value::Number(2.0)));
+        assert_eq!(i.get("в"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
     fn dict_debugger_is_noop() {
         let interp = run_code(
             r#"

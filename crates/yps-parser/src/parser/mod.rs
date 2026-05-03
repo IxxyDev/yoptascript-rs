@@ -1927,12 +1927,14 @@ impl<'a> Parser<'a> {
             false
         };
 
+        let modifier_private = self.parse_visibility_modifier();
+
         if matches!(self.current().kind, TokenKind::Identifier)
             && self.source.slice(self.current().span) == "get"
             && !matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen))
         {
             self.advance();
-            let (member_name, is_private) = self.parse_member_name()?;
+            let (member_name, is_private) = self.parse_member_name(modifier_private)?;
             if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 let span = self.current().span;
                 self.push_error(span, "Ожидалась '(' после имени геттера");
@@ -1962,7 +1964,7 @@ impl<'a> Parser<'a> {
             && !matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen))
         {
             self.advance();
-            let (member_name, is_private) = self.parse_member_name()?;
+            let (member_name, is_private) = self.parse_member_name(modifier_private)?;
             if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 let span = self.current().span;
                 self.push_error(span, "Ожидалась '(' после имени сеттера");
@@ -1995,7 +1997,7 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let (member_name, is_private) = self.parse_member_name()?;
+        let (member_name, is_private) = self.parse_member_name(modifier_private)?;
 
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             self.advance();
@@ -2052,12 +2054,30 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_member_name(&mut self) -> Result<(Identifier, bool), ()> {
+    fn parse_visibility_modifier(&mut self) -> bool {
+        match self.current().kind {
+            TokenKind::Keyword(KeywordKind::Private) => {
+                self.advance();
+                true
+            }
+            TokenKind::Keyword(KeywordKind::Public) | TokenKind::Keyword(KeywordKind::Protected) => {
+                self.advance();
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn parse_member_name(&mut self, modifier_private: bool) -> Result<(Identifier, bool), ()> {
         if matches!(self.current().kind, TokenKind::PrivateIdentifier) {
             let span = self.current().span;
             let name = self.source.slice(span).to_string();
             self.advance();
             Ok((Identifier { name, span }, true))
+        } else if modifier_private {
+            let ident = self.parse_identifier()?;
+            let private_name = format!("#{}", ident.name);
+            Ok((Identifier { name: private_name, span: ident.span }, true))
         } else {
             let ident = self.parse_identifier()?;
             Ok((ident, false))
