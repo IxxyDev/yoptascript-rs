@@ -48,6 +48,8 @@ pub enum Expr {
     New { callee: Box<Expr>, args: Vec<Expr>, span: Span },
 
     Super { span: Span },
+
+    Yield { argument: Option<Box<Expr>>, delegate: bool, span: Span },
 }
 
 impl Expr {
@@ -81,7 +83,8 @@ impl Expr {
             | Self::Spread { span, .. }
             | Self::This { span, .. }
             | Self::New { span, .. }
-            | Self::Super { span, .. } => *span,
+            | Self::Super { span, .. }
+            | Self::Yield { span, .. } => *span,
         }
     }
 }
