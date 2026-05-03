@@ -34,7 +34,7 @@ pub enum Value {
     Object(HashMap<String, Value>),
     Map(Vec<(Value, Value)>),
     Set(Vec<Value>),
-    Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>> },
+    Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>>, is_generator: bool },
     BuiltinFunction(String),
     Class(Rc<ClassDef>),
     Symbol { description: Option<String>, id: u64 },

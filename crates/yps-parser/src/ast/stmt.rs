@@ -88,6 +88,7 @@ pub enum Stmt {
         name: Identifier,
         params: Vec<Param>,
         body: Block,
+        is_generator: bool,
         span: Span,
     },
     Return {

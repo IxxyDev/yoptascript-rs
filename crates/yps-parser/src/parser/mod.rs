@@ -520,7 +520,46 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ()> {
-        self.parse_expression_with_precedence(0)
+        match self.current().kind {
+            TokenKind::Keyword(KeywordKind::Yield) => self.parse_yield_expr(false),
+            TokenKind::Keyword(KeywordKind::YieldDelegate) => self.parse_yield_expr(true),
+            _ => self.parse_expression_with_precedence(0),
+        }
+    }
+
+    fn parse_yield_expr(&mut self, delegate: bool) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        let mut end = self.current().span.end;
+        self.advance();
+
+        let argument = if delegate || self.is_yield_argument_start() {
+            let expr = self.parse_expr()?;
+            end = expr.span().end;
+            Some(Box::new(expr))
+        } else {
+            None
+        };
+
+        if delegate && argument.is_none() {
+            self.push_error(Span { start, end }, "'поебалуна' требует аргумент");
+            return Err(());
+        }
+
+        Ok(Expr::Yield { argument, delegate, span: Span { start, end } })
+    }
+
+    fn is_yield_argument_start(&self) -> bool {
+        !matches!(
+            self.current().kind,
+            TokenKind::Punctuation(
+                PunctuationKind::Semicolon
+                    | PunctuationKind::RParen
+                    | PunctuationKind::RBracket
+                    | PunctuationKind::RBrace
+                    | PunctuationKind::Comma
+                    | PunctuationKind::Colon
+            ) | TokenKind::Eof
+        )
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ()> {
@@ -534,6 +573,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Hare) => self.parse_break_stmt(),
             TokenKind::Keyword(KeywordKind::Dvigay) => self.parse_continue_stmt(),
             TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_decl(),
+            TokenKind::Keyword(KeywordKind::GeneratorFn) => self.parse_generator_decl(),
             TokenKind::Keyword(KeywordKind::Otvechayu) => self.parse_return_stmt(),
             TokenKind::Keyword(KeywordKind::Try) => self.parse_try_stmt(),
             TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
@@ -1098,6 +1138,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_decl(&mut self) -> Result<Stmt, ()> {
+        self.parse_function_decl_inner(false)
+    }
+
+    fn parse_generator_decl(&mut self) -> Result<Stmt, ()> {
+        self.parse_function_decl_inner(true)
+    }
+
+    fn parse_function_decl_inner(&mut self, is_generator: bool) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
 
@@ -1122,7 +1170,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
         let end = body.span.end;
 
-        Ok(Stmt::FunctionDecl { name, params, body, span: Span { start, end } })
+        Ok(Stmt::FunctionDecl { name, params, body, is_generator, span: Span { start, end } })
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ()> {
