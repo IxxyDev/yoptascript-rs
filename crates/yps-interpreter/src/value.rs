@@ -10,6 +10,19 @@ use crate::environment::EnvFrame;
 pub type MethodDef = (Vec<Param>, Rc<Block>, Rc<RefCell<EnvFrame>>);
 
 #[derive(Clone)]
+pub enum PromiseState {
+    Pending { on_resolve: Vec<Value>, on_reject: Vec<Value> },
+    Fulfilled(Value),
+    Rejected(Value),
+}
+
+#[derive(Clone, Copy)]
+pub enum CapKind {
+    Resolve,
+    Reject,
+}
+
+#[derive(Clone)]
 pub struct ClassDef {
     pub name: String,
     pub constructor: Option<MethodDef>,
@@ -34,10 +47,37 @@ pub enum Value {
     Object(HashMap<String, Value>),
     Map(Vec<(Value, Value)>),
     Set(Vec<Value>),
-    Function { name: String, params: Vec<Param>, body: Rc<Block>, env: Rc<RefCell<EnvFrame>>, is_generator: bool },
+    Function {
+        name: String,
+        params: Vec<Param>,
+        body: Rc<Block>,
+        env: Rc<RefCell<EnvFrame>>,
+        is_generator: bool,
+        is_async: bool,
+    },
     BuiltinFunction(String),
     Class(Rc<ClassDef>),
-    Symbol { description: Option<String>, id: u64 },
+    Symbol {
+        description: Option<String>,
+        id: u64,
+    },
+    Promise {
+        state: Rc<RefCell<PromiseState>>,
+    },
+    PromiseCapability {
+        state: Rc<RefCell<PromiseState>>,
+        kind: CapKind,
+    },
+    PromiseThenHandler {
+        handler: Box<Value>,
+        resolve: Box<Value>,
+        reject: Box<Value>,
+        is_fulfill: bool,
+    },
+    PromiseFinallyHandler {
+        cb: Box<Value>,
+        cap: Box<Value>,
+    },
     Undefined,
     Null,
 }
@@ -61,8 +101,17 @@ impl Value {
             Value::Boolean(_) => "булево",
             Value::Undefined => "неопределено",
             Value::Null => "объект",
-            Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
-            Value::Array(_) | Value::Object(_) | Value::Class(_) | Value::Map(_) | Value::Set(_) => "объект",
+            Value::Function { .. }
+            | Value::BuiltinFunction(_)
+            | Value::PromiseCapability { .. }
+            | Value::PromiseThenHandler { .. }
+            | Value::PromiseFinallyHandler { .. } => "функция",
+            Value::Array(_)
+            | Value::Object(_)
+            | Value::Class(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Promise { .. } => "объект",
             Value::Symbol { .. } => "символ",
         }
     }
@@ -76,9 +125,14 @@ impl Value {
             Value::Object(_) => "объект",
             Value::Map(_) => "карта",
             Value::Set(_) => "набор",
-            Value::Function { .. } | Value::BuiltinFunction(_) => "функция",
+            Value::Function { .. }
+            | Value::BuiltinFunction(_)
+            | Value::PromiseCapability { .. }
+            | Value::PromiseThenHandler { .. }
+            | Value::PromiseFinallyHandler { .. } => "функция",
             Value::Class(_) => "класс",
             Value::Symbol { .. } => "символ",
+            Value::Promise { .. } => "обещание",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -102,6 +156,17 @@ impl fmt::Debug for Value {
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
             Value::Class(cls) => write!(f, "Class({})", cls.name),
             Value::Symbol { description, id } => write!(f, "Symbol({description:?}, id={id})"),
+            Value::Promise { state } => match &*state.borrow() {
+                PromiseState::Pending { .. } => write!(f, "Promise(Pending)"),
+                PromiseState::Fulfilled(v) => write!(f, "Promise(Fulfilled({v:?}))"),
+                PromiseState::Rejected(v) => write!(f, "Promise(Rejected({v:?}))"),
+            },
+            Value::PromiseCapability { kind, .. } => match kind {
+                CapKind::Resolve => write!(f, "PromiseCapability(Resolve)"),
+                CapKind::Reject => write!(f, "PromiseCapability(Reject)"),
+            },
+            Value::PromiseThenHandler { .. } => write!(f, "PromiseThenHandler"),
+            Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -168,6 +233,17 @@ impl fmt::Display for Value {
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
             Value::Symbol { description: Some(d), .. } => write!(f, "Симбол({d})"),
             Value::Symbol { description: None, .. } => write!(f, "Симбол()"),
+            Value::Promise { state } => match &*state.borrow() {
+                PromiseState::Pending { .. } => write!(f, "[обещание ждёт]"),
+                PromiseState::Fulfilled(v) => write!(f, "[обещание решено: {v}]"),
+                PromiseState::Rejected(v) => write!(f, "[обещание отвергнуто: {v}]"),
+            },
+            Value::PromiseCapability { kind, .. } => match kind {
+                CapKind::Resolve => write!(f, "[капабилити решить]"),
+                CapKind::Reject => write!(f, "[капабилити отвергнуть]"),
+            },
+            Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
+            Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
         }
     }
 }
@@ -183,6 +259,7 @@ impl PartialEq for Value {
             (Value::Set(a), Value::Set(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
+            (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

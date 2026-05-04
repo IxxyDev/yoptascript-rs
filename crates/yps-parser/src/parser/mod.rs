@@ -23,10 +23,14 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         while !self.is_at_end() {
+            let pos_before = self.position;
             match self.parse_statement() {
                 Ok(stmt) => items.push(stmt),
                 Err(()) => {
                     self.synchronize();
+                    if self.position == pos_before && !self.is_at_end() {
+                        self.advance();
+                    }
                 }
             }
         }
@@ -317,10 +321,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_arrow_body(&mut self, params: Vec<Param>, start: usize) -> Result<Expr, ()> {
+        self.parse_arrow_body_with_async(params, start, false)
+    }
+
+    fn parse_arrow_body_with_async(&mut self, params: Vec<Param>, start: usize, is_async: bool) -> Result<Expr, ()> {
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
             let body = self.parse_block()?;
             let end = body.span.end;
-            Ok(Expr::ArrowFunction { params, body, span: Span { start, end } })
+            Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end } })
         } else {
             let expr = self.parse_expr()?;
             let end = expr.span().end;
@@ -328,7 +336,7 @@ impl<'a> Parser<'a> {
                 stmts: vec![Stmt::Return { value: Some(expr), span: Span { start, end } }],
                 span: Span { start, end },
             };
-            Ok(Expr::ArrowFunction { params, body, span: Span { start, end } })
+            Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end } })
         }
     }
 
@@ -492,7 +500,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         let body = self.parse_block()?;
                         let func_span = Span { start: key.span.start, end: body.span.end };
-                        let value = Expr::ArrowFunction { params, body, span: func_span };
+                        let value = Expr::ArrowFunction { params, body, is_async: false, span: func_span };
                         entries.push(ObjectEntry::Property { key: PropKey::Identifier(key), value });
                     } else {
                         let value = Expr::Identifier(key.clone());
@@ -574,6 +582,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::Dvigay) => self.parse_continue_stmt(),
             TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_decl(),
             TokenKind::Keyword(KeywordKind::GeneratorFn) => self.parse_generator_decl(),
+            TokenKind::Keyword(KeywordKind::Async) => self.parse_async_stmt(),
             TokenKind::Keyword(KeywordKind::Otvechayu) => self.parse_return_stmt(),
             TokenKind::Keyword(KeywordKind::Try) => self.parse_try_stmt(),
             TokenKind::Keyword(KeywordKind::Throw) => self.parse_throw_stmt(),
@@ -1138,14 +1147,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_decl(&mut self) -> Result<Stmt, ()> {
-        self.parse_function_decl_inner(false)
+        self.parse_function_decl_inner(false, false)
     }
 
     fn parse_generator_decl(&mut self) -> Result<Stmt, ()> {
-        self.parse_function_decl_inner(true)
+        self.parse_function_decl_inner(true, false)
     }
 
-    fn parse_function_decl_inner(&mut self, is_generator: bool) -> Result<Stmt, ()> {
+    fn parse_function_decl_inner(&mut self, is_generator: bool, is_async: bool) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
 
@@ -1170,7 +1179,110 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
         let end = body.span.end;
 
-        Ok(Stmt::FunctionDecl { name, params, body, is_generator, span: Span { start, end } })
+        Ok(Stmt::FunctionDecl { name, params, body, is_generator, is_async, span: Span { start, end } })
+    }
+
+    fn parse_async_stmt(&mut self) -> Result<Stmt, ()> {
+        let async_span = self.current().span;
+        self.advance();
+        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Yopta)) {
+            self.push_error(async_span, "После 'ассо' ожидалась 'йопта' для объявления функции");
+            return Err(());
+        }
+        self.parse_function_decl_inner(false, true)
+    }
+
+    fn parse_async_expr(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance();
+        if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Yopta)) {
+            let stmt = self.parse_function_decl_inner(false, true)?;
+            match stmt {
+                Stmt::FunctionDecl { name, params, body, is_generator, is_async, span } => {
+                    let _ = name;
+                    let _ = is_generator;
+                    Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end: span.end } })
+                }
+                _ => unreachable!(),
+            }
+        } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let saved_pos = self.position;
+            let saved_diag_len = self.diagnostics.len();
+            self.advance();
+            let mut params = Vec::new();
+            let mut had_rest = false;
+            let mut malformed = false;
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                loop {
+                    if had_rest {
+                        malformed = true;
+                        break;
+                    }
+                    let is_rest = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
+                        self.advance();
+                        had_rest = true;
+                        true
+                    } else {
+                        false
+                    };
+                    if !matches!(self.current().kind, TokenKind::Identifier) {
+                        malformed = true;
+                        break;
+                    }
+                    let name = match self.parse_identifier() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            malformed = true;
+                            break;
+                        }
+                    };
+                    let default =
+                        if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                            self.advance();
+                            match self.parse_expr() {
+                                Ok(e) => Some(e),
+                                Err(_) => {
+                                    malformed = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                    params.push(Param { name, default, is_rest });
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if malformed || !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                self.position = saved_pos;
+                self.diagnostics.truncate(saved_diag_len);
+                self.push_error(self.current().span, "После 'ассо' ожидалась стрелочная или 'йопта' функция");
+                return Err(());
+            }
+            self.advance();
+            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Arrow)) {
+                self.position = saved_pos;
+                self.diagnostics.truncate(saved_diag_len);
+                self.push_error(self.current().span, "После 'ассо (...)' ожидалась '=>'");
+                return Err(());
+            }
+            self.advance();
+            self.parse_arrow_body_with_async(params, start, true)
+        } else if matches!(self.current().kind, TokenKind::Identifier)
+            && matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::Arrow))
+        {
+            let ident = self.parse_identifier()?;
+            let param = Param { name: ident, default: None, is_rest: false };
+            self.advance();
+            self.parse_arrow_body_with_async(vec![param], start, true)
+        } else {
+            self.push_error(self.current().span, "После 'ассо' ожидалась 'йопта' или стрелочная функция");
+            Err(())
+        }
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ()> {
@@ -1717,6 +1829,14 @@ impl<'a> Parser<'a> {
                 let end = expr.span().end;
                 Expr::Unary { op: UnaryOp::Void, expr: Box::new(expr), span: Span { start, end } }
             }
+            TokenKind::Keyword(KeywordKind::Await) => {
+                let start = self.current().span.start;
+                self.advance();
+                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+                let end = expr.span().end;
+                Expr::Await { argument: Box::new(expr), span: Span { start, end } }
+            }
+            TokenKind::Keyword(KeywordKind::Async) => self.parse_async_expr()?,
             TokenKind::Keyword(KeywordKind::New) => self.parse_new_expr()?,
             _ => self.parse_primary()?,
         };
@@ -3472,5 +3592,46 @@ mod tests {
             }
             other => panic!("Expected Export Declaration, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_async_function_decl() {
+        let (program, diags) = parse_program_from_source("ассо йопта foo() { отвечаю 42; }");
+        assert!(diags.is_empty(), "Parse errors: {diags:?}");
+        match &program.items[0] {
+            Stmt::FunctionDecl { name, is_async, is_generator, .. } => {
+                assert_eq!(name.name, "foo");
+                assert!(*is_async);
+                assert!(!*is_generator);
+            }
+            other => panic!("Expected async FunctionDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_await_expr() {
+        let expr = parse_expr_from_source("сидетьНахуй p").unwrap();
+        assert!(matches!(expr, Expr::Await { .. }));
+    }
+
+    #[test]
+    fn test_parse_async_arrow() {
+        let expr = parse_expr_from_source("ассо (x) => x").unwrap();
+        match expr {
+            Expr::ArrowFunction { is_async, .. } => assert!(is_async),
+            other => panic!("Expected async ArrowFunction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parser_does_not_hang_on_yopta_in_call_arg() {
+        let (_, diags) = parse_program_from_source("сказать(йопта(v) {});");
+        assert!(!diags.is_empty(), "ожидались диагностики, парсер должен сообщить об ошибке");
+    }
+
+    #[test]
+    fn test_parser_recovers_from_unknown_keyword_after_brace() {
+        let (_, diags) = parse_program_from_source("{ } йопта 5;");
+        assert!(!diags.is_empty());
     }
 }

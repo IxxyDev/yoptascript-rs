@@ -37,7 +37,7 @@ pub enum Expr {
 
     Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
 
-    ArrowFunction { params: Vec<Param>, body: Block, span: Span },
+    ArrowFunction { params: Vec<Param>, body: Block, is_async: bool, span: Span },
 
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
 
@@ -50,6 +50,8 @@ pub enum Expr {
     Super { span: Span },
 
     Yield { argument: Option<Box<Expr>>, delegate: bool, span: Span },
+
+    Await { argument: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -84,7 +86,8 @@ impl Expr {
             | Self::This { span, .. }
             | Self::New { span, .. }
             | Self::Super { span, .. }
-            | Self::Yield { span, .. } => *span,
+            | Self::Yield { span, .. }
+            | Self::Await { span, .. } => *span,
         }
     }
 }

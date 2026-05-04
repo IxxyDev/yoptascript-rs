@@ -4,6 +4,7 @@ pub mod map;
 pub mod math;
 pub mod number;
 pub mod object;
+pub mod promise;
 pub mod set;
 pub mod string;
 pub mod symbol;
@@ -30,6 +31,7 @@ pub fn call_method(
         Value::Map(_) => map::call(interp, receiver, method, args, span),
         Value::Set(_) => set::call(interp, receiver, method, args, span),
         Value::Symbol { .. } => symbol::call_instance(interp, receiver, method, args, span),
+        Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -61,6 +63,9 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("Симбол.") {
         return Some(symbol::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("СловоПацана.") {
+        return Some(promise::call_static(interp, stripped, args, span));
+    }
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
     }
@@ -69,6 +74,9 @@ pub fn call_static_namespaced(
     }
     if namespaced == "Симбол" {
         return Some(symbol::construct(args, span));
+    }
+    if namespaced == "СловоПацана" {
+        return Some(promise::construct(interp, args, span));
     }
     None
 }
@@ -83,6 +91,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Карта".to_string(), Value::BuiltinFunction("Карта".to_string())),
         ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
         ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
+        ("СловоПацана".to_string(), Value::BuiltinFunction("СловоПацана".to_string())),
     ]
 }
 
