@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -12,7 +12,9 @@ use yps_parser::ast::{
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
 use crate::error::RuntimeError;
-use crate::value::{ClassDef, Value};
+use crate::value::{CapKind, ClassDef, PromiseState, Value};
+
+pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
 enum ControlFlow {
     Break,
@@ -33,6 +35,7 @@ pub struct Interpreter {
     module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
     current_exports: HashMap<String, Value>,
     generator_buffer: Option<Vec<Value>>,
+    microtasks: VecDeque<Microtask>,
 }
 
 impl Default for Interpreter {
@@ -58,6 +61,7 @@ impl Interpreter {
             module_cache: Rc::new(RefCell::new(HashMap::new())),
             current_exports: HashMap::new(),
             generator_buffer: None,
+            microtasks: VecDeque::new(),
         }
     }
 
@@ -125,7 +129,9 @@ impl Interpreter {
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
         for stmt in &program.items {
-            if let Some(cf) = self.exec_stmt(stmt)? {
+            let cf_opt = self.exec_stmt(stmt)?;
+            self.drain_microtasks(Span { start: 0, end: 0 })?;
+            if let Some(cf) = cf_opt {
                 match cf {
                     ControlFlow::Return(_) => return Ok(()),
                     ControlFlow::Break => {
@@ -143,7 +149,124 @@ impl Interpreter {
                 }
             }
         }
+        self.drain_microtasks(Span { start: 0, end: 0 })?;
         Ok(())
+    }
+
+    pub(crate) fn drain_microtasks(&mut self, span: Span) -> Result<(), RuntimeError> {
+        while let Some(task) = self.microtasks.pop_front() {
+            task(self, span)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn enqueue_microtask(&mut self, task: Microtask) {
+        self.microtasks.push_back(task);
+    }
+
+    pub(crate) fn make_fulfilled_promise(value: Value) -> Value {
+        if let Value::Promise { .. } = &value {
+            return value;
+        }
+        Value::Promise { state: Rc::new(RefCell::new(PromiseState::Fulfilled(value))) }
+    }
+
+    pub(crate) fn make_rejected_promise(value: Value) -> Value {
+        Value::Promise { state: Rc::new(RefCell::new(PromiseState::Rejected(value))) }
+    }
+
+    pub(crate) fn make_pending_promise() -> (Value, Value, Value) {
+        let state = Rc::new(RefCell::new(PromiseState::Pending { on_resolve: Vec::new(), on_reject: Vec::new() }));
+        let promise = Value::Promise { state: Rc::clone(&state) };
+        let resolve = Value::PromiseCapability { state: Rc::clone(&state), kind: CapKind::Resolve };
+        let reject = Value::PromiseCapability { state, kind: CapKind::Reject };
+        (promise, resolve, reject)
+    }
+
+    pub(crate) fn settle_promise(
+        state: &Rc<RefCell<PromiseState>>,
+        kind: CapKind,
+        value: Value,
+        interp: &mut Interpreter,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let already_settled = !matches!(&*state.borrow(), PromiseState::Pending { .. });
+        if already_settled {
+            return Ok(());
+        }
+        match kind {
+            CapKind::Resolve => {
+                if let Value::Promise { state: other } = &value {
+                    let other_state = other.borrow().clone();
+                    match other_state {
+                        PromiseState::Fulfilled(v) => {
+                            Self::set_fulfilled(state, v, interp);
+                        }
+                        PromiseState::Rejected(v) => {
+                            Self::set_rejected(state, v, interp);
+                        }
+                        PromiseState::Pending { .. } => {
+                            return Err(RuntimeError::new("обещание не разрешено синхронно", span));
+                        }
+                    }
+                } else {
+                    Self::set_fulfilled(state, value, interp);
+                }
+            }
+            CapKind::Reject => {
+                Self::set_rejected(state, value, interp);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_fulfilled(state: &Rc<RefCell<PromiseState>>, value: Value, interp: &mut Interpreter) {
+        let callbacks: Vec<Value> = match &mut *state.borrow_mut() {
+            PromiseState::Pending { on_resolve, .. } => std::mem::take(on_resolve),
+            _ => return,
+        };
+        *state.borrow_mut() = PromiseState::Fulfilled(value.clone());
+        for cb in callbacks {
+            let val_cloned = value.clone();
+            interp.enqueue_microtask(Box::new(move |interp, span| {
+                interp.call_function(cb, vec![val_cloned], span).map(|_| ())
+            }));
+        }
+    }
+
+    fn set_rejected(state: &Rc<RefCell<PromiseState>>, value: Value, interp: &mut Interpreter) {
+        let callbacks: Vec<Value> = match &mut *state.borrow_mut() {
+            PromiseState::Pending { on_reject, .. } => std::mem::take(on_reject),
+            _ => return,
+        };
+        *state.borrow_mut() = PromiseState::Rejected(value.clone());
+        for cb in callbacks {
+            let val_cloned = value.clone();
+            interp.enqueue_microtask(Box::new(move |interp, span| {
+                interp.call_function(cb, vec![val_cloned], span).map(|_| ())
+            }));
+        }
+    }
+
+    pub(crate) fn flush_promise_callbacks(&mut self, _promise: &Value, _span: Span) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    pub(crate) fn do_await(&mut self, value: Value, span: Span) -> Result<Value, RuntimeError> {
+        match value {
+            Value::Promise { state } => {
+                self.drain_microtasks(span)?;
+                let snapshot = state.borrow().clone();
+                match snapshot {
+                    PromiseState::Fulfilled(v) => Ok(v),
+                    PromiseState::Rejected(v) => {
+                        Err(RuntimeError::new(format!("Необработанное исключение: {v}"), span))
+                    }
+                    PromiseState::Pending { .. } => Err(RuntimeError::new("обещание не разрешено синхронно", span)),
+                }
+            }
+            other => Ok(other),
+        }
     }
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
@@ -216,13 +339,14 @@ impl Interpreter {
             }
             Stmt::Break { .. } => Ok(Some(ControlFlow::Break)),
             Stmt::Continue { .. } => Ok(Some(ControlFlow::Continue)),
-            Stmt::FunctionDecl { name, params, body, is_generator, .. } => {
+            Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } => {
                 let func = Value::Function {
                     name: name.name.clone(),
                     params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
+                    is_async: *is_async,
                 };
                 self.env.define(name.name.clone(), func, false);
                 Ok(None)
@@ -655,6 +779,7 @@ impl Interpreter {
                             | Value::Map(_)
                             | Value::Set(_)
                             | Value::Symbol { .. }
+                            | Value::Promise { .. }
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
@@ -731,15 +856,20 @@ impl Interpreter {
                 let cond = self.eval_expr(condition)?;
                 if cond.is_truthy() { self.eval_expr(then_expr) } else { self.eval_expr(else_expr) }
             }
-            Expr::ArrowFunction { params, body, .. } => {
+            Expr::ArrowFunction { params, body, is_async, .. } => {
                 let func = Value::Function {
                     name: String::new(),
                     params: params.clone(),
                     body: Rc::new(body.clone()),
                     env: self.env.snapshot(),
                     is_generator: false,
+                    is_async: *is_async,
                 };
                 Ok(func)
+            }
+            Expr::Await { argument, span } => {
+                let val = self.eval_expr(argument)?;
+                self.do_await(val, *span)
             }
             Expr::TemplateLiteral { parts, .. } => {
                 let mut result = String::new();
@@ -890,6 +1020,7 @@ impl Interpreter {
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
+                                is_async: false,
                             };
                             map.insert(format!("__get_{key_str}__"), getter_fn);
                         }
@@ -907,6 +1038,7 @@ impl Interpreter {
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
+                                is_async: false,
                             };
                             map.insert(format!("__set_{key_str}__"), setter_fn);
                         }
@@ -1375,7 +1507,7 @@ impl Interpreter {
                 }
                 call_builtin(&name, args, span)
             }
-            Value::Function { name, params, body, env, is_generator } => {
+            Value::Function { name, params, body, env, is_generator, is_async } => {
                 let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
 
                 if args.len() < required_count {
@@ -1427,6 +1559,19 @@ impl Interpreter {
                             Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
                         }
                     }
+                } else if is_async {
+                    let result = self.exec_block_stmts(&body.stmts);
+                    self.env = saved_env;
+                    let promise = match result {
+                        Ok(Some(ControlFlow::Return(val))) => Self::make_fulfilled_promise(val),
+                        Ok(None) => Self::make_fulfilled_promise(Value::Undefined),
+                        Ok(Some(ControlFlow::Throw(val))) => Self::make_rejected_promise(val),
+                        Ok(Some(ControlFlow::Break)) => return Err(RuntimeError::new("'харэ' вне цикла", span)),
+                        Ok(Some(ControlFlow::Continue)) => return Err(RuntimeError::new("'двигай' вне цикла", span)),
+                        Err(e) => return Err(e),
+                    };
+                    let _ = self.flush_promise_callbacks(&promise, span);
+                    Ok(promise)
                 } else {
                     let result = self.exec_block_stmts(&body.stmts);
                     self.env = saved_env;
@@ -1440,6 +1585,22 @@ impl Interpreter {
                         None => Ok(Value::Undefined),
                     }
                 }
+            }
+            Value::PromiseCapability { state, kind } => {
+                let val = args.into_iter().next().unwrap_or(Value::Undefined);
+                Self::settle_promise(&state, kind, val, self, span)?;
+                Ok(Value::Undefined)
+            }
+            Value::PromiseThenHandler { handler, resolve, reject, is_fulfill } => {
+                let val = args.into_iter().next().unwrap_or(Value::Undefined);
+                crate::stdlib::promise::invoke_handler(self, *handler, val, *resolve, *reject, is_fulfill, span)?;
+                Ok(Value::Undefined)
+            }
+            Value::PromiseFinallyHandler { cb, cap } => {
+                let val = args.into_iter().next().unwrap_or(Value::Undefined);
+                self.call_function(*cb, vec![], span)?;
+                self.call_function(*cap, vec![val], span)?;
+                Ok(Value::Undefined)
             }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
@@ -1688,6 +1849,7 @@ impl Interpreter {
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
                         is_generator: false,
+                        is_async: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         method_fn,
@@ -1717,6 +1879,7 @@ impl Interpreter {
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
                         is_generator: false,
+                        is_async: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         getter_fn,
@@ -1746,6 +1909,7 @@ impl Interpreter {
                         body: Rc::new(body.clone()),
                         env: self.env.snapshot(),
                         is_generator: false,
+                        is_async: false,
                     };
                     let (decorated, inits) = self.apply_member_decorators(
                         setter_fn,
@@ -2154,6 +2318,7 @@ impl Interpreter {
                             body: Rc::clone(body),
                             env: Rc::clone(env),
                             is_generator: false,
+                            is_async: false,
                         });
                     }
                 }
@@ -2173,6 +2338,7 @@ impl Interpreter {
                         body: Rc::clone(body),
                         env: Rc::clone(env),
                         is_generator: false,
+                        is_async: false,
                     });
                 }
                 Ok(Value::Undefined)
@@ -6122,5 +6288,140 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("рез"), Some(Value::Number(54.0)));
+    }
+
+    #[test]
+    fn test_async_function_returns_promise() {
+        let interp = run_code(
+            r#"
+            ассо йопта f() { отвечаю 42; }
+            гыы p = f();
+            гыы т = тип(p);
+            "#,
+        );
+        assert_eq!(interp.get("т"), Some(Value::String("обещание".to_string())));
+        match interp.get("p") {
+            Some(Value::Promise { .. }) => {}
+            other => panic!("Ожидался Promise, получено {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_async_await_chain_then() {
+        let interp = run_code(
+            r#"
+            ассо йопта f() { отвечаю 1; }
+            ассо йопта g() {
+                гыы x = сидетьНахуй f();
+                отвечаю x + 1;
+            }
+            гыы итог = 0;
+            g().потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_promise_resolve_then() {
+        let interp = run_code(
+            r#"
+            гыы итог = 0;
+            СловоПацана.решить(5).потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn test_promise_all_resolved() {
+        let interp = run_code(
+            r#"
+            гыы итог = ноль;
+            СловоПацана.всех([СловоПацана.решить(1), СловоПацана.решить(2)]).потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0)])));
+    }
+
+    #[test]
+    fn test_await_rejected_throws_catchable() {
+        let interp = run_code(
+            r#"
+            ассо йопта плохо() {
+                кидай "беда";
+            }
+            ассо йопта тест() {
+                хапнуть {
+                    сидетьНахуй плохо();
+                    отвечаю "ок";
+                } гоп (e) {
+                    отвечаю "поймал";
+                }
+            }
+            гыы итог = "пусто";
+            тест().потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::String("поймал".to_string())));
+    }
+
+    #[test]
+    fn test_promise_then_on_resolved_executes_once() {
+        let interp = run_code(
+            r#"
+            гыы счёт = 0;
+            гыы p = СловоПацана.решить(1);
+            p.потом((v) => { счёт = счёт + v; });
+            "#,
+        );
+        assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_promise_then_stored_then_chained() {
+        let interp = run_code(
+            r#"
+            гыы итог = 0;
+            гыы p = СловоПацана.решить(10);
+            p.потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn test_promise_catch_on_rejected() {
+        let interp = run_code(
+            r#"
+            гыы итог = "нет";
+            СловоПацана.отвергнуть("ошибка").ловить((e) => { итог = e; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::String("ошибка".to_string())));
+    }
+
+    #[test]
+    fn test_promise_finally_on_fulfilled() {
+        let interp = run_code(
+            r#"
+            гыы итог = 0;
+            СловоПацана.решить(7).наконец(() => { итог = 1; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_promise_then_chained_twice() {
+        let interp = run_code(
+            r#"
+            гыы итог = 0;
+            СловоПацана.решить(3)
+                .потом((v) => { отвечаю v + 1; })
+                .потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(4.0)));
     }
 }

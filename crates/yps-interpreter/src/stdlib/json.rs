@@ -104,6 +104,12 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
         Value::Symbol { .. } => {
             return Err(RuntimeError::new("Символы нельзя сериализовать в JSON", span));
         }
+        Value::Promise { .. }
+        | Value::PromiseCapability { .. }
+        | Value::PromiseThenHandler { .. }
+        | Value::PromiseFinallyHandler { .. } => {
+            return Err(RuntimeError::new("Обещания нельзя сериализовать в JSON", span));
+        }
     }
     Ok(())
 }
