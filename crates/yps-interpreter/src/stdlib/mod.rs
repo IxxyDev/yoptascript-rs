@@ -1,4 +1,5 @@
 pub mod array;
+pub mod iterator;
 pub mod json;
 pub mod map;
 pub mod math;
@@ -32,6 +33,7 @@ pub fn call_method(
         Value::Set(_) => set::call(interp, receiver, method, args, span),
         Value::Symbol { .. } => symbol::call_instance(interp, receiver, method, args, span),
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
+        Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -66,6 +68,9 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("СловоПацана.") {
         return Some(promise::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("Итератор.") {
+        return Some(iterator::call_static(interp, stripped, args, span));
+    }
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
     }
@@ -92,6 +97,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
         ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
         ("СловоПацана".to_string(), Value::BuiltinFunction("СловоПацана".to_string())),
+        ("Итератор".to_string(), iterator::build_object()),
     ]
 }
 
