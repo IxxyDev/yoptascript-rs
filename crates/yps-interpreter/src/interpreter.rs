@@ -2117,10 +2117,78 @@ impl Interpreter {
         parent_class_val: Value,
         args: Vec<Value>,
         child_instance: Value,
-        _span: Span,
+        span: Span,
     ) -> Result<Value, RuntimeError> {
-        let _ = (parent_class_val, args, child_instance);
-        Ok(Value::Object(HashMap::new()))
+        let parent_def = match &parent_class_val {
+            Value::Class(cls) => cls.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Родительский класс ожидался, получено '{}'", parent_class_val.type_name()),
+                    span,
+                ));
+            }
+        };
+
+        let (params, body, env) = match &parent_def.constructor {
+            Some(c) => (c.0.clone(), c.1.clone(), Rc::clone(&c.2)),
+            None => {
+                if let Some(ref grandparent) = parent_def.parent {
+                    let grandparent_val = Value::Class(Rc::new(*grandparent.clone()));
+                    return self.construct_with_parent(grandparent_val, args, child_instance, span);
+                }
+                return Ok(child_instance);
+            }
+        };
+
+        let saved_env = self.env.clone();
+        self.env = Environment::from_snapshot(env);
+        self.env.push_scope();
+        self.env.define("тырыпыры".to_string(), child_instance.clone(), false);
+        if let Some(ref grandparent) = parent_def.parent {
+            self.env.define("__super__".to_string(), Value::Class(Rc::new(*grandparent.clone())), false);
+        }
+
+        let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
+        if args.len() < required_count {
+            self.env = saved_env;
+            return Err(RuntimeError::new(
+                format!(
+                    "Конструктор '{}' ожидает минимум {} аргумент(ов), получено {}",
+                    parent_def.name,
+                    required_count,
+                    args.len()
+                ),
+                span,
+            ));
+        }
+
+        for (i, param) in params.iter().enumerate() {
+            if param.is_rest {
+                let rest_start = i.min(args.len());
+                let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                break;
+            }
+            let value = if i < args.len() {
+                args[i].clone()
+            } else if let Some(default_expr) = &param.default {
+                self.eval_expr(default_expr)?
+            } else {
+                Value::Undefined
+            };
+            self.env.define(param.name.name.clone(), value, false);
+        }
+
+        let result = self.exec_block_stmts(&body.stmts);
+        let this_after = self.env.get("тырыпыры").unwrap_or(child_instance);
+        self.env = saved_env;
+
+        match result? {
+            Some(ControlFlow::Return(_)) | None => Ok(this_after),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
+            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+        }
     }
 
     fn init_fields(
@@ -4638,6 +4706,44 @@ mod tests {
         );
         assert_eq!(i.get("имя"), Some(Value::String("Шарик".to_string())));
         assert_eq!(i.get("вид"), Some(Value::String("дворняга".to_string())));
+    }
+
+    #[test]
+    fn class_implicit_constructor_forwards_to_parent() {
+        let i = run_code(
+            r#"
+            клёво Машина {
+                Машина(модель) {
+                    тырыпыры.модель = модель;
+                }
+            }
+            клёво Грузовик батя Машина {
+            }
+            гыы г = захуярить Грузовик("Камаз");
+            гыы рез = г.модель;
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("Камаз".to_string())));
+    }
+
+    #[test]
+    fn class_implicit_constructor_preserves_class_tag() {
+        let i = run_code(
+            r#"
+            клёво Базовый {
+                Базовый(значение) {
+                    тырыпыры.значение = значение;
+                }
+            }
+            клёво Производный батя Базовый {
+            }
+            гыы э = захуярить Производный(42);
+            гыы знач = э.значение;
+            гыы класс = э.__class__;
+            "#,
+        );
+        assert_eq!(i.get("знач"), Some(Value::Number(42.0)));
+        assert_eq!(i.get("класс"), Some(Value::String("Производный".to_string())));
     }
 
     #[test]
