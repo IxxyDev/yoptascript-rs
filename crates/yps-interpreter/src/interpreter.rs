@@ -1102,7 +1102,36 @@ impl Interpreter {
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
             BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
             BinaryOp::Pipeline => unreachable!("handled in eval_expr"),
-            BinaryOp::Instanceof => Ok(Value::Boolean(left.type_name() == right.type_name())),
+            BinaryOp::Instanceof => {
+                let right_class = match &right {
+                    Value::Class(cls) => Rc::clone(cls),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Правая сторона 'шкура' должна быть классом, получено '{}'", right.type_name()),
+                            span,
+                        ));
+                    }
+                };
+                let left_class_name = match &left {
+                    Value::Object(map) => match map.get("__class__") {
+                        Some(Value::String(name)) => name.clone(),
+                        _ => return Ok(Value::Boolean(false)),
+                    },
+                    _ => return Ok(Value::Boolean(false)),
+                };
+                let left_cls = match self.env.get(&left_class_name) {
+                    Some(Value::Class(c)) => c,
+                    _ => return Ok(Value::Boolean(false)),
+                };
+                let mut current: Option<&ClassDef> = Some(&left_cls);
+                while let Some(c) = current {
+                    if c.name == right_class.name {
+                        return Ok(Value::Boolean(true));
+                    }
+                    current = c.parent.as_deref();
+                }
+                Ok(Value::Boolean(false))
+            }
             BinaryOp::In => match right {
                 Value::Object(map) => {
                     let key = left.to_string();
@@ -4549,13 +4578,13 @@ mod tests {
     }
 
     #[test]
-    fn instanceof_operator() {
-        let i = run_code(
+    fn instanceof_operator_requires_class_on_right() {
+        let err = run_code_err(
             r#"
             гыы рез = 42 шкура 10;
             "#,
         );
-        assert_eq!(i.get("рез"), Some(Value::Boolean(true)));
+        assert!(err.message.contains("шкура"));
     }
 
     #[test]
@@ -4744,6 +4773,57 @@ mod tests {
         );
         assert_eq!(i.get("знач"), Some(Value::Number(42.0)));
         assert_eq!(i.get("класс"), Some(Value::String("Производный".to_string())));
+    }
+
+    #[test]
+    fn instanceof_distinguishes_unrelated_classes() {
+        let i = run_code(
+            r#"
+            клёво А { А() {} }
+            клёво Б { Б() {} }
+            гыы а = захуярить А();
+            гыы тот = а шкура А;
+            гыы нетот = а шкура Б;
+            "#,
+        );
+        assert_eq!(i.get("тот"), Some(Value::Boolean(true)));
+        assert_eq!(i.get("нетот"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn instanceof_walks_parent_chain() {
+        let i = run_code(
+            r#"
+            клёво Животное { Животное() {} }
+            клёво Собака батя Животное { Собака() {} }
+            клёво Овчарка батя Собака { Овчарка() {} }
+            гыы о = захуярить Овчарка();
+            гыы есть_овчарка = о шкура Овчарка;
+            гыы есть_собака = о шкура Собака;
+            гыы есть_животное = о шкура Животное;
+            "#,
+        );
+        assert_eq!(i.get("есть_овчарка"), Some(Value::Boolean(true)));
+        assert_eq!(i.get("есть_собака"), Some(Value::Boolean(true)));
+        assert_eq!(i.get("есть_животное"), Some(Value::Boolean(true)));
+    }
+
+    #[test]
+    fn instanceof_false_for_non_instance() {
+        let i = run_code(
+            r#"
+            клёво К { К() {} }
+            гыы х = 42;
+            гыы строка = "abc";
+            гыы массив = [1, 2];
+            гыы а = х шкура К;
+            гыы б = строка шкура К;
+            гыы в = массив шкура К;
+            "#,
+        );
+        assert_eq!(i.get("а"), Some(Value::Boolean(false)));
+        assert_eq!(i.get("б"), Some(Value::Boolean(false)));
+        assert_eq!(i.get("в"), Some(Value::Boolean(false)));
     }
 
     #[test]
