@@ -248,10 +248,6 @@ impl Interpreter {
         }
     }
 
-    pub(crate) fn flush_promise_callbacks(&mut self, _promise: &Value, _span: Span) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-
     pub(crate) fn do_await(&mut self, value: Value, span: Span) -> Result<Value, RuntimeError> {
         match value {
             Value::Promise { state } => {
@@ -1607,7 +1603,6 @@ impl Interpreter {
                         Ok(Some(ControlFlow::Continue)) => return Err(RuntimeError::new("'двигай' вне цикла", span)),
                         Err(e) => return Err(e),
                     };
-                    let _ = self.flush_promise_callbacks(&promise, span);
                     Ok(promise)
                 } else {
                     let result = self.exec_block_stmts(&body.stmts);
@@ -6539,6 +6534,18 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("рез"), Some(Value::Number(54.0)));
+    }
+
+    #[test]
+    fn test_async_function_then_runs_without_explicit_await() {
+        let interp = run_code(
+            r#"
+            ассо йопта f() { отвечаю 42; }
+            гыы итог = 0;
+            f().потом((v) => { итог = v; });
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(42.0)));
     }
 
     #[test]
