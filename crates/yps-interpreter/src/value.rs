@@ -1,11 +1,24 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::rc::Rc;
 
 use yps_parser::ast::{Block, Param};
 
 use crate::environment::EnvFrame;
+
+#[derive(Debug, Clone)]
+pub enum IteratorState {
+    Array { values: Vec<Value>, index: usize },
+    Chars { chars: Vec<char>, index: usize },
+    MapEntries { entries: Vec<(Value, Value)>, index: usize },
+    Map { inner: Box<IteratorState>, func: Value, index: usize },
+    Filter { inner: Box<IteratorState>, func: Value, index: usize },
+    Take { inner: Box<IteratorState>, remaining: usize },
+    Drop { inner: Box<IteratorState>, count: usize, dropped: bool },
+    Concat { iters: VecDeque<IteratorState> },
+    Done,
+}
 
 pub type MethodDef = (Vec<Param>, Rc<Block>, Rc<RefCell<EnvFrame>>);
 
@@ -78,6 +91,7 @@ pub enum Value {
         cb: Box<Value>,
         cap: Box<Value>,
     },
+    Iterator(Rc<RefCell<IteratorState>>),
     Undefined,
     Null,
 }
@@ -111,7 +125,8 @@ impl Value {
             | Value::Class(_)
             | Value::Map(_)
             | Value::Set(_)
-            | Value::Promise { .. } => "объект",
+            | Value::Promise { .. }
+            | Value::Iterator(_) => "объект",
             Value::Symbol { .. } => "символ",
         }
     }
@@ -133,6 +148,7 @@ impl Value {
             Value::Class(_) => "класс",
             Value::Symbol { .. } => "символ",
             Value::Promise { .. } => "обещание",
+            Value::Iterator(_) => "итератор",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -167,6 +183,7 @@ impl fmt::Debug for Value {
             },
             Value::PromiseThenHandler { .. } => write!(f, "PromiseThenHandler"),
             Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
+            Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -244,6 +261,7 @@ impl fmt::Display for Value {
             },
             Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
+            Value::Iterator(_) => write!(f, "[итератор]"),
         }
     }
 }
@@ -260,6 +278,7 @@ impl PartialEq for Value {
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
+            (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,
