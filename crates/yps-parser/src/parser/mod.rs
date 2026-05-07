@@ -16,6 +16,10 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token], source: &'a SourceFile) -> Self {
+        assert!(
+            matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)),
+            "Parser::new требует, чтобы tokens заканчивался TokenKind::Eof"
+        );
         Self { tokens, source, position: 0, diagnostics: Vec::new() }
     }
 
@@ -3633,5 +3637,30 @@ mod tests {
     fn test_parser_recovers_from_unknown_keyword_after_brace() {
         let (_, diags) = parse_program_from_source("{ } йопта 5;");
         assert!(!diags.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "TokenKind::Eof")]
+    fn parser_new_rejects_empty_tokens() {
+        let source = SourceFile::new("test.yop".to_string(), String::new());
+        Parser::new(&[], &source);
+    }
+
+    #[test]
+    #[should_panic(expected = "TokenKind::Eof")]
+    fn parser_new_rejects_tokens_without_eof() {
+        let source = SourceFile::new("test.yop".to_string(), "1".to_string());
+        let tokens = vec![Token { kind: TokenKind::Number, span: Span { start: 0, end: 1 } }];
+        Parser::new(&tokens, &source);
+    }
+
+    #[test]
+    fn parser_new_accepts_eof_only_tokens() {
+        let source = SourceFile::new("test.yop".to_string(), String::new());
+        let tokens = vec![Token { kind: TokenKind::Eof, span: Span { start: 0, end: 0 } }];
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(program.items.is_empty());
+        assert!(diags.is_empty());
     }
 }
