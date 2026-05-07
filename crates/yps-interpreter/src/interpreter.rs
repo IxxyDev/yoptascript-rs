@@ -415,6 +415,7 @@ impl Interpreter {
                     Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
                     Value::Set(s) => s,
                     Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+                    Value::Iterator(rc) => crate::stdlib::iterator::drain(self, &rc, *span)?,
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),
@@ -780,6 +781,7 @@ impl Interpreter {
                             | Value::Set(_)
                             | Value::Symbol { .. }
                             | Value::Promise { .. }
+                            | Value::Iterator(_)
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
@@ -962,6 +964,9 @@ impl Interpreter {
                                 values.extend(entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])));
                             }
                             Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                            Value::Iterator(rc) => {
+                                values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
+                            }
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!("Нельзя развернуть тип '{}' в массив", val.type_name()),
@@ -1680,6 +1685,9 @@ impl Interpreter {
                     Value::Array(arr) => values.extend(arr),
                     Value::Set(s) => values.extend(s),
                     Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                    Value::Iterator(rc) => {
+                        values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
+                    }
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Нельзя развернуть тип '{}' в аргументы", val.type_name()),
@@ -6423,5 +6431,171 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("итог"), Some(Value::Number(4.0)));
+    }
+
+    #[test]
+    fn test_iterator_from_array_to_array() {
+        let interp = run_code(
+            r#"
+            гыы и = Итератор.от([1, 2, 3]);
+            гыы рез = и.вМассив();
+            "#,
+        );
+        assert_eq!(
+            interp.get("рез"),
+            Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]))
+        );
+    }
+
+    #[test]
+    fn test_iterator_map_lazy() {
+        let interp = run_code(
+            r#"
+            гыы рез = Итератор.от([1, 2, 3]).преобразовать((х) => х * 10).вМассив();
+            "#,
+        );
+        assert_eq!(
+            interp.get("рез"),
+            Some(Value::Array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]))
+        );
+    }
+
+    #[test]
+    fn test_iterator_filter_take_drop_chain() {
+        let interp = run_code(
+            r#"
+            гыы рез = Итератор.от([1, 2, 3, 4, 5, 6, 7, 8])
+                .отфильтровать((х) => х % 2 == 0)
+                .пропустить(1)
+                .взять(2)
+                .вМассив();
+            "#,
+        );
+        assert_eq!(interp.get("рез"), Some(Value::Array(vec![Value::Number(4.0), Value::Number(6.0)])));
+    }
+
+    #[test]
+    fn test_iterator_reduce() {
+        let interp = run_code(
+            r#"
+            гыы сумма = Итератор.от([1, 2, 3, 4]).свернуть((а, б) => а + б, 0);
+            "#,
+        );
+        assert_eq!(interp.get("сумма"), Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn test_iterator_for_of_drains() {
+        let interp = run_code(
+            r#"
+            гыы итог = 0;
+            го (х сашаГрей Итератор.от([10, 20, 30])) {
+                итог = итог + х;
+            }
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::Number(60.0)));
+    }
+
+    #[test]
+    fn test_iterator_concat() {
+        let interp = run_code(
+            r#"
+            гыы рез = Итератор.склеить([1, 2], [3, 4], [5]).вМассив();
+            "#,
+        );
+        assert_eq!(
+            interp.get("рез"),
+            Some(Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+                Value::Number(4.0),
+                Value::Number(5.0)
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_iterator_some_every_find() {
+        let interp = run_code(
+            r#"
+            гыы есть = Итератор.от([1, 2, 3]).некоторые((х) => х > 2);
+            гыы все = Итератор.от([2, 4, 6]).все((х) => х % 2 == 0);
+            гыы первое = Итератор.от([1, 2, 3, 4]).найти((х) => х > 2);
+            "#,
+        );
+        assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("все"), Some(Value::Boolean(true)));
+        assert_eq!(interp.get("первое"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_iterator_next_protocol() {
+        let interp = run_code(
+            r#"
+            гыы и = Итератор.от([7, 8]);
+            гыы а = и.следующий();
+            гыы б = и.следующий();
+            гыы в = и.следующий();
+            "#,
+        );
+        let a = interp.get("а").unwrap();
+        let b = interp.get("б").unwrap();
+        let c = interp.get("в").unwrap();
+        if let Value::Object(m) = a {
+            assert_eq!(m.get("значение"), Some(&Value::Number(7.0)));
+            assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
+        } else {
+            panic!("expected Object");
+        }
+        if let Value::Object(m) = b {
+            assert_eq!(m.get("значение"), Some(&Value::Number(8.0)));
+            assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
+        } else {
+            panic!("expected Object");
+        }
+        if let Value::Object(m) = c {
+            assert_eq!(m.get("значение"), Some(&Value::Undefined));
+            assert_eq!(m.get("готово"), Some(&Value::Boolean(true)));
+        } else {
+            panic!("expected Object");
+        }
+    }
+
+    #[test]
+    fn test_iterator_from_string() {
+        let interp = run_code(
+            r#"
+            гыы рез = Итератор.от("abc").вМассив();
+            "#,
+        );
+        assert_eq!(
+            interp.get("рез"),
+            Some(Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+                Value::String("c".to_string())
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_iterator_spread_into_array() {
+        let interp = run_code(
+            r#"
+            гыы рез = [0, ...Итератор.от([1, 2, 3]).преобразовать((х) => х + 1), 99];
+            "#,
+        );
+        assert_eq!(
+            interp.get("рез"),
+            Some(Value::Array(vec![
+                Value::Number(0.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+                Value::Number(4.0),
+                Value::Number(99.0)
+            ]))
+        );
     }
 }
