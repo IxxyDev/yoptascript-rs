@@ -465,7 +465,10 @@ impl Interpreter {
                         if let Some(cb) = catch_block {
                             self.env.push_scope();
                             if let Some(param) = catch_param {
-                                self.env.define(param.name.clone(), Value::String(err.message), false);
+                                let mut map = HashMap::new();
+                                map.insert("name".to_string(), Value::String("Косяк".to_string()));
+                                map.insert("message".to_string(), Value::String(err.message));
+                                self.env.define(param.name.clone(), Value::Object(map), false);
                             }
                             let r = self.exec_block_stmts(&cb.stmts);
                             self.env.pop_scope();
@@ -2830,7 +2833,7 @@ mod tests {
             хапнуть {
                 гыы х = неизвестная;
             } гоп (е) {
-                результат = е;
+                результат = е.message;
             }
             "#,
         );
@@ -4773,6 +4776,60 @@ mod tests {
         );
         assert_eq!(i.get("знач"), Some(Value::Number(42.0)));
         assert_eq!(i.get("класс"), Some(Value::String("Производный".to_string())));
+    }
+
+    #[test]
+    fn catch_receives_runtime_error_as_object() {
+        let i = run_code(
+            r#"
+            гыы имя = "";
+            гыы текст = "";
+            хапнуть {
+                гыы х = неопределённая_переменная;
+            } гоп(е) {
+                имя = е.name;
+                текст = е.message;
+            }
+            "#,
+        );
+        assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
+        match i.get("текст") {
+            Some(Value::String(s)) => assert!(s.contains("неопределённая_переменная")),
+            other => panic!("ожидалась строка с сообщением, получено {other:?}"),
+        }
+    }
+
+    #[test]
+    fn catch_thrown_kosyak_object_preserves_fields() {
+        let i = run_code(
+            r#"
+            гыы имя = "";
+            гыы текст = "";
+            хапнуть {
+                кидай захуярить Косяк("плохо");
+            } гоп(е) {
+                имя = е.name;
+                текст = е.message;
+            }
+            "#,
+        );
+        assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
+        assert_eq!(i.get("текст"), Some(Value::String("плохо".to_string())));
+    }
+
+    #[test]
+    fn catch_thrown_string_passes_through() {
+        let i = run_code(
+            r#"
+            гыы рез = "";
+            хапнуть {
+                кидай "плоская строка";
+            } гоп(е) {
+                рез = е;
+            }
+            "#,
+        );
+        assert_eq!(i.get("рез"), Some(Value::String("плоская строка".to_string())));
     }
 
     #[test]
