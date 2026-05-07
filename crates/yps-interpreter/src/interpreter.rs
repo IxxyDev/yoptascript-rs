@@ -406,12 +406,38 @@ impl Interpreter {
             }
             Stmt::ForOf { variable, iterable, body, span, .. } => {
                 let val = self.eval_expr(iterable)?;
+                if let Value::Iterator(rc) = val {
+                    self.env.push_scope();
+                    self.env.define(variable.name.clone(), Value::Undefined, false);
+                    loop {
+                        let next_val = {
+                            let mut state = rc.borrow_mut();
+                            crate::stdlib::iterator::next(self, &mut state, *span)?
+                        };
+                        let item = match next_val {
+                            Some(v) => v,
+                            None => break,
+                        };
+                        self.env.set(&variable.name, item);
+                        if let Some(cf) = self.exec_stmt(body)? {
+                            match cf {
+                                ControlFlow::Break => break,
+                                ControlFlow::Continue => continue,
+                                cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                                    self.env.pop_scope();
+                                    return Ok(Some(cf));
+                                }
+                            }
+                        }
+                    }
+                    self.env.pop_scope();
+                    return Ok(None);
+                }
                 let items: Vec<Value> = match val {
                     Value::Array(elements) => elements,
                     Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
                     Value::Set(s) => s,
                     Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
-                    Value::Iterator(rc) => crate::stdlib::iterator::drain(self, &rc, *span)?,
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),
@@ -6828,6 +6854,32 @@ mod tests {
                 Value::String("c".to_string())
             ]))
         );
+    }
+
+    #[test]
+    fn test_iterator_for_of_break_stops_lazy_chain() {
+        let interp = run_code(
+            r#"
+            гыы счёт = 0;
+            го (х сашаГрей Итератор.от([1, 2, 3, 4, 5]).преобразовать((в) => { счёт = счёт + 1; отвечаю в; })) {
+                вилкойвглаз (х == 3) { харэ; }
+            }
+            "#,
+        );
+        assert_eq!(interp.get("счёт"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_iterator_for_of_yields_in_order_without_materializing() {
+        let interp = run_code(
+            r#"
+            гыы итог = "";
+            го (х сашаГрей Итератор.от([10, 20, 30]).преобразовать((в) => в + 1)) {
+                итог = итог + строка(х) + ",";
+            }
+            "#,
+        );
+        assert_eq!(interp.get("итог"), Some(Value::String("11,21,31,".to_string())));
     }
 
     #[test]
