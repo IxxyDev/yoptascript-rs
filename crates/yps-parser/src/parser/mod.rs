@@ -3677,4 +3677,88 @@ mod tests {
         assert!(program.items.is_empty());
         assert!(diags.is_empty());
     }
+
+    fn diag_messages(diags: &[Diagnostic]) -> Vec<&str> {
+        diags.iter().map(|d| d.message.as_str()).collect()
+    }
+
+    #[test]
+    fn diag_unclosed_paren_in_grouping() {
+        let (_, diags) = parse_program_from_source("гыы х = (1 + 2;");
+        assert!(
+            diags.iter().any(|d| d.message.contains("Ожидался ')'")),
+            "expected unclosed-paren diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_unclosed_bracket_in_array() {
+        let (_, diags) = parse_program_from_source("гыы а = [1, 2;");
+        assert!(
+            diags.iter().any(|d| d.message.contains("Ожидался ']'")),
+            "expected unclosed-bracket diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_object_missing_colon_after_key() {
+        let (_, diags) = parse_program_from_source(r#"гыы о = {"к" 1};"#);
+        assert!(
+            diags.iter().any(|d| d.message.contains("':'")),
+            "expected missing-colon diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_var_decl_missing_equals() {
+        let (_, diags) = parse_program_from_source("гыы х;");
+        assert!(
+            diags.iter().any(|d| d.message.contains("'='")),
+            "expected missing-equals diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_var_decl_missing_semicolon() {
+        let (_, diags) = parse_program_from_source("гыы х = 1\nйопта ф() {}");
+        assert!(
+            diags.iter().any(|d| d.message.contains("';'")),
+            "expected missing-semicolon diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_if_missing_open_paren() {
+        let (_, diags) = parse_program_from_source("вилкойвглаз 1) {}");
+        assert!(
+            diags.iter().any(|d| d.message.contains("вилкойвглаз")),
+            "expected if-open-paren diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_while_missing_open_paren() {
+        let (_, diags) = parse_program_from_source("потрещим 1) {}");
+        assert!(
+            diags.iter().any(|d| d.message.contains("потрещим")),
+            "expected while-open-paren diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn diag_decorator_on_non_class() {
+        let (_, diags) = parse_program_from_source("@дек\nгыы х = 1;");
+        assert!(
+            diags.iter().any(|d| d.message.contains("Декораторы")),
+            "expected decorator-on-non-class diagnostic, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
 }
