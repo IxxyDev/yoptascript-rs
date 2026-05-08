@@ -4809,6 +4809,45 @@ mod tests {
     }
 
     #[test]
+    fn calling_non_function_errors() {
+        let err = run_code_err(
+            r#"
+            гыы х = 5;
+            гыы у = х();
+            "#,
+        );
+        assert!(err.message.contains("не является функцией") || err.message.contains("функц"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn unary_minus_on_string_errors() {
+        let err = run_code_err(r#"гыы х = -"абв";"#);
+        assert!(err.message.contains("'-'") || err.message.contains("тип"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn increment_on_string_errors() {
+        let err = run_code_err(
+            r#"
+            гыы х = "стр";
+            х++;
+            "#,
+        );
+        assert!(err.message.contains("число") || err.message.contains("'++'"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn set_property_on_number_errors() {
+        let err = run_code_err(
+            r#"
+            гыы х = 5;
+            х.поле = 1;
+            "#,
+        );
+        assert!(err.message.contains("свойство") || err.message.contains("Нельзя"), "got: {}", err.message);
+    }
+
+    #[test]
     fn instanceof_operator_requires_class_on_right() {
         let err = run_code_err(
             r#"
