@@ -452,10 +452,17 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    #[inline]
     fn current_char(&self) -> char {
-        self.source.source[self.position..].chars().next().unwrap_or('\0')
+        let bytes = self.source.source.as_bytes();
+        match bytes.get(self.position) {
+            None => '\0',
+            Some(&b) if b < 0x80 => b as char,
+            Some(_) => self.source.source[self.position..].chars().next().unwrap_or('\0'),
+        }
     }
 
+    #[inline]
     fn peek_char(&self, offset: usize) -> char {
         let mut chars = self.source.source[self.position..].chars();
 
@@ -466,6 +473,7 @@ impl<'src> Lexer<'src> {
         chars.next().unwrap_or('\0')
     }
 
+    #[inline]
     fn advance(&mut self) -> char {
         let ch = self.current_char();
 
@@ -476,6 +484,7 @@ impl<'src> Lexer<'src> {
     }
 
     #[must_use]
+    #[inline]
     const fn is_at_end(&self) -> bool {
         self.position >= self.source.source.len()
     }
