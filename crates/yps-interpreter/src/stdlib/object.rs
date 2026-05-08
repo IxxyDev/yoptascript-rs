@@ -5,6 +5,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{builtin, object_of, require_args};
+use crate::symbols;
 use crate::value::Value;
 
 pub fn build_object() -> Value {
@@ -30,12 +31,8 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.ключи")?;
             match &args[0] {
                 Value::Object(map) => {
-                    let keys: Vec<Value> = map
-                        .keys()
-                        .filter(|k| !k.starts_with("__") || (!k.starts_with("__get_") && !k.starts_with("__set_")))
-                        .filter(|k| k.as_str() != "__class__")
-                        .map(|k| Value::String(k.clone()))
-                        .collect();
+                    let keys: Vec<Value> =
+                        map.keys().filter(|k| !symbols::is_internal_key(k)).map(|k| Value::String(k.clone())).collect();
                     Ok(Value::Array(keys))
                 }
                 _ => Err(RuntimeError::new("Кент.ключи ожидает объект", span)),
@@ -46,7 +43,7 @@ pub fn call_static(
             match &args[0] {
                 Value::Object(map) => {
                     let vals: Vec<Value> =
-                        map.iter().filter(|(k, _)| !is_internal_key(k)).map(|(_, v)| v.clone()).collect();
+                        map.iter().filter(|(k, _)| !symbols::is_internal_key(k)).map(|(_, v)| v.clone()).collect();
                     Ok(Value::Array(vals))
                 }
                 _ => Err(RuntimeError::new("Кент.значения ожидает объект", span)),
@@ -58,7 +55,7 @@ pub fn call_static(
                 Value::Object(map) => {
                     let entries: Vec<Value> = map
                         .iter()
-                        .filter(|(k, _)| !is_internal_key(k))
+                        .filter(|(k, _)| !symbols::is_internal_key(k))
                         .map(|(k, v)| Value::Array(vec![Value::String(k.clone()), v.clone()]))
                         .collect();
                     Ok(Value::Array(entries))
@@ -160,8 +157,4 @@ pub fn call_static(
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
     }
-}
-
-fn is_internal_key(k: &str) -> bool {
-    k == "__class__" || k.starts_with("__get_") || k.starts_with("__set_")
 }
