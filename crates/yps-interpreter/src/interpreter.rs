@@ -1784,13 +1784,33 @@ impl Interpreter {
                 let mut path = Vec::new();
                 let root_name = self.collect_access_path(object, &mut path, span)?;
                 path.reverse();
-                if path.is_empty()
-                    && let Some(Value::Object(map)) = self.env.get(&root_name).as_mut()
-                {
-                    let key = idx.to_string();
-                    let mut map = map.clone();
-                    map.remove(&key);
-                    self.env.set(&root_name, Value::Object(map));
+                if path.is_empty() {
+                    match self.env.get(&root_name) {
+                        Some(Value::Object(map)) => {
+                            let key = idx.to_string();
+                            let mut map = map.clone();
+                            map.remove(&key);
+                            self.env.set(&root_name, Value::Object(map));
+                        }
+                        Some(Value::Array(arr)) => {
+                            if let Value::Number(n) = idx
+                                && n.is_finite()
+                                && n >= 0.0
+                                && n.fract() == 0.0
+                            {
+                                let i = n as usize;
+                                if i < arr.len() {
+                                    let mut new_arr = arr.clone();
+                                    new_arr[i] = Value::Undefined;
+                                    self.env.set(&root_name, Value::Array(new_arr));
+                                }
+                            }
+                        }
+                        Some(Value::String(_)) => {
+                            return Err(RuntimeError::new("Нельзя 'ёбнуть' символ строки — строки неизменяемы", span));
+                        }
+                        _ => {}
+                    }
                 }
                 Ok(Value::Boolean(true))
             }
@@ -4660,6 +4680,61 @@ mod tests {
             "#,
         );
         assert_eq!(i.get("рез"), Some(Value::String("неопределено".to_string())));
+    }
+
+    #[test]
+    fn delete_array_index_creates_undefined_hole() {
+        let i = run_code(
+            r#"
+            гыы а = [10, 20, 30];
+            ёбнуть а[1];
+            гыы н = а[1];
+            гыы д = длина(а);
+            "#,
+        );
+        assert_eq!(i.get("н"), Some(Value::Undefined));
+        assert_eq!(i.get("д"), Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn delete_array_preserves_other_elements() {
+        let i = run_code(
+            r#"
+            гыы а = [10, 20, 30];
+            ёбнуть а[1];
+            гыы х = а[0];
+            гыы з = а[2];
+            "#,
+        );
+        assert_eq!(i.get("х"), Some(Value::Number(10.0)));
+        assert_eq!(i.get("з"), Some(Value::Number(30.0)));
+    }
+
+    #[test]
+    fn delete_array_out_of_bounds_is_noop() {
+        let i = run_code(
+            r#"
+            гыы а = [10, 20];
+            ёбнуть а[10];
+            гыы д = длина(а);
+            "#,
+        );
+        assert_eq!(i.get("д"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn delete_string_index_is_runtime_error() {
+        let err = run_code_err(
+            r#"
+            гыы с = "абв";
+            ёбнуть с[0];
+            "#,
+        );
+        assert!(
+            err.message.to_lowercase().contains("стро"),
+            "ошибка должна упоминать строки, получено: {}",
+            err.message
+        );
     }
 
     #[test]
