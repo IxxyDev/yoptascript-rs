@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use yps_lexer::Span;
 use yps_parser::ast::{
-    BinaryOp, Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, Pattern, PostfixOp, Program,
-    PropKey, Stmt, TemplatePart, UnaryOp,
+    BinaryOp, Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, Param, Pattern, PostfixOp,
+    Program, PropKey, Stmt, TemplatePart, UnaryOp,
 };
 
 use crate::builtins::{builtin_names, call_builtin};
@@ -337,9 +337,9 @@ impl Interpreter {
             Stmt::Continue { .. } => Ok(Some(ControlFlow::Continue)),
             Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } => {
                 let func = Value::Function {
-                    name: name.name.clone(),
+                    name: Rc::from(name.name.as_str()),
                     params: params.clone(),
-                    body: Rc::new(body.clone()),
+                    body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
@@ -890,9 +890,9 @@ impl Interpreter {
             }
             Expr::ArrowFunction { params, body, is_async, .. } => {
                 let func = Value::Function {
-                    name: String::new(),
+                    name: Rc::from(""),
                     params: params.clone(),
-                    body: Rc::new(body.clone()),
+                    body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: false,
                     is_async: *is_async,
@@ -1050,8 +1050,8 @@ impl Interpreter {
                                 }
                             };
                             let getter_fn = Value::Function {
-                                name: format!("get {key_str}"),
-                                params: vec![],
+                                name: Rc::from(format!("get {key_str}").as_str()),
+                                params: Rc::from([] as [Param; 0]),
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
@@ -1068,8 +1068,8 @@ impl Interpreter {
                                 }
                             };
                             let setter_fn = Value::Function {
-                                name: format!("set {key_str}"),
-                                params: vec![param.clone()],
+                                name: Rc::from(format!("set {key_str}").as_str()),
+                                params: Rc::from([param.clone()]),
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
@@ -1906,13 +1906,13 @@ impl Interpreter {
             let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
             match member {
                 ClassMember::Constructor { params, body, .. } => {
-                    constructor = Some((params.clone(), Rc::new(body.clone()), self.env.snapshot()));
+                    constructor = Some((params.clone(), body.clone(), self.env.snapshot()));
                 }
                 ClassMember::Method { name: m_name, params, body, is_static, is_private, .. } => {
                     let method_fn = Value::Function {
-                        name: m_name.name.clone(),
+                        name: Rc::from(m_name.name.as_str()),
                         params: params.clone(),
-                        body: Rc::new(body.clone()),
+                        body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
@@ -1940,9 +1940,9 @@ impl Interpreter {
                 }
                 ClassMember::Getter { name: g_name, body, is_static, is_private, .. } => {
                     let getter_fn = Value::Function {
-                        name: g_name.name.clone(),
-                        params: vec![],
-                        body: Rc::new(body.clone()),
+                        name: Rc::from(g_name.name.as_str()),
+                        params: Rc::from([] as [Param; 0]),
+                        body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
@@ -1970,9 +1970,9 @@ impl Interpreter {
                 }
                 ClassMember::Setter { name: s_name, param, body, is_static, is_private, .. } => {
                     let setter_fn = Value::Function {
-                        name: s_name.name.clone(),
-                        params: vec![param.clone()],
-                        body: Rc::new(body.clone()),
+                        name: Rc::from(s_name.name.as_str()),
+                        params: Rc::from([param.clone()]),
+                        body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
@@ -2447,7 +2447,7 @@ impl Interpreter {
                     }
                     if let Some((params, body, env)) = Self::find_method_in_class(cls, property) {
                         return Ok(Value::Function {
-                            name: property.to_string(),
+                            name: Rc::from(property),
                             params: params.clone(),
                             body: Rc::clone(body),
                             env: Rc::clone(env),
@@ -2467,7 +2467,7 @@ impl Interpreter {
                 }
                 if let Some((params, body, env)) = cls.static_methods.get(property) {
                     return Ok(Value::Function {
-                        name: property.to_string(),
+                        name: Rc::from(property),
                         params: params.clone(),
                         body: Rc::clone(body),
                         env: Rc::clone(env),
