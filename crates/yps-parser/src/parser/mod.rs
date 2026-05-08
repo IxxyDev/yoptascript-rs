@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::ast::{
     BinaryOp, Block, ClassMember, Expr, Identifier, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, PostfixOp,
     Program, PropKey, Stmt, SwitchCase, TemplatePart, UnaryOp,
@@ -332,7 +334,7 @@ impl<'a> Parser<'a> {
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
             let body = self.parse_block()?;
             let end = body.span.end;
-            Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end } })
+            Ok(Expr::ArrowFunction { params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
         } else {
             let expr = self.parse_expr()?;
             let end = expr.span().end;
@@ -340,7 +342,7 @@ impl<'a> Parser<'a> {
                 stmts: vec![Stmt::Return { value: Some(expr), span: Span { start, end } }],
                 span: Span { start, end },
             };
-            Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end } })
+            Ok(Expr::ArrowFunction { params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
         }
     }
 
@@ -504,7 +506,12 @@ impl<'a> Parser<'a> {
                         self.advance();
                         let body = self.parse_block()?;
                         let func_span = Span { start: key.span.start, end: body.span.end };
-                        let value = Expr::ArrowFunction { params, body, is_async: false, span: func_span };
+                        let value = Expr::ArrowFunction {
+                            params: params.into(),
+                            body: Rc::new(body),
+                            is_async: false,
+                            span: func_span,
+                        };
                         entries.push(ObjectEntry::Property { key: PropKey::Identifier(key), value });
                     } else {
                         let value = Expr::Identifier(key.clone());
@@ -1183,7 +1190,14 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
         let end = body.span.end;
 
-        Ok(Stmt::FunctionDecl { name, params, body, is_generator, is_async, span: Span { start, end } })
+        Ok(Stmt::FunctionDecl {
+            name,
+            params: params.into(),
+            body: Rc::new(body),
+            is_generator,
+            is_async,
+            span: Span { start, end },
+        })
     }
 
     fn parse_async_stmt(&mut self) -> Result<Stmt, ()> {
@@ -2123,7 +2137,7 @@ impl<'a> Parser<'a> {
             let end = body.span.end;
             return Ok(ClassMember::Getter {
                 name: member_name,
-                body,
+                body: Rc::new(body),
                 is_static,
                 is_private,
                 decorators,
@@ -2161,7 +2175,7 @@ impl<'a> Parser<'a> {
             return Ok(ClassMember::Setter {
                 name: member_name,
                 param,
-                body,
+                body: Rc::new(body),
                 is_static,
                 is_private,
                 decorators,
@@ -2190,12 +2204,12 @@ impl<'a> Parser<'a> {
                     self.push_error(Span { start, end }, "Декораторы нельзя применять к конструктору");
                     return Err(());
                 }
-                Ok(ClassMember::Constructor { params, body, span: Span { start, end } })
+                Ok(ClassMember::Constructor { params: params.into(), body: Rc::new(body), span: Span { start, end } })
             } else {
                 Ok(ClassMember::Method {
                     name: member_name,
-                    params,
-                    body,
+                    params: params.into(),
+                    body: Rc::new(body),
                     is_static,
                     is_private,
                     decorators,
