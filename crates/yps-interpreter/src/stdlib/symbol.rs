@@ -5,6 +5,7 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
+use crate::symbols;
 use crate::value::Value;
 
 pub const ITERATOR_ID: u64 = 1;
@@ -27,7 +28,7 @@ fn fresh_id() -> u64 {
 pub fn well_known(property: &str) -> Option<Value> {
     let (desc, id) = match property {
         "итератор" => ("Symbol.iterator", ITERATOR_ID),
-        "расход" => ("Symbol.dispose", DISPOSE_ID),
+        s if s == symbols::DISPOSE_METHOD => ("Symbol.dispose", DISPOSE_ID),
         "асинхИтератор" => ("Symbol.asyncIterator", ASYNC_ITERATOR_ID),
         _ => return None,
     };
