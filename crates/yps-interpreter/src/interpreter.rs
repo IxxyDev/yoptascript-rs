@@ -496,7 +496,7 @@ impl Interpreter {
                             self.env.pop_scope();
                             r
                         } else {
-                            Ok(None)
+                            Err(err)
                         }
                     }
                     Ok(Some(ControlFlow::Throw(val))) => {
@@ -516,12 +516,17 @@ impl Interpreter {
                 };
 
                 if let Some(fb) = finally_block {
-                    let finally_result = self.exec_block(fb);
-                    finally_result.as_ref().map_err(|e| RuntimeError::new(&e.message, e.span))?;
-                    if let Ok(Some(cf)) = &finally_result
-                        && matches!(cf, ControlFlow::Return(_) | ControlFlow::Throw(_))
-                    {
-                        return finally_result;
+                    match self.exec_block(fb) {
+                        Err(finally_err) => {
+                            return Err(match result {
+                                Err(orig_err) => finally_err.with_cause(orig_err),
+                                _ => finally_err,
+                            });
+                        }
+                        Ok(Some(cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)))) => {
+                            return Ok(Some(cf));
+                        }
+                        _ => {}
                     }
                 }
 
@@ -2917,6 +2922,62 @@ mod tests {
             "#,
         );
         assert_eq!(interp.get("результат"), Some(Value::Number(11.0)));
+    }
+
+    #[test]
+    fn finally_runtime_error_preserves_original_via_cause() {
+        let err = run_code_err(
+            r#"
+            хапнуть {
+                гыы а = неизвестнаяОригинальная;
+            } тюряжка {
+                гыы б = неизвестнаяВФинале;
+            }
+            "#,
+        );
+        assert!(
+            err.message.contains("неизвестнаяВФинале"),
+            "ожидается сообщение от финального исключения, получено: {}",
+            err.message
+        );
+        let cause = err.cause.as_deref().expect("ожидается cause с оригинальной ошибкой");
+        assert!(
+            cause.message.contains("неизвестнаяОригинальная"),
+            "cause должен содержать оригинал, получено: {}",
+            cause.message
+        );
+    }
+
+    #[test]
+    fn finally_runtime_error_alone_has_no_cause() {
+        let err = run_code_err(
+            r#"
+            хапнуть {
+                гыы а = 1;
+            } тюряжка {
+                гыы б = неизвестная;
+            }
+            "#,
+        );
+        assert!(err.message.contains("неизвестная"));
+        assert!(err.cause.is_none(), "при отсутствии оригинальной ошибки cause должен быть None");
+    }
+
+    #[test]
+    fn finally_error_display_shows_cause_chain() {
+        let err = run_code_err(
+            r#"
+            хапнуть {
+                гыы а = первая;
+            } тюряжка {
+                гыы б = вторая;
+            }
+            "#,
+        );
+        let s = format!("{err}");
+        assert!(s.contains("вторая"), "отображение должно включать финальную ошибку: {s}");
+        assert!(s.contains("первая"), "отображение должно включать оригинал: {s}");
+        assert!(s.contains("причина"), "отображение должно явно метить причину: {s}");
     }
 
     #[test]
