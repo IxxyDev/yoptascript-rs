@@ -2052,7 +2052,7 @@ impl Interpreter {
             setters,
             static_getters,
             static_setters,
-            parent: parent.map(|p| Box::new((*p).clone())),
+            parent,
             instance_initializers: instance_inits,
         };
 
@@ -2108,8 +2108,8 @@ impl Interpreter {
 
             self.env.define("тырыпыры".to_string(), instance_val.clone(), false);
 
-            if let Some(ref parent) = class_def.parent {
-                self.env.define("__super__".to_string(), Value::Class(Rc::new(*parent.clone())), false);
+            if let Some(parent) = &class_def.parent {
+                self.env.define("__super__".to_string(), Value::Class(Rc::clone(parent)), false);
             }
 
             let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
@@ -2161,7 +2161,7 @@ impl Interpreter {
                 && !params.is_empty()
                 && params.iter().filter(|p| p.default.is_none() && !p.is_rest).count() > 0
             {
-                let parent_class_val = Value::Class(Rc::new(*parent.clone()));
+                let parent_class_val = Value::Class(Rc::clone(parent));
                 return self.construct_with_parent(parent_class_val, args, instance_val, span);
             }
             Ok(instance_val)
@@ -2190,8 +2190,8 @@ impl Interpreter {
         let (params, body, env) = match &parent_def.constructor {
             Some(c) => (c.0.clone(), c.1.clone(), Rc::clone(&c.2)),
             None => {
-                if let Some(ref grandparent) = parent_def.parent {
-                    let grandparent_val = Value::Class(Rc::new(*grandparent.clone()));
+                if let Some(grandparent) = &parent_def.parent {
+                    let grandparent_val = Value::Class(Rc::clone(grandparent));
                     return self.construct_with_parent(grandparent_val, args, child_instance, span);
                 }
                 return Ok(child_instance);
@@ -2202,8 +2202,8 @@ impl Interpreter {
         self.env = Environment::from_snapshot(env);
         self.env.push_scope();
         self.env.define("тырыпыры".to_string(), child_instance.clone(), false);
-        if let Some(ref grandparent) = parent_def.parent {
-            self.env.define("__super__".to_string(), Value::Class(Rc::new(*grandparent.clone())), false);
+        if let Some(grandparent) = &parent_def.parent {
+            self.env.define("__super__".to_string(), Value::Class(Rc::clone(grandparent)), false);
         }
 
         let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
