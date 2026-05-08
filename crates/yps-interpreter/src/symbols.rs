@@ -16,6 +16,7 @@ pub const DEC_NAME: &str = "имя";
 pub const DEC_STATIC: &str = "статичное";
 pub const DEC_PRIVATE: &str = "приватное";
 pub const DEC_ADD_INITIALIZER: &str = "добавитьИнициализатор";
+pub const ADD_INITIALIZER_BUILTIN: &str = "__добавитьИнициализатор__";
 
 pub const GETTER_PREFIX: &str = "__get_";
 pub const SETTER_PREFIX: &str = "__set_";
