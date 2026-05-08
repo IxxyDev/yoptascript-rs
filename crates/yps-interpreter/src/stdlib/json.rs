@@ -5,6 +5,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{as_string, builtin, object_of, require_args};
+use crate::symbols;
 use crate::value::Value;
 
 pub fn build_object() -> Value {
@@ -76,7 +77,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
             out.push('{');
             let mut first = true;
             for (k, val) in map.iter() {
-                if k == "__class__" || k.starts_with("__get_") || k.starts_with("__set_") {
+                if symbols::is_internal_key(k) {
                     continue;
                 }
                 if matches!(val, Value::Function { .. } | Value::BuiltinFunction(_) | Value::Undefined) {

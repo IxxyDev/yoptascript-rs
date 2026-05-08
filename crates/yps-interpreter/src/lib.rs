@@ -3,6 +3,7 @@ pub mod environment;
 pub mod error;
 pub mod interpreter;
 pub mod stdlib;
+pub mod symbols;
 pub mod value;
 
 pub use error::RuntimeError;

@@ -12,6 +12,7 @@ use yps_parser::ast::{
 use crate::builtins::{builtin_names, call_builtin};
 use crate::environment::Environment;
 use crate::error::RuntimeError;
+use crate::symbols;
 use crate::value::{CapKind, ClassDef, PromiseState, Value};
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
@@ -488,8 +489,11 @@ impl Interpreter {
                             self.env.push_scope();
                             if let Some(param) = catch_param {
                                 let mut map = HashMap::new();
-                                map.insert("name".to_string(), Value::String("Косяк".to_string()));
-                                map.insert("message".to_string(), Value::String(err.message));
+                                map.insert(
+                                    symbols::ERROR_NAME_FIELD.to_string(),
+                                    Value::String(symbols::ERROR_NAME.to_string()),
+                                );
+                                map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
                                 self.env.define(param.name.clone(), Value::Object(map), false);
                             }
                             let r = self.exec_block_stmts(&cb.stmts);
@@ -832,14 +836,14 @@ impl Interpreter {
                     }
                     self.call_function(func, arg_values, *span)
                 } else if let Expr::Super { span: super_span } = callee.as_ref() {
-                    let super_val = self.env.get("__super__").ok_or_else(|| {
+                    let super_val = self.env.get(symbols::SUPER).ok_or_else(|| {
                         RuntimeError::new("'яга' (super) используется вне класса-наследника", *super_span)
                     })?;
                     if let Value::Class(cls) = &super_val
                         && let Some((ref params, ref body, ref env)) = cls.constructor
                     {
                         let arg_values = self.eval_args(args)?;
-                        let this_val = self.env.get("тырыпыры");
+                        let this_val = self.env.get(symbols::THIS);
                         return self.call_method_with_this(params, body, env, arg_values, this_val, *span);
                     }
                     Err(RuntimeError::new("Родительский класс не имеет конструктора", *span))
@@ -922,7 +926,7 @@ impl Interpreter {
             )),
             Expr::This { span } => self
                 .env
-                .get("тырыпыры")
+                .get(symbols::THIS)
                 .ok_or_else(|| RuntimeError::new("'тырыпыры' (this) используется вне контекста объекта", *span)),
             Expr::New { callee, args, span } => {
                 let class_val = self.eval_expr(callee)?;
@@ -931,7 +935,7 @@ impl Interpreter {
             }
             Expr::Super { span } => self
                 .env
-                .get("__super__")
+                .get(symbols::SUPER)
                 .ok_or_else(|| RuntimeError::new("'яга' (super) используется вне класса-наследника", *span)),
             Expr::Yield { argument, delegate, span } => self.eval_yield(argument.as_deref(), *delegate, *span),
         }
@@ -1057,7 +1061,7 @@ impl Interpreter {
                                 is_generator: false,
                                 is_async: false,
                             };
-                            map.insert(format!("__get_{key_str}__"), getter_fn);
+                            map.insert(symbols::getter_key(&key_str), getter_fn);
                         }
                         ObjectEntry::Setter { key, param, body, .. } => {
                             let key_str = match key {
@@ -1075,7 +1079,7 @@ impl Interpreter {
                                 is_generator: false,
                                 is_async: false,
                             };
-                            map.insert(format!("__set_{key_str}__"), setter_fn);
+                            map.insert(symbols::setter_key(&key_str), setter_fn);
                         }
                     }
                 }
@@ -1143,7 +1147,7 @@ impl Interpreter {
                     }
                 };
                 let left_class_name = match &left {
-                    Value::Object(map) => match map.get("__class__") {
+                    Value::Object(map) => match map.get(symbols::CLASS_TAG) {
                         Some(Value::String(name)) => name.clone(),
                         _ => return Ok(Value::Boolean(false)),
                     },
@@ -1280,7 +1284,7 @@ impl Interpreter {
         let obj = self.eval_expr(object_expr)?;
         match &obj {
             Value::Object(map) => {
-                let setter_key = format!("__set_{property}__");
+                let setter_key = symbols::setter_key(property);
                 if let Some(Value::Function { params, body, env, .. }) = map.get(&setter_key) {
                     let params = params.clone();
                     let body = Rc::clone(body);
@@ -1289,7 +1293,7 @@ impl Interpreter {
                     self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
-                if let Some(Value::String(class_name)) = map.get("__class__")
+                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
                     && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
                     && let Some((params, body, env)) = Self::find_setter_in_class(cls, property)
                 {
@@ -1326,12 +1330,12 @@ impl Interpreter {
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(Rc::clone(env));
         self.env.push_scope();
-        self.env.define("тырыпыры".to_string(), this_val.clone(), false);
+        self.env.define(symbols::THIS.to_string(), this_val.clone(), false);
         if let Some(param) = params.first() {
             self.env.define(param.name.name.clone(), value, false);
         }
         let result = self.exec_block_stmts(&body.stmts);
-        let updated_this = self.env.get("тырыпыры").unwrap_or(this_val);
+        let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
         self.env = saved_env;
         match result? {
             Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
@@ -1349,7 +1353,7 @@ impl Interpreter {
                 Ok(())
             }
             Expr::This { .. } => {
-                self.env.set("тырыпыры", updated);
+                self.env.set(symbols::THIS, updated);
                 Ok(())
             }
             _ => Ok(()),
@@ -1365,7 +1369,7 @@ impl Interpreter {
         if !property.starts_with('#') {
             return Ok(());
         }
-        let in_method = self.env.get("тырыпыры").is_some();
+        let in_method = self.env.get(symbols::THIS).is_some();
         if !in_method {
             return Err(RuntimeError::new(
                 format!("Нельзя обращаться к приватному полю '{property}' за пределами класса"),
@@ -1383,7 +1387,7 @@ impl Interpreter {
     ) -> Result<String, RuntimeError> {
         match expr {
             Expr::Identifier(ident) => Ok(ident.name.clone()),
-            Expr::This { .. } => Ok("тырыпыры".to_string()),
+            Expr::This { .. } => Ok(symbols::THIS.to_string()),
             Expr::Index { object, index, .. } => {
                 let idx_val = self.eval_expr(index)?;
                 path.push(AccessSegment::Index(idx_val));
@@ -1485,10 +1489,10 @@ impl Interpreter {
         self.env = Environment::from_snapshot(Rc::clone(env));
         self.env.push_scope();
 
-        self.env.define("тырыпыры".to_string(), this_val.clone(), false);
+        self.env.define(symbols::THIS.to_string(), this_val.clone(), false);
 
-        if let Some(super_val) = saved_env.get("__super__") {
-            self.env.define("__super__".to_string(), super_val, false);
+        if let Some(super_val) = saved_env.get(symbols::SUPER) {
+            self.env.define(symbols::SUPER.to_string(), super_val, false);
         }
 
         for (i, param) in params.iter().enumerate() {
@@ -1509,7 +1513,7 @@ impl Interpreter {
         }
 
         let result = self.exec_block_stmts(&body.stmts);
-        let updated_this = self.env.get("тырыпыры").unwrap_or(this_val);
+        let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
 
         self.env = saved_env;
 
@@ -1683,11 +1687,11 @@ impl Interpreter {
         self.env.push_scope();
 
         if let Some(this) = &this_val {
-            self.env.define("тырыпыры".to_string(), this.clone(), false);
+            self.env.define(symbols::THIS.to_string(), this.clone(), false);
         }
 
-        if let Some(super_val) = saved_env.get("__super__") {
-            self.env.define("__super__".to_string(), super_val, false);
+        if let Some(super_val) = saved_env.get(symbols::SUPER) {
+            self.env.define(symbols::SUPER.to_string(), super_val, false);
         }
 
         for (i, param) in params.iter().enumerate() {
@@ -2106,7 +2110,7 @@ impl Interpreter {
         };
 
         let mut instance = HashMap::new();
-        instance.insert("__class__".to_string(), Value::String(class_def.name.clone()));
+        instance.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
 
         self.init_fields(&class_def, &mut instance, span)?;
 
@@ -2115,9 +2119,9 @@ impl Interpreter {
         for init in &class_def.instance_initializers {
             let saved = self.env.clone();
             self.env.push_scope();
-            self.env.define("тырыпыры".to_string(), instance_val.clone(), false);
+            self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
             self.call_function(init.clone(), vec![], span)?;
-            instance_val = self.env.get("тырыпыры").unwrap_or(instance_val);
+            instance_val = self.env.get(symbols::THIS).unwrap_or(instance_val);
             self.env = saved;
         }
 
@@ -2126,10 +2130,10 @@ impl Interpreter {
             self.env = Environment::from_snapshot(Rc::clone(env));
             self.env.push_scope();
 
-            self.env.define("тырыпыры".to_string(), instance_val.clone(), false);
+            self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
 
             if let Some(parent) = &class_def.parent {
-                self.env.define("__super__".to_string(), Value::Class(Rc::clone(parent)), false);
+                self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(parent)), false);
             }
 
             let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
@@ -2165,7 +2169,7 @@ impl Interpreter {
             }
 
             let result = self.exec_block_stmts(&body.stmts);
-            let this_after = self.env.get("тырыпыры").unwrap_or(instance_val);
+            let this_after = self.env.get(symbols::THIS).unwrap_or(instance_val);
             self.env = saved_env;
 
             match result? {
@@ -2221,9 +2225,9 @@ impl Interpreter {
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(env);
         self.env.push_scope();
-        self.env.define("тырыпыры".to_string(), child_instance.clone(), false);
+        self.env.define(symbols::THIS.to_string(), child_instance.clone(), false);
         if let Some(grandparent) = &parent_def.parent {
-            self.env.define("__super__".to_string(), Value::Class(Rc::clone(grandparent)), false);
+            self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(grandparent)), false);
         }
 
         let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
@@ -2258,7 +2262,7 @@ impl Interpreter {
         }
 
         let result = self.exec_block_stmts(&body.stmts);
-        let this_after = self.env.get("тырыпыры").unwrap_or(child_instance);
+        let this_after = self.env.get(symbols::THIS).unwrap_or(child_instance);
         self.env = saved_env;
 
         match result? {
@@ -2282,7 +2286,7 @@ impl Interpreter {
             let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
                 self.env.push_scope();
-                self.env.define("тырыпыры".to_string(), Value::Object(instance.clone()), false);
+                self.env.define(symbols::THIS.to_string(), Value::Object(instance.clone()), false);
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env = saved_env;
                 match result? {
@@ -2314,7 +2318,7 @@ impl Interpreter {
             if let Some(Value::Function { .. }) = map.get("расход") {
                 return true;
             }
-            if let Some(Value::String(class_name)) = map.get("__class__")
+            if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
                 && let Some(Value::Class(cls)) = env.get(class_name)
                 && Self::find_method_in_class(&cls, "расход").is_some()
             {
@@ -2330,7 +2334,7 @@ impl Interpreter {
                 self.call_method_with_this(&params, &body, &env, vec![], Some(resource.clone()), span)?;
                 return Ok(());
             }
-            if let Some(Value::String(class_name)) = map.get("__class__").cloned()
+            if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG).cloned()
                 && let Some(Value::Class(cls)) = self.env.get(&class_name)
                 && let Some(method) = Self::find_method_in_class(&cls, "расход")
             {
@@ -2425,19 +2429,18 @@ impl Interpreter {
             }
             Value::Object(map) => {
                 if property.starts_with('#') {
-                    let in_class =
-                        if let Some(Value::String(class_name)) = map.get("__class__") {
-                            self.env.get("тырыпыры").is_some()
-                                && self
-                                    .env
-                                    .get("тырыпыры")
-                                    .and_then(|this| {
-                                        if let Value::Object(m) = &this { m.get("__class__").cloned() } else { None }
-                                    })
-                                    .is_some_and(|c| if let Value::String(cn) = c { cn == *class_name } else { false })
-                        } else {
-                            false
-                        };
+                    let in_class = if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG) {
+                        self.env.get(symbols::THIS).is_some()
+                            && self
+                                .env
+                                .get(symbols::THIS)
+                                .and_then(|this| {
+                                    if let Value::Object(m) = &this { m.get(symbols::CLASS_TAG).cloned() } else { None }
+                                })
+                                .is_some_and(|c| if let Value::String(cn) = c { cn == *class_name } else { false })
+                    } else {
+                        false
+                    };
                     if !in_class {
                         return Err(RuntimeError::new(
                             format!("Нельзя обращаться к приватному полю '{property}' за пределами класса"),
@@ -2446,7 +2449,7 @@ impl Interpreter {
                     }
                 }
 
-                let getter_key = format!("__get_{property}__");
+                let getter_key = symbols::getter_key(property);
                 if let Some(Value::Function { params, body, env, .. }) = map.get(&getter_key) {
                     let params = params.clone();
                     let body = Rc::clone(body);
@@ -2456,7 +2459,7 @@ impl Interpreter {
                 if let Some(val) = map.get(property) {
                     return Ok(val.clone());
                 }
-                if let Some(Value::String(class_name)) = map.get("__class__")
+                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
                     && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
                 {
                     if let Some((params, body, env)) = Self::find_getter_in_class(cls, property) {
