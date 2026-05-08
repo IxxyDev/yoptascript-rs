@@ -5815,6 +5815,64 @@ mod tests {
     }
 
     #[test]
+    fn json_parse_rejects_trailing_chars() {
+        let err = run_code_err(r#"гыы а = Жсон.разобрать("{} мусор");"#);
+        assert!(err.message.contains("Лишние символы"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_parse_object_missing_colon() {
+        let err = run_code_err(r#"гыы а = Жсон.разобрать("{\"к\" 1}");"#);
+        assert!(err.message.contains("':'") || err.message.contains("JSON"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_parse_array_missing_comma() {
+        let err = run_code_err(r#"гыы а = Жсон.разобрать("[1 2]");"#);
+        assert!(err.message.contains("','") || err.message.contains("']'"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_parse_unexpected_token() {
+        let err = run_code_err(r#"гыы а = Жсон.разобрать("чушь");"#);
+        assert!(err.message.contains("JSON"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_parse_incomplete_unicode_escape() {
+        let err = run_code_err(r#"гыы а = Жсон.разобрать("\"\\u00\"");"#);
+        assert!(err.message.contains("\\u") || err.message.contains("escape"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_stringify_rejects_function() {
+        let err = run_code_err(
+            r#"
+            гыы ф = () => 1;
+            гыы с = Жсон.вСтроку(ф);
+            "#,
+        );
+        assert!(err.message.contains("Функции") || err.message.contains("JSON"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn json_stringify_rejects_symbol() {
+        let err = run_code_err(
+            r#"
+            гыы с = Симбол("х");
+            гыы стр = Жсон.вСтроку(с);
+            "#,
+        );
+        assert!(err.message.contains("Символ") || err.message.contains("JSON"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn object_keys_rejects_non_object() {
+        let err = run_code_err(r#"гыы к = Кент.ключи(42);"#);
+        assert!(err.message.contains("Кент.ключи"), "got: {}", err.message);
+    }
+
+    #[test]
     fn test_stdlib_number_checks() {
         let interp = run_code(
             r#"
