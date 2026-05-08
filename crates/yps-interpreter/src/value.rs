@@ -47,7 +47,7 @@ pub struct ClassDef {
     pub setters: HashMap<String, MethodDef>,
     pub static_getters: HashMap<String, MethodDef>,
     pub static_setters: HashMap<String, MethodDef>,
-    pub parent: Option<Box<ClassDef>>,
+    pub parent: Option<Rc<ClassDef>>,
     pub instance_initializers: Vec<Value>,
 }
 
