@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
+use crate::symbols;
 use crate::value::Value;
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     match name {
-        "Косяк" => construct_kosyak(args, span),
+        s if s == symbols::ERROR_NAME => construct_kosyak(args, span),
         "этоКосяк" => is_kosyak(args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
@@ -70,7 +71,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
 }
 
 pub fn builtin_names() -> &'static [&'static str] {
-    &["сказать", "длина", "тип", "число", "строка", "втолкнуть", "Косяк", "этоКосяк"]
+    &["сказать", "длина", "тип", "число", "строка", "втолкнуть", symbols::ERROR_NAME, "этоКосяк"]
 }
 
 fn construct_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
@@ -81,12 +82,12 @@ fn construct_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError>
     let message = iter.next().unwrap();
     let opts = iter.next();
     let mut map = HashMap::new();
-    map.insert("name".to_string(), Value::String("Косяк".to_string()));
-    map.insert("message".to_string(), Value::String(message.to_string()));
+    map.insert(symbols::ERROR_NAME_FIELD.to_string(), Value::String(symbols::ERROR_NAME.to_string()));
+    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(message.to_string()));
     if let Some(Value::Object(o)) = opts
-        && let Some(cause) = o.get("cause")
+        && let Some(cause) = o.get(symbols::ERROR_CAUSE_FIELD)
     {
-        map.insert("cause".to_string(), cause.clone());
+        map.insert(symbols::ERROR_CAUSE_FIELD.to_string(), cause.clone());
     }
     Ok(Value::Object(map))
 }
@@ -96,8 +97,8 @@ fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         return Err(RuntimeError::new("'этоКосяк' ожидает 1 аргумент", span));
     }
     if let Value::Object(map) = &args[0]
-        && let Some(Value::String(name)) = map.get("name")
-        && name == "Косяк"
+        && let Some(Value::String(name)) = map.get(symbols::ERROR_NAME_FIELD)
+        && name == symbols::ERROR_NAME
     {
         return Ok(Value::Boolean(true));
     }

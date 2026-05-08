@@ -5,6 +5,7 @@ pub const THIS: &str = "тырыпыры";
 pub const ERROR_NAME: &str = "Косяк";
 pub const ERROR_NAME_FIELD: &str = "name";
 pub const ERROR_MESSAGE_FIELD: &str = "message";
+pub const ERROR_CAUSE_FIELD: &str = "cause";
 
 pub const ITER_VALUE: &str = "значение";
 pub const ITER_DONE: &str = "готово";
