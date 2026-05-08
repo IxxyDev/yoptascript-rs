@@ -508,4 +508,68 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::Punctuation(PunctuationKind::At));
         assert_eq!(tokens[1].kind, TokenKind::Identifier);
     }
+
+    #[test]
+    fn diagnostic_unterminated_string() {
+        let source = SourceFile::new("test.yop".to_string(), r#""без закрывающей кавычки"#.to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert_eq!(diags.len(), 1, "expected one diagnostic, got {diags:?}");
+        assert!(matches!(diags[0].severity, Severity::Error));
+        assert!(diags[0].message.contains("Незакрытая строка"), "got: {}", diags[0].message);
+    }
+
+    #[test]
+    fn diagnostic_unterminated_template_literal() {
+        let source = SourceFile::new("test.yop".to_string(), "`привет".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("Незакрытая шаблонная строка")),
+            "expected unterminated-template diagnostic, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_single_ampersand_rejected() {
+        let source = SourceFile::new("test.yop".to_string(), "а & б".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("одиночный '&'")),
+            "expected single-& diagnostic, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_single_pipe_rejected() {
+        let source = SourceFile::new("test.yop".to_string(), "а | б".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("одиночный '|'")),
+            "expected single-| diagnostic, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_pipe_greater_is_pipeline_no_diag() {
+        let source = SourceFile::new("test.yop".to_string(), "а |> б".to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "|> should not emit a diagnostic, got: {diags:?}");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Operator(OperatorKind::Pipeline))));
+    }
+
+    #[test]
+    fn diagnostic_unknown_character() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы х = §".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("Неизвестный символ") && d.message.contains('§')),
+            "expected unknown-char diagnostic mentioning '§', got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_does_not_panic_on_eof_after_string_quote() {
+        let source = SourceFile::new("test.yop".to_string(), "\"".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.iter().any(|d| d.message.contains("Незакрытая строка")));
+    }
 }
