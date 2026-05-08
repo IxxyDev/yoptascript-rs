@@ -5912,6 +5912,51 @@ mod tests {
     }
 
     #[test]
+    fn promise_constructor_requires_function() {
+        let err = run_code_err(r#"гыы p = захуярить СловоПацана(5);"#);
+        assert!(err.message.contains("исполнитель") || err.message.contains("СловоПацана"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn promise_race_rejects_empty_array() {
+        let err = run_code_err(r#"гыы p = СловоПацана.гонка([]);"#);
+        assert!(err.message.contains("гонка") || err.message.contains("пуст"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn array_reduce_empty_without_initial_errors() {
+        let err = run_code_err(
+            r#"
+            гыы а = [];
+            гыы р = а.свернуть((а, в) => а + в);
+            "#,
+        );
+        assert!(err.message.contains("reduce") || err.message.contains("пуст"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn iterator_reduce_empty_without_initial_errors() {
+        let err = run_code_err(
+            r#"
+            гыы и = Итератор.от([]);
+            гыы р = и.свернуть((а, в) => а + в);
+            "#,
+        );
+        assert!(err.message.contains("reduce") || err.message.contains("пуст"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn string_repeat_negative_count_errors() {
+        let err = run_code_err(
+            r#"
+            гыы с = "а";
+            гыы р = с.повторить(-1);
+            "#,
+        );
+        assert!(err.message.contains("повторений") || err.message.contains("Некорректное"), "got: {}", err.message);
+    }
+
+    #[test]
     fn test_stdlib_number_checks() {
         let interp = run_code(
             r#"
