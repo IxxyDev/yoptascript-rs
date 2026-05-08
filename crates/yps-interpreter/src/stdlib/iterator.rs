@@ -7,6 +7,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{builtin, object_of, require_args};
+use crate::symbols;
 use crate::value::{IteratorState, Value};
 
 pub fn build_object() -> Value {
@@ -369,7 +370,7 @@ fn expect_count(value: &Value, span: Span, method: &str) -> Result<usize, Runtim
 
 fn make_result(value: Value, done: bool) -> Value {
     let mut map = std::collections::HashMap::new();
-    map.insert("значение".to_string(), value);
-    map.insert("готово".to_string(), Value::Boolean(done));
+    map.insert(symbols::ITER_VALUE.to_string(), value);
+    map.insert(symbols::ITER_DONE.to_string(), Value::Boolean(done));
     Value::Object(map)
 }
