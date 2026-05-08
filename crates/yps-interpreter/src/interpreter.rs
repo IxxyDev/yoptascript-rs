@@ -1560,7 +1560,7 @@ impl Interpreter {
 
     pub(crate) fn call_function(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         if let Value::BuiltinFunction(ref bname) = func
-            && bname == "__добавитьИнициализатор__"
+            && bname == symbols::ADD_INITIALIZER_BUILTIN
         {
             if let Some(init_fn) = args.into_iter().next() {
                 self.pending_initializers.push(init_fn);
@@ -1824,13 +1824,13 @@ impl Interpreter {
 
     fn build_decorator_context(&self, kind: &str, name: &str, is_static: bool, is_private: bool) -> Value {
         let mut ctx = HashMap::new();
-        ctx.insert("вид".to_string(), Value::String(kind.to_string()));
-        ctx.insert("имя".to_string(), Value::String(name.to_string()));
-        ctx.insert("статичное".to_string(), Value::Boolean(is_static));
-        ctx.insert("приватное".to_string(), Value::Boolean(is_private));
+        ctx.insert(symbols::DEC_KIND.to_string(), Value::String(kind.to_string()));
+        ctx.insert(symbols::DEC_NAME.to_string(), Value::String(name.to_string()));
+        ctx.insert(symbols::DEC_STATIC.to_string(), Value::Boolean(is_static));
+        ctx.insert(symbols::DEC_PRIVATE.to_string(), Value::Boolean(is_private));
         ctx.insert(
-            "добавитьИнициализатор".to_string(),
-            Value::BuiltinFunction("__добавитьИнициализатор__".to_string()),
+            symbols::DEC_ADD_INITIALIZER.to_string(),
+            Value::BuiltinFunction(symbols::ADD_INITIALIZER_BUILTIN.to_string()),
         );
         Value::Object(ctx)
     }
@@ -2315,12 +2315,12 @@ impl Interpreter {
 
     fn has_dispose_method(value: &Value, env: &Environment) -> bool {
         if let Value::Object(map) = value {
-            if let Some(Value::Function { .. }) = map.get("расход") {
+            if let Some(Value::Function { .. }) = map.get(symbols::DISPOSE_METHOD) {
                 return true;
             }
             if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
                 && let Some(Value::Class(cls)) = env.get(class_name)
-                && Self::find_method_in_class(&cls, "расход").is_some()
+                && Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD).is_some()
             {
                 return true;
             }
@@ -2330,13 +2330,13 @@ impl Interpreter {
 
     fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
         if let Value::Object(map) = &resource {
-            if let Some(Value::Function { params, body, env, .. }) = map.get("расход").cloned() {
+            if let Some(Value::Function { params, body, env, .. }) = map.get(symbols::DISPOSE_METHOD).cloned() {
                 self.call_method_with_this(&params, &body, &env, vec![], Some(resource.clone()), span)?;
                 return Ok(());
             }
             if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG).cloned()
                 && let Some(Value::Class(cls)) = self.env.get(&class_name)
-                && let Some(method) = Self::find_method_in_class(&cls, "расход")
+                && let Some(method) = Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD)
             {
                 let params = method.0.clone();
                 let body = Rc::clone(&method.1);
