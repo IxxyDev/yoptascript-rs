@@ -20,7 +20,7 @@ pub enum IteratorState {
     Done,
 }
 
-pub type MethodDef = (Vec<Param>, Rc<Block>, Rc<RefCell<EnvFrame>>);
+pub type MethodDef = (Rc<[Param]>, Rc<Block>, Rc<RefCell<EnvFrame>>);
 
 #[derive(Clone)]
 pub enum PromiseState {
@@ -61,8 +61,8 @@ pub enum Value {
     Map(Vec<(Value, Value)>),
     Set(Vec<Value>),
     Function {
-        name: String,
-        params: Vec<Param>,
+        name: Rc<str>,
+        params: Rc<[Param]>,
         body: Rc<Block>,
         env: Rc<RefCell<EnvFrame>>,
         is_generator: bool,

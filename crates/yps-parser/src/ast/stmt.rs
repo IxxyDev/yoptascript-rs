@@ -1,17 +1,19 @@
+use std::rc::Rc;
+
 use crate::ast::{Expr, Identifier, Param, Pattern};
 use yps_lexer::Span;
 
 #[derive(Debug, Clone)]
 pub enum ClassMember {
     Constructor {
-        params: Vec<Param>,
-        body: Block,
+        params: Rc<[Param]>,
+        body: Rc<Block>,
         span: Span,
     },
     Method {
         name: Identifier,
-        params: Vec<Param>,
-        body: Block,
+        params: Rc<[Param]>,
+        body: Rc<Block>,
         is_static: bool,
         is_private: bool,
         decorators: Vec<Expr>,
@@ -27,7 +29,7 @@ pub enum ClassMember {
     },
     Getter {
         name: Identifier,
-        body: Block,
+        body: Rc<Block>,
         is_static: bool,
         is_private: bool,
         decorators: Vec<Expr>,
@@ -36,7 +38,7 @@ pub enum ClassMember {
     Setter {
         name: Identifier,
         param: Param,
-        body: Block,
+        body: Rc<Block>,
         is_static: bool,
         is_private: bool,
         decorators: Vec<Expr>,
@@ -86,8 +88,8 @@ pub enum Stmt {
     },
     FunctionDecl {
         name: Identifier,
-        params: Vec<Param>,
-        body: Block,
+        params: Rc<[Param]>,
+        body: Rc<Block>,
         is_generator: bool,
         is_async: bool,
         span: Span,
