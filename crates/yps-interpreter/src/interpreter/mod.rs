@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use yps_lexer::Span;
@@ -17,18 +17,19 @@ use crate::value::{CapKind, ClassDef, PromiseState, Value};
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
+mod module_loader;
 mod types;
 
 use types::{AccessSegment, ControlFlow};
 
 pub struct Interpreter {
-    env: Environment,
-    pending_initializers: Vec<Value>,
-    base_path: Option<PathBuf>,
-    module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
-    current_exports: HashMap<String, Value>,
-    generator_buffer: Option<Vec<Value>>,
-    microtasks: VecDeque<Microtask>,
+    pub(super) env: Environment,
+    pub(super) pending_initializers: Vec<Value>,
+    pub(super) base_path: Option<PathBuf>,
+    pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
+    pub(super) current_exports: HashMap<String, Value>,
+    pub(super) generator_buffer: Option<Vec<Value>>,
+    pub(super) microtasks: VecDeque<Microtask>,
 }
 
 impl Default for Interpreter {
@@ -60,60 +61,6 @@ impl Interpreter {
 
     pub fn set_base_path(&mut self, path: PathBuf) {
         self.base_path = Some(path);
-    }
-
-    fn resolve_module_path(&self, source: &str, span: Span) -> Result<PathBuf, RuntimeError> {
-        let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
-        let mut candidate = base.join(source);
-        if candidate.extension().is_none() {
-            candidate.set_extension("yop");
-        }
-        candidate
-            .canonicalize()
-            .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))
-    }
-
-    fn load_module(&mut self, source: &str, span: Span) -> Result<HashMap<String, Value>, RuntimeError> {
-        let resolved = self.resolve_module_path(source, span)?;
-
-        if let Some(cached) = self.module_cache.borrow().get(&resolved) {
-            return Ok(cached.clone());
-        }
-
-        let code = std::fs::read_to_string(&resolved).map_err(|e| {
-            RuntimeError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span)
-        })?;
-        let source_file = yps_lexer::SourceFile::new(resolved.display().to_string(), code);
-        let lexer = yps_lexer::Lexer::new(&source_file);
-        let (tokens, lex_diags) = lexer.tokenize();
-        if !lex_diags.is_empty() {
-            return Err(RuntimeError::new(
-                format!("Ошибки лексера в модуле '{}': {:?}", resolved.display(), lex_diags),
-                span,
-            ));
-        }
-        let parser = yps_parser::Parser::new(&tokens, &source_file);
-        let (program, parse_diags) = parser.parse_program();
-        if !parse_diags.is_empty() {
-            return Err(RuntimeError::new(
-                format!("Ошибки парсера в модуле '{}': {:?}", resolved.display(), parse_diags),
-                span,
-            ));
-        }
-
-        let mut sub = Interpreter::new();
-        sub.module_cache = Rc::clone(&self.module_cache);
-        sub.base_path = resolved.parent().map(Path::to_path_buf);
-
-        let exports = sub.run_module(&program, &resolved)?;
-        Ok(exports)
-    }
-
-    pub fn run_module(&mut self, program: &Program, path: &Path) -> Result<HashMap<String, Value>, RuntimeError> {
-        self.run(program)?;
-        let exports = std::mem::take(&mut self.current_exports);
-        self.module_cache.borrow_mut().insert(path.to_path_buf(), exports.clone());
-        Ok(exports)
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
