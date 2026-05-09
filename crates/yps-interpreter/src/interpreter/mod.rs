@@ -17,17 +17,9 @@ use crate::value::{CapKind, ClassDef, PromiseState, Value};
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
-enum ControlFlow {
-    Break,
-    Continue,
-    Return(Value),
-    Throw(Value),
-}
+mod types;
 
-enum AccessSegment {
-    Index(Value),
-    Member(String),
-}
+use types::{AccessSegment, ControlFlow};
 
 pub struct Interpreter {
     env: Environment,
