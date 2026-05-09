@@ -1,13 +1,13 @@
 use crate::value::Value;
 
-pub(super) enum ControlFlow {
+pub(crate) enum ControlFlow {
     Break,
     Continue,
     Return(Value),
     Throw(Value),
 }
 
-pub(super) enum AccessSegment {
+pub(crate) enum AccessSegment {
     Index(Value),
     Member(String),
 }
