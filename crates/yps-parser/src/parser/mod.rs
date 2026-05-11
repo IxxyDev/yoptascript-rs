@@ -888,6 +888,7 @@ impl<'a> Parser<'a> {
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
+                | Stmt::ForAwaitOf { span, .. }
                 | Stmt::Empty { span }
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
@@ -912,6 +913,7 @@ impl<'a> Parser<'a> {
                 | Stmt::DoWhile { span, .. }
                 | Stmt::ForIn { span, .. }
                 | Stmt::ForOf { span, .. }
+                | Stmt::ForAwaitOf { span, .. }
                 | Stmt::Empty { span }
                 | Stmt::ClassDecl { span, .. }
                 | Stmt::Import { span, .. }
@@ -963,6 +965,7 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
+            | Stmt::ForAwaitOf { span, .. }
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
@@ -977,6 +980,11 @@ impl<'a> Parser<'a> {
     fn parse_for_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
+
+        let is_await = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Await));
+        if is_await {
+            self.advance();
+        }
 
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let span = self.current().span;
@@ -997,6 +1005,12 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(decl_offset).kind, TokenKind::Identifier)
             && matches!(self.peek(decl_offset + 1).kind, TokenKind::Keyword(KeywordKind::In))
         {
+            if is_await {
+                let span = self.current().span;
+                self.push_error(span, "'сидетьНахуй' допустим только с 'сашаГрей' (for-await-of)");
+                self.skip_to_for_recovery();
+                return Err(());
+            }
             if decl_offset == 1 {
                 self.advance();
             }
@@ -1009,7 +1023,17 @@ impl<'a> Parser<'a> {
             if decl_offset == 1 {
                 self.advance();
             }
+            if is_await {
+                return self.parse_for_await_of_rest(start);
+            }
             return self.parse_for_of_rest(start);
+        }
+
+        if is_await {
+            let span = self.current().span;
+            self.push_error(span, "'сидетьНахуй' допустим только с 'сашаГрей' (for-await-of)");
+            self.skip_to_for_recovery();
+            return Err(());
         }
 
         let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
@@ -1076,6 +1100,7 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
+            | Stmt::ForAwaitOf { span, .. }
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
@@ -1538,6 +1563,7 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
+            | Stmt::ForAwaitOf { span, .. }
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
@@ -1566,6 +1592,25 @@ impl<'a> Parser<'a> {
         let end = Self::stmt_end(&body);
 
         Ok(Stmt::ForOf { variable, iterable, body, span: Span { start, end } })
+    }
+
+    fn parse_for_await_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+        let variable = self.parse_identifier()?;
+        self.advance();
+
+        let iterable = self.parse_expr()?;
+
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' после 'го сидетьНахуй'");
+            return Err(());
+        }
+        self.advance();
+
+        let body = Box::new(self.parse_statement()?);
+        let end = Self::stmt_end(&body);
+
+        Ok(Stmt::ForAwaitOf { variable, iterable, body, span: Span { start, end } })
     }
 
     fn parse_do_while_stmt(&mut self) -> Result<Stmt, ()> {
@@ -1697,6 +1742,7 @@ impl<'a> Parser<'a> {
             | Stmt::DoWhile { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForOf { span, .. }
+            | Stmt::ForAwaitOf { span, .. }
             | Stmt::Empty { span }
             | Stmt::ClassDecl { span, .. }
             | Stmt::Import { span, .. }
@@ -1732,6 +1778,38 @@ impl<'a> Parser<'a> {
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) {
         self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span });
+    }
+
+    fn skip_to_for_recovery(&mut self) {
+        let mut depth = 1i32;
+        while !self.is_at_end() && depth > 0 {
+            match self.current().kind {
+                TokenKind::Punctuation(PunctuationKind::LParen) => depth += 1,
+                TokenKind::Punctuation(PunctuationKind::RParen) => depth -= 1,
+                _ => {}
+            }
+            self.advance();
+        }
+        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let mut brace_depth = 0i32;
+            loop {
+                match self.current().kind {
+                    TokenKind::Punctuation(PunctuationKind::LBrace) => brace_depth += 1,
+                    TokenKind::Punctuation(PunctuationKind::RBrace) => {
+                        brace_depth -= 1;
+                        if brace_depth == 0 {
+                            self.advance();
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                if self.is_at_end() {
+                    break;
+                }
+                self.advance();
+            }
+        }
     }
 
     fn synchronize(&mut self) {
