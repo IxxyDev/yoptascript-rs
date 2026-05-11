@@ -1,4 +1,5 @@
 pub mod array;
+pub mod error;
 pub mod iterator;
 pub mod json;
 pub mod map;
@@ -70,6 +71,9 @@ pub fn call_static_namespaced(
     }
     if let Some(stripped) = namespaced.strip_prefix("Итератор.") {
         return Some(iterator::call_static(interp, stripped, args, span));
+    }
+    if let Some(stripped) = namespaced.strip_prefix("Косяк.") {
+        return Some(error::call_static(interp, stripped, args, span));
     }
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
