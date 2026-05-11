@@ -4878,3 +4878,81 @@ fn test_iterator_spread_into_array() {
         ]))
     );
 }
+
+#[test]
+fn test_for_await_of_plain_values() {
+    let interp = run_code(
+        r#"
+        ассо йопта тест() {
+            гыы сумма = 0;
+            го сидетьНахуй (х сашаГрей [1, 2, 3, 4]) {
+                сумма += х;
+            }
+            отвечаю сумма;
+        }
+        гыы итог = 0;
+        тест().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(10.0)));
+}
+
+#[test]
+fn test_for_await_of_promises_in_array() {
+    let interp = run_code(
+        r#"
+        ассо йопта тест() {
+            гыы массив = [СловоПацана.решить(10), СловоПацана.решить(20), СловоПацана.решить(30)];
+            гыы сумма = 0;
+            го сидетьНахуй (х сашаГрей массив) {
+                сумма += х;
+            }
+            отвечаю сумма;
+        }
+        гыы итог = 0;
+        тест().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(60.0)));
+}
+
+#[test]
+fn test_for_await_of_rejects_for_in() {
+    use yps_lexer::{Lexer, SourceFile};
+    use yps_parser::Parser;
+    let source = SourceFile::new(
+        "test".to_string(),
+        r#"
+        ассо йопта тест() {
+            го сидетьНахуй (к чоунастут [1, 2]) { }
+        }
+        "#
+        .to_string(),
+    );
+    let (tokens, _) = Lexer::new(&source).tokenize();
+    let (_, parse_diags) = Parser::new(&tokens, &source).parse_program();
+    assert!(
+        parse_diags.iter().any(|d| d.message.contains("сидетьНахуй") || d.message.contains("сашаГрей")),
+        "Парсер должен отклонять 'го сидетьНахуй (... чоунастут ...)', получено: {parse_diags:?}"
+    );
+}
+
+#[test]
+fn test_for_await_of_break_and_continue() {
+    let interp = run_code(
+        r#"
+        ассо йопта тест() {
+            гыы собрано = [];
+            го сидетьНахуй (х сашаГрей [1, 2, 3, 4, 5]) {
+                вилкойвглаз (х == 2) { двигай; }
+                вилкойвглаз (х == 4) { харэ; }
+                собрано.push(х);
+            }
+            отвечаю собрано;
+        }
+        гыы итог = ноль;
+        тест().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(3.0)])));
+}

@@ -132,6 +132,12 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: Span,
     },
+    ForAwaitOf {
+        variable: Identifier,
+        iterable: Expr,
+        body: Box<Stmt>,
+        span: Span,
+    },
     ClassDecl {
         name: Identifier,
         super_class: Option<Expr>,
