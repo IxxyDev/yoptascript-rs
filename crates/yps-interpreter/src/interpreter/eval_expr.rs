@@ -253,42 +253,11 @@ impl Interpreter {
                 .env
                 .get(symbols::SUPER)
                 .ok_or_else(|| RuntimeError::new("'яга' (super) используется вне класса-наследника", *span)),
-            Expr::Yield { argument, delegate, span } => self.eval_yield(argument.as_deref(), *delegate, *span),
+            Expr::Yield { span, .. } => Err(RuntimeError::new(
+                "'поебалу' разрешён только как самостоятельный оператор или правая часть присваивания/декларации внутри 'пиздюли'",
+                *span,
+            )),
         }
-    }
-
-    fn eval_yield(&mut self, argument: Option<&Expr>, delegate: bool, span: Span) -> Result<Value, RuntimeError> {
-        if self.generator_buffer.is_none() {
-            return Err(RuntimeError::new("'поебалу' можно использовать только внутри 'пиздюли'", span));
-        }
-        if delegate {
-            let arg = argument.ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", span))?;
-            let val = self.eval_expr(arg)?;
-            let items: Vec<Value> = match val {
-                Value::Array(elements) => elements,
-                Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
-                Value::Set(s) => s,
-                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
-                other => {
-                    return Err(RuntimeError::new(
-                        format!("Нельзя итерировать по типу '{}' в 'поебалуна'", other.type_name()),
-                        span,
-                    ));
-                }
-            };
-            if let Some(buf) = self.generator_buffer.as_mut() {
-                buf.extend(items);
-            }
-        } else {
-            let val = match argument {
-                Some(arg) => self.eval_expr(arg)?,
-                None => Value::Undefined,
-            };
-            if let Some(buf) = self.generator_buffer.as_mut() {
-                buf.push(val);
-            }
-        }
-        Ok(Value::Undefined)
     }
 
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
