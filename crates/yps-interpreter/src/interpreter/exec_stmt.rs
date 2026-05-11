@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use yps_lexer::Span;
-use yps_parser::ast::{Block, ExportKind, ImportSpec, Pattern, Stmt};
+use yps_parser::ast::{Block, ExportKind, Expr, Identifier, ImportSpec, Pattern, Stmt};
 
 use crate::error::RuntimeError;
 use crate::symbols;
@@ -151,63 +151,10 @@ impl Interpreter {
                 Ok(None)
             }
             Stmt::ForOf { variable, iterable, body, span, .. } => {
-                let val = self.eval_expr(iterable)?;
-                if let Value::Iterator(rc) = val {
-                    self.env.push_scope();
-                    self.env.define(variable.name.clone(), Value::Undefined, false);
-                    loop {
-                        let next_val = {
-                            let mut state = rc.borrow_mut();
-                            crate::stdlib::iterator::next(self, &mut state, *span)?
-                        };
-                        let item = match next_val {
-                            Some(v) => v,
-                            None => break,
-                        };
-                        self.env.set(&variable.name, item);
-                        if let Some(cf) = self.exec_stmt(body)? {
-                            match cf {
-                                ControlFlow::Break => break,
-                                ControlFlow::Continue => continue,
-                                cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
-                                    self.env.pop_scope();
-                                    return Ok(Some(cf));
-                                }
-                            }
-                        }
-                    }
-                    self.env.pop_scope();
-                    return Ok(None);
-                }
-                let items: Vec<Value> = match val {
-                    Value::Array(elements) => elements,
-                    Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
-                    Value::Set(s) => s,
-                    Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
-                    other => {
-                        return Err(RuntimeError::new(
-                            format!("Нельзя итерировать по типу '{}'", other.type_name()),
-                            *span,
-                        ));
-                    }
-                };
-                self.env.push_scope();
-                self.env.define(variable.name.clone(), Value::Undefined, false);
-                for item in items {
-                    self.env.set(&variable.name, item);
-                    if let Some(cf) = self.exec_stmt(body)? {
-                        match cf {
-                            ControlFlow::Break => break,
-                            ControlFlow::Continue => continue,
-                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
-                                self.env.pop_scope();
-                                return Ok(Some(cf));
-                            }
-                        }
-                    }
-                }
-                self.env.pop_scope();
-                Ok(None)
+                self.exec_for_of_loop(variable, iterable, body, *span, false)
+            }
+            Stmt::ForAwaitOf { variable, iterable, body, span, .. } => {
+                self.exec_for_of_loop(variable, iterable, body, *span, true)
             }
             Stmt::Switch { expr, cases, default, .. } => {
                 let switch_val = self.eval_expr(expr)?;
@@ -438,6 +385,73 @@ impl Interpreter {
                 Ok(())
             }
         }
+    }
+
+    fn exec_for_of_loop(
+        &mut self,
+        variable: &Identifier,
+        iterable: &Expr,
+        body: &Stmt,
+        span: Span,
+        is_await: bool,
+    ) -> Result<Option<ControlFlow>, RuntimeError> {
+        let val = self.eval_expr(iterable)?;
+        let val = if is_await { self.do_await(val, span)? } else { val };
+        if let Value::Iterator(rc) = val {
+            self.env.push_scope();
+            self.env.define(variable.name.clone(), Value::Undefined, false);
+            loop {
+                let next_val = {
+                    let mut state = rc.borrow_mut();
+                    crate::stdlib::iterator::next(self, &mut state, span)?
+                };
+                let item = match next_val {
+                    Some(v) => v,
+                    None => break,
+                };
+                let item = if is_await { self.do_await(item, span)? } else { item };
+                self.env.set(&variable.name, item);
+                if let Some(cf) = self.exec_stmt(body)? {
+                    match cf {
+                        ControlFlow::Break => break,
+                        ControlFlow::Continue => continue,
+                        cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                            self.env.pop_scope();
+                            return Ok(Some(cf));
+                        }
+                    }
+                }
+            }
+            self.env.pop_scope();
+            return Ok(None);
+        }
+        let items: Vec<Value> = match val {
+            Value::Array(elements) => elements,
+            Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+            Value::Set(s) => s,
+            Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+            other => {
+                return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span));
+            }
+        };
+        self.env.push_scope();
+        self.env.define(variable.name.clone(), Value::Undefined, false);
+        for item in items {
+            let item = if is_await { self.do_await(item, span)? } else { item };
+            self.env.set(&variable.name, item);
+            if let Some(cf) = self.exec_stmt(body)? {
+                match cf {
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => continue,
+                    cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                        self.env.pop_scope();
+                        return Ok(Some(cf));
+                    }
+                }
+            }
+        }
+        self.env.pop_scope();
+        Ok(None)
     }
 }
 
