@@ -4956,3 +4956,45 @@ fn test_for_await_of_break_and_continue() {
     );
     assert_eq!(interp.get("итог"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(3.0)])));
 }
+
+#[test]
+fn test_kosyak_static_is_error() {
+    let interp = run_code(
+        r#"
+        гыы а = Косяк.этоКосяк(захуярить Косяк("ой"));
+        гыы б = Косяк.этоКосяк("строка");
+        гыы в = Косяк.этоКосяк({ name: "Другое" });
+        гыы г = Косяк.этоКосяк(ноль);
+        "#,
+    );
+    assert_eq!(interp.get("а"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("б"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("в"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("г"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn test_kosyak_static_is_error_english_alias() {
+    let interp = run_code(
+        r#"
+        гыы а = Косяк.isError(захуярить Косяк("ой"));
+        гыы б = Косяк.isError(42);
+        "#,
+    );
+    assert_eq!(interp.get("а"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("б"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn test_kosyak_unknown_static_method() {
+    let err = run_code_err(
+        r#"
+        Косяк.несуществует("х");
+        "#,
+    );
+    assert!(
+        err.message.contains("Косяк") && err.message.contains("несуществует"),
+        "Сообщение должно упоминать неизвестный метод, получено: {}",
+        err.message
+    );
+}

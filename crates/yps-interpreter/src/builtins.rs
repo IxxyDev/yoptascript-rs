@@ -1,14 +1,13 @@
-use std::collections::HashMap;
-
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
+use crate::stdlib;
 use crate::symbols;
 use crate::value::Value;
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     match name {
-        s if s == symbols::ERROR_NAME => construct_kosyak(args, span),
+        s if s == symbols::ERROR_NAME => stdlib::error::construct(args, span),
         "этоКосяк" => is_kosyak(args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
@@ -74,33 +73,9 @@ pub fn builtin_names() -> &'static [&'static str] {
     &["сказать", "длина", "тип", "число", "строка", "втолкнуть", symbols::ERROR_NAME, "этоКосяк"]
 }
 
-fn construct_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
-    if args.is_empty() {
-        return Err(RuntimeError::new("'Косяк' ожидает минимум 1 аргумент (сообщение)", span));
-    }
-    let mut iter = args.into_iter();
-    let message = iter.next().unwrap();
-    let opts = iter.next();
-    let mut map = HashMap::new();
-    map.insert(symbols::ERROR_NAME_FIELD.to_string(), Value::String(symbols::ERROR_NAME.to_string()));
-    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(message.to_string()));
-    if let Some(Value::Object(o)) = opts
-        && let Some(cause) = o.get(symbols::ERROR_CAUSE_FIELD)
-    {
-        map.insert(symbols::ERROR_CAUSE_FIELD.to_string(), cause.clone());
-    }
-    Ok(Value::Object(map))
-}
-
 fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("'этоКосяк' ожидает 1 аргумент", span));
     }
-    if let Value::Object(map) = &args[0]
-        && let Some(Value::String(name)) = map.get(symbols::ERROR_NAME_FIELD)
-        && name == symbols::ERROR_NAME
-    {
-        return Ok(Value::Boolean(true));
-    }
-    Ok(Value::Boolean(false))
+    Ok(Value::Boolean(stdlib::error::is_error(&args)))
 }
