@@ -4217,7 +4217,10 @@ fn generator_collects_yielded_values() {
                 поебалу и;
             }
         }
-        гыы рез = диапазон(3);
+        гыы рез = [];
+        го (гыы х сашаГрей диапазон(3)) {
+            рез.втолкнуть(х);
+        }
         "#,
     );
     assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)])));
@@ -4231,7 +4234,10 @@ fn generator_yield_without_argument() {
             поебалу;
             поебалу;
         }
-        гыы рез = пусто();
+        гыы рез = [];
+        го (гыы х сашаГрей пусто()) {
+            рез.втолкнуть(х);
+        }
         "#,
     );
     assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Undefined, Value::Undefined])));
@@ -4250,7 +4256,10 @@ fn generator_yield_delegate_flattens_iterable() {
             поебалуна вн();
             поебалу 2;
         }
-        гыы рез = внеш();
+        гыы рез = [];
+        го (гыы х сашаГрей внеш()) {
+            рез.втолкнуть(х);
+        }
         "#,
     );
     assert_eq!(
@@ -4269,7 +4278,7 @@ fn generator_iterable_in_for_of() {
             поебалу 3;
         }
         гыы сумма = 0;
-        го (гыы х из тройка()) {
+        го (гыы х сашаГрей тройка()) {
             сумма += х;
         }
         "#,
@@ -4286,10 +4295,215 @@ fn generator_early_return_stops_collection() {
             отвечаю;
             поебалу 2;
         }
-        гыы рез = стоп();
+        гыы рез = [];
+        го (гыы х сашаГрей стоп()) {
+            рез.втолкнуть(х);
+        }
         "#,
     );
     assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(1.0)])));
+}
+
+#[test]
+fn generator_is_lazy_infinite_take() {
+    let i = run_code(
+        r#"
+        пиздюли натуральные() {
+            гыы н = 0;
+            потрещим (правда) {
+                поебалу н;
+                н = н + 1;
+            }
+        }
+        гыы рез = натуральные().взять(4).вМассив();
+        "#,
+    );
+    assert_eq!(
+        i.get("рез"),
+        Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),]))
+    );
+}
+
+#[test]
+fn generator_closure_counter_preserves_state() {
+    let i = run_code(
+        r#"
+        пиздюли счёт() {
+            гыы н = 10;
+            потрещим (правда) {
+                поебалу н;
+                н = н + 1;
+            }
+        }
+        гыы ит = счёт();
+        гыы а = ит.следующий().значение;
+        гыы б = ит.следующий().значение;
+        гыы в = ит.следующий().значение;
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(10.0)));
+    assert_eq!(i.get("б"), Some(Value::Number(11.0)));
+    assert_eq!(i.get("в"), Some(Value::Number(12.0)));
+}
+
+#[test]
+fn generator_yield_in_if_branch() {
+    let i = run_code(
+        r#"
+        пиздюли только_чёт() {
+            го (гыы и = 0; и < 5; и += 1) {
+                вилкойвглаз (и % 2 === 0) {
+                    поебалу и;
+                }
+            }
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей только_чёт()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(2.0), Value::Number(4.0)])));
+}
+
+#[test]
+fn generator_yield_value_via_next_protocol() {
+    let i = run_code(
+        r#"
+        пиздюли пара() {
+            поебалу "а";
+            поебалу "б";
+        }
+        гыы ит = пара();
+        гыы р1 = ит.следующий();
+        гыы р2 = ит.следующий();
+        гыы р3 = ит.следующий();
+        "#,
+    );
+    let r1 = i.get("р1").unwrap();
+    let r2 = i.get("р2").unwrap();
+    let r3 = i.get("р3").unwrap();
+    if let Value::Object(m) = r1 {
+        assert_eq!(m.get("значение"), Some(&Value::String("а".to_string())));
+        assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
+    } else {
+        panic!("ожидался объект, получено {r1:?}");
+    }
+    if let Value::Object(m) = r2 {
+        assert_eq!(m.get("значение"), Some(&Value::String("б".to_string())));
+        assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
+    } else {
+        panic!();
+    }
+    if let Value::Object(m) = r3 {
+        assert_eq!(m.get("готово"), Some(&Value::Boolean(true)));
+    } else {
+        panic!();
+    }
+}
+
+#[test]
+fn generator_break_exits_inner_loop() {
+    let i = run_code(
+        r#"
+        пиздюли до_пяти() {
+            гыы и = 0;
+            потрещим (правда) {
+                вилкойвглаз (и >= 5) { харэ; }
+                поебалу и;
+                и = и + 1;
+            }
+            поебалу 99;
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей до_пяти()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_eq!(
+        i.get("рез"),
+        Some(Value::Array(vec![
+            Value::Number(0.0),
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+            Value::Number(4.0),
+            Value::Number(99.0),
+        ]))
+    );
+}
+
+#[test]
+fn generator_continue_in_while() {
+    let i = run_code(
+        r#"
+        пиздюли без_трёх() {
+            гыы и = 0;
+            потрещим (и < 5) {
+                и = и + 1;
+                вилкойвглаз (и === 3) { двигай; }
+                поебалу и;
+            }
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей без_трёх()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_eq!(
+        i.get("рез"),
+        Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(4.0), Value::Number(5.0),]))
+    );
+}
+
+#[test]
+fn generator_try_catch_yields_in_catch() {
+    let i = run_code(
+        r#"
+        пиздюли спотыкается() {
+            хапнуть {
+                поебалу 1;
+                кидай "бум";
+                поебалу 999;
+            } гоп (е) {
+                поебалу е;
+                поебалу 2;
+            }
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей спотыкается()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_eq!(
+        i.get("рез"),
+        Some(Value::Array(vec![Value::Number(1.0), Value::String("бум".to_string()), Value::Number(2.0),]))
+    );
+}
+
+#[test]
+fn generator_iter_helpers_compose() {
+    let i = run_code(
+        r#"
+        пиздюли диап() {
+            го (гыы и = 0; и < 10; и += 1) { поебалу и; }
+        }
+        гыы рез = диап()
+            .filter((х) => х % 2 === 0)
+            .map((х) => х * х)
+            .взять(3)
+            .вМассив();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(4.0), Value::Number(16.0)])));
+}
+
+#[test]
+fn generator_yield_in_subexpression_errors() {
+    let err = run_code_err(
+        r#"
+        пиздюли плохо() {
+            гыы х = (поебалу 1) + 2;
+        }
+        плохо().следующий();
+        "#,
+    );
+    assert!(err.message.contains("поебалу"));
 }
 
 #[test]

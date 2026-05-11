@@ -344,6 +344,16 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             *state = IteratorState::Done;
             Ok(None)
         }
+        IteratorState::Generator(gen_state) => {
+            let result = crate::interpreter::generator::step_generator(interp, gen_state, Value::Undefined, span)?;
+            match result {
+                Some(v) => Ok(Some(v)),
+                None => {
+                    *state = IteratorState::Done;
+                    Ok(None)
+                }
+            }
+        }
     }
 }
 

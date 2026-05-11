@@ -150,20 +150,11 @@ impl Interpreter {
                 }
 
                 if is_generator {
-                    let saved_buffer = self.generator_buffer.take();
-                    self.generator_buffer = Some(Vec::new());
-                    let result = self.exec_block_stmts(&body.stmts);
-                    let collected = self.generator_buffer.take().unwrap_or_default();
-                    self.generator_buffer = saved_buffer;
-                    self.env = saved_env;
-                    match result? {
-                        Some(ControlFlow::Return(_)) | None => Ok(Value::Array(collected)),
-                        Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-                        Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
-                        Some(ControlFlow::Throw(val)) => {
-                            Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
-                        }
-                    }
+                    let gen_env = std::mem::replace(&mut self.env, saved_env);
+                    let gen_state = super::generator::build_generator(gen_env, &body);
+                    Ok(Value::Iterator(Rc::new(RefCell::new(crate::value::IteratorState::Generator(Box::new(
+                        gen_state,
+                    ))))))
                 } else if is_async {
                     let result = self.exec_block_stmts(&body.stmts);
                     self.env = saved_env;

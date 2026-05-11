@@ -19,6 +19,7 @@ mod class;
 mod delete;
 mod eval_expr;
 mod exec_stmt;
+pub(crate) mod generator;
 mod member;
 mod module_loader;
 mod promise_rt;
@@ -32,7 +33,6 @@ pub struct Interpreter {
     pub(super) base_path: Option<PathBuf>,
     pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
     pub(super) current_exports: HashMap<String, Value>,
-    pub(super) generator_buffer: Option<Vec<Value>>,
     pub(super) microtasks: VecDeque<Microtask>,
 }
 
@@ -58,7 +58,6 @@ impl Interpreter {
             base_path: None,
             module_cache: Rc::new(RefCell::new(HashMap::new())),
             current_exports: HashMap::new(),
-            generator_buffer: None,
             microtasks: VecDeque::new(),
         }
     }
