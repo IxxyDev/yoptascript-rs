@@ -3,9 +3,9 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::rc::Rc;
 
-use yps_parser::ast::{Block, Param};
+use yps_parser::ast::{Block, Expr, Param, Stmt};
 
-use crate::environment::EnvFrame;
+use crate::environment::{EnvFrame, Environment};
 
 #[derive(Debug, Clone)]
 pub enum IteratorState {
@@ -17,7 +17,106 @@ pub enum IteratorState {
     Take { inner: Box<IteratorState>, remaining: usize },
     Drop { inner: Box<IteratorState>, count: usize, dropped: bool },
     Concat { iters: VecDeque<IteratorState> },
+    Generator(Box<GenState>),
     Done,
+}
+
+#[derive(Clone)]
+pub struct GenState {
+    pub env: Environment,
+    pub frames: Vec<GenFrame>,
+    pub completed: bool,
+    pub pending_bind: Option<BindTarget>,
+}
+
+#[derive(Clone)]
+pub enum BindTarget {
+    Variable { name: String, is_const: bool },
+    Reassign(String),
+}
+
+#[derive(Clone)]
+pub enum GenFrame {
+    Block {
+        stmts: Rc<[Stmt]>,
+        idx: usize,
+    },
+    While {
+        condition: Expr,
+        body: Rc<Stmt>,
+        phase: LoopPhase,
+    },
+    DoWhile {
+        condition: Expr,
+        body: Rc<Stmt>,
+        phase: LoopPhase,
+    },
+    For {
+        condition: Option<Expr>,
+        update: Option<Expr>,
+        body: Rc<Stmt>,
+        phase: LoopPhase,
+    },
+    ForIter {
+        var_name: String,
+        iter: Rc<RefCell<IteratorState>>,
+        body: Rc<Stmt>,
+    },
+    Delegate {
+        inner: Rc<RefCell<IteratorState>>,
+    },
+    TryCatch {
+        catch_param: Option<String>,
+        catch_body: Option<Rc<[Stmt]>>,
+        finally_body: Option<Rc<[Stmt]>>,
+        state: TryState,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LoopPhase {
+    CheckCond,
+    AfterBody,
+}
+
+#[derive(Clone)]
+pub enum TryState {
+    Trying,
+    InCatch,
+    FinallyNormal,
+    FinallyAfterThrow(Value),
+    FinallyAfterReturn(Value),
+    FinallyAfterBreak,
+    FinallyAfterContinue,
+}
+
+impl fmt::Debug for GenState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GenState").field("frames", &self.frames.len()).field("completed", &self.completed).finish()
+    }
+}
+
+impl fmt::Debug for GenFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GenFrame::Block { idx, stmts } => write!(f, "Block(idx={idx}, len={})", stmts.len()),
+            GenFrame::While { phase, .. } => write!(f, "While({phase:?})"),
+            GenFrame::DoWhile { phase, .. } => write!(f, "DoWhile({phase:?})"),
+            GenFrame::For { phase, .. } => write!(f, "For({phase:?})"),
+            GenFrame::ForIter { var_name, .. } => write!(f, "ForIter({var_name})"),
+            GenFrame::Delegate { .. } => write!(f, "Delegate"),
+            GenFrame::TryCatch { .. } => write!(f, "TryCatch"),
+        }
+    }
+}
+
+impl fmt::Debug for LoopPhase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LoopPhase::CheckCond => write!(f, "CheckCond"),
+            LoopPhase::AfterBody => write!(f, "AfterBody"),
+        }
+    }
 }
 
 pub type MethodDef = (Rc<[Param]>, Rc<Block>, Rc<RefCell<EnvFrame>>);
