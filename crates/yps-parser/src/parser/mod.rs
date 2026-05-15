@@ -609,7 +609,13 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Stmt::Debugger { span })
             }
-            TokenKind::Keyword(KeywordKind::Import) => self.parse_import_stmt(),
+            TokenKind::Keyword(KeywordKind::Import) => {
+                if matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                    self.parse_expr_stmt()
+                } else {
+                    self.parse_import_stmt()
+                }
+            }
             TokenKind::Keyword(KeywordKind::Export) => self.parse_export_stmt(),
             TokenKind::Punctuation(PunctuationKind::At) => {
                 let decorators = self.parse_decorators()?;
@@ -1400,6 +1406,26 @@ impl<'a> Parser<'a> {
         Ok(Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, span: Span { start, end } })
     }
 
+    fn parse_dynamic_import(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance();
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '(' после 'спиздить' в динамическом импорте");
+            return Err(());
+        }
+        self.advance();
+        let source = self.parse_expr()?;
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась ')' в динамическом импорте");
+            return Err(());
+        }
+        let end = self.current().span.end;
+        self.advance();
+        Ok(Expr::DynamicImport { source: Box::new(source), span: Span { start, end } })
+    }
+
     fn parse_import_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
@@ -1934,6 +1960,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Keyword(KeywordKind::Async) => self.parse_async_expr()?,
             TokenKind::Keyword(KeywordKind::New) => self.parse_new_expr()?,
+            TokenKind::Keyword(KeywordKind::Import)
+                if matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen)) =>
+            {
+                self.parse_dynamic_import()?
+            }
             _ => self.parse_primary()?,
         };
 
