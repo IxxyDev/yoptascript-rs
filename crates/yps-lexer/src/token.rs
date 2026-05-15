@@ -118,6 +118,7 @@ pub enum TokenKind {
     TemplateHead,
     TemplateMiddle,
     TemplateTail,
+    RegexLiteral,
     Eof,
     Unknown,
 }

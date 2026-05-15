@@ -24,4 +24,5 @@ pub enum Literal {
     Undefined { span: Span },
     Array { elements: Vec<Expr>, span: Span },
     Object { entries: Vec<ObjectEntry>, span: Span },
+    RegExp { pattern: String, flags: String, span: Span },
 }

@@ -128,6 +128,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
                 span,
             ));
         }
+        Value::RegExp { .. } => out.push_str("{}"),
     }
     Ok(())
 }

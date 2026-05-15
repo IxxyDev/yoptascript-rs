@@ -8,3 +8,4 @@ publish.workspace = true
 [dependencies]
 yps-lexer = { path = "../yps-lexer" }
 yps-parser = { path = "../yps-parser" }
+regex = "1"

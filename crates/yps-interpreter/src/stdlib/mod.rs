@@ -7,6 +7,7 @@ pub mod math;
 pub mod number;
 pub mod object;
 pub mod promise;
+pub mod regexp;
 pub mod set;
 pub mod string;
 pub mod symbol;
@@ -35,6 +36,7 @@ pub fn call_method(
         Value::Symbol { .. } => symbol::call_instance(interp, receiver, method, args, span),
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
+        Value::RegExp { .. } => regexp::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
