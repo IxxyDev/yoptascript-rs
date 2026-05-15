@@ -49,6 +49,12 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
+            Value::RegExp { .. } => {
+                if let Some(v) = crate::stdlib::regexp::member(&obj, property) {
+                    return Ok(v);
+                }
+                Ok(Value::Undefined)
+            }
             Value::Object(map) => {
                 if property.starts_with('#') {
                     let in_class = if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG) {

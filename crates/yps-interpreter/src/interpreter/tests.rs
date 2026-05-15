@@ -5119,3 +5119,53 @@ fn import_attributes_russian_alias_satr() {
     let interp = run_with_data_file("a.json", json, main);
     assert_eq!(interp.get("значение"), Some(Value::Number(7.0)));
 }
+
+#[test]
+fn regex_literal_test_and_find() {
+    let interp = run_code(
+        r#"
+        гыы шаблон = /\d+/;
+        гыы есть = шаблон.проверить("номер 42");
+        гыы найдено = шаблон.найти("abc 123 def");
+        гыы первое = найдено[0];
+        "#,
+    );
+    assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("первое"), Some(Value::String("123".to_string())));
+}
+
+#[test]
+fn regex_case_insensitive_flag() {
+    let interp = run_code(
+        r#"
+        гыы p = /hello/i;
+        гыы r = p.проверить("Hello World");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn regex_source_and_flags_properties() {
+    let interp = run_code(
+        r#"
+        гыы p = /foo/gi;
+        гыы src = p.источник;
+        гыы fl = p.флаги;
+        "#,
+    );
+    assert_eq!(interp.get("src"), Some(Value::String("foo".to_string())));
+    assert_eq!(interp.get("fl"), Some(Value::String("gi".to_string())));
+}
+
+#[test]
+fn regex_division_disambiguation() {
+    let interp = run_code(
+        r#"
+        гыы a = 10;
+        гыы b = 2;
+        гыы c = a / b / 1;
+        "#,
+    );
+    assert_eq!(interp.get("c"), Some(Value::Number(5.0)));
+}

@@ -70,7 +70,8 @@ impl Expr {
                 | Literal::Null { span }
                 | Literal::Undefined { span }
                 | Literal::Array { span, .. }
-                | Literal::Object { span, .. } => *span,
+                | Literal::Object { span, .. }
+                | Literal::RegExp { span, .. } => *span,
             },
             Self::Unary { span, .. }
             | Self::Binary { span, .. }
