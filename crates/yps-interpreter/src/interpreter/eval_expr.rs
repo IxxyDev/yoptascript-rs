@@ -257,6 +257,28 @@ impl Interpreter {
                 "'поебалу' разрешён только как самостоятельный оператор или правая часть присваивания/декларации внутри 'пиздюли'",
                 *span,
             )),
+            Expr::DynamicImport { source, span } => {
+                let source_val = self.eval_expr(source)?;
+                let path = match source_val {
+                    Value::String(s) => s,
+                    other => {
+                        return Ok(Self::make_rejected_promise(Value::String(format!(
+                            "Аргумент динамического импорта должен быть строкой, получено '{}'",
+                            other.type_name()
+                        ))));
+                    }
+                };
+                match self.load_module(&path, *span) {
+                    Ok(exports) => {
+                        let mut map = HashMap::new();
+                        for (k, v) in exports {
+                            map.insert(k, v);
+                        }
+                        Ok(Self::make_fulfilled_promise(Value::Object(map)))
+                    }
+                    Err(err) => Ok(Self::make_rejected_promise(Value::String(err.message))),
+                }
+            }
         }
     }
 
