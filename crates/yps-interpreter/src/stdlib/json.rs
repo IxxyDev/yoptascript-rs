@@ -12,6 +12,17 @@ pub fn build_object() -> Value {
     object_of(&[("разобрать", builtin("Жсон.разобрать")), ("вСтроку", builtin("Жсон.вСтроку"))])
 }
 
+pub(crate) fn parse_str(source: &str, span: Span) -> Result<Value, RuntimeError> {
+    let mut parser = JsonParser { input: source.as_bytes(), pos: 0 };
+    parser.skip_ws();
+    let v = parser.parse_value(span)?;
+    parser.skip_ws();
+    if parser.pos != parser.input.len() {
+        return Err(RuntimeError::new("Лишние символы после JSON", span));
+    }
+    Ok(v)
+}
+
 pub fn call_static(
     _interp: &mut Interpreter,
     method: &str,

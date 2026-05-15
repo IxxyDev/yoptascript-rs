@@ -156,6 +156,7 @@ pub enum Stmt {
     Import {
         specifiers: Vec<ImportSpec>,
         source: String,
+        attributes: Vec<(String, String)>,
         span: Span,
     },
     Export {
