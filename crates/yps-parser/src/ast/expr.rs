@@ -54,6 +54,8 @@ pub enum Expr {
     Yield { argument: Option<Box<Expr>>, delegate: bool, span: Span },
 
     Await { argument: Box<Expr>, span: Span },
+
+    DynamicImport { source: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -89,7 +91,8 @@ impl Expr {
             | Self::New { span, .. }
             | Self::Super { span, .. }
             | Self::Yield { span, .. }
-            | Self::Await { span, .. } => *span,
+            | Self::Await { span, .. }
+            | Self::DynamicImport { span, .. } => *span,
         }
     }
 }
