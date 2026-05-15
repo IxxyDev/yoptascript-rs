@@ -240,8 +240,13 @@ impl Interpreter {
                 self.env.define(name.name.clone(), value, true);
                 Ok(None)
             }
-            Stmt::Import { specifiers, source, span } => {
-                let exports = self.load_module(source, *span)?;
+            Stmt::Import { specifiers, source, attributes, span } => {
+                let import_type = attributes.iter().find(|(k, _)| k == "type").map(|(_, v)| v.as_str());
+                let exports = if import_type == Some("json") {
+                    self.load_json_module(source, *span)?
+                } else {
+                    self.load_module(source, *span)?
+                };
                 for spec in specifiers {
                     match spec {
                         ImportSpec::Default { local } => {

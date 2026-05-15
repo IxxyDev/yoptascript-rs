@@ -6,6 +6,7 @@ use yps_lexer::Span;
 use yps_parser::ast::Program;
 
 use crate::error::RuntimeError;
+use crate::stdlib::json;
 use crate::value::Value;
 
 use super::Interpreter;
@@ -20,6 +21,31 @@ impl Interpreter {
         candidate
             .canonicalize()
             .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))
+    }
+
+    pub(super) fn load_json_module(
+        &mut self,
+        source: &str,
+        span: Span,
+    ) -> Result<HashMap<String, Value>, RuntimeError> {
+        let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
+        let resolved = base
+            .join(source)
+            .canonicalize()
+            .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))?;
+
+        if let Some(cached) = self.module_cache.borrow().get(&resolved) {
+            return Ok(cached.clone());
+        }
+
+        let code = std::fs::read_to_string(&resolved).map_err(|e| {
+            RuntimeError::new(format!("Не удалось прочитать JSON модуль '{}': {e}", resolved.display()), span)
+        })?;
+        let value = json::parse_str(&code, span)?;
+        let mut exports = HashMap::new();
+        exports.insert("default".to_string(), value);
+        self.module_cache.borrow_mut().insert(resolved, exports.clone());
+        Ok(exports)
     }
 
     pub(super) fn load_module(&mut self, source: &str, span: Span) -> Result<HashMap<String, Value>, RuntimeError> {
