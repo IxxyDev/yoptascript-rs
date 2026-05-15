@@ -1481,6 +1481,16 @@ impl<'a> Parser<'a> {
             return Err(());
         };
 
+        let attributes = if matches!(self.current().kind, TokenKind::Identifier) && {
+            let raw = self.source.slice(self.current().span);
+            raw == "with" || raw == "сатр"
+        } {
+            self.advance();
+            self.parse_import_attributes()?
+        } else {
+            Vec::new()
+        };
+
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась ';' после импорта");
@@ -1489,7 +1499,73 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::Import { specifiers, source, span: Span { start, end } })
+        Ok(Stmt::Import { specifiers, source, attributes, span: Span { start, end } })
+    }
+
+    fn parse_import_attributes(&mut self) -> Result<Vec<(String, String)>, ()> {
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '{' после 'with' в импорте");
+            return Err(());
+        }
+        self.advance();
+
+        let mut attrs: Vec<(String, String)> = Vec::new();
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            loop {
+                let key = match &self.current().kind {
+                    TokenKind::Identifier => {
+                        let s = self.source.slice(self.current().span).to_string();
+                        self.advance();
+                        s
+                    }
+                    TokenKind::StringLiteral => {
+                        let raw = self.source.slice(self.current().span);
+                        let inner = &raw[1..raw.len() - 1];
+                        let s = Self::unescape_string(inner);
+                        self.advance();
+                        s
+                    }
+                    _ => {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидался ключ атрибута импорта");
+                        return Err(());
+                    }
+                };
+                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    let span = self.current().span;
+                    self.push_error(span, "Ожидалось ':' в атрибутах импорта");
+                    return Err(());
+                }
+                self.advance();
+                if !matches!(self.current().kind, TokenKind::StringLiteral) {
+                    let span = self.current().span;
+                    self.push_error(span, "Значение атрибута импорта должно быть строкой");
+                    return Err(());
+                }
+                let raw = self.source.slice(self.current().span);
+                let inner = &raw[1..raw.len() - 1];
+                let value = Self::unescape_string(inner);
+                self.advance();
+                attrs.push((key, value));
+
+                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
+                    self.advance();
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
+            let span = self.current().span;
+            self.push_error(span, "Ожидалась '}' в атрибутах импорта");
+            return Err(());
+        }
+        self.advance();
+        Ok(attrs)
     }
 
     fn parse_export_stmt(&mut self) -> Result<Stmt, ()> {
