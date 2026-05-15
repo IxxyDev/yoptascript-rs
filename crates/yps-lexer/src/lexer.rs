@@ -5,12 +5,13 @@ pub struct Lexer<'src> {
     position: usize,
     diagnostics: Vec<Diagnostic>,
     template_brace_depth: Vec<usize>,
+    last_kind: Option<TokenKind>,
 }
 
 impl<'src> Lexer<'src> {
     #[must_use]
     pub const fn new(source: &'src SourceFile) -> Self {
-        Self { source, position: 0, diagnostics: Vec::new(), template_brace_depth: Vec::new() }
+        Self { source, position: 0, diagnostics: Vec::new(), template_brace_depth: Vec::new(), last_kind: None }
     }
 
     #[must_use]
@@ -20,6 +21,9 @@ impl<'src> Lexer<'src> {
         loop {
             let token = self.next_token();
             let is_eof = matches!(token.kind, TokenKind::Eof);
+            if !is_eof {
+                self.last_kind = Some(token.kind.clone());
+            }
             tokens.push(token);
 
             if is_eof {
@@ -28,6 +32,93 @@ impl<'src> Lexer<'src> {
         }
 
         (tokens, self.diagnostics)
+    }
+
+    fn regex_context(&self) -> bool {
+        match &self.last_kind {
+            None => true,
+            Some(k) => match k {
+                TokenKind::Identifier
+                | TokenKind::PrivateIdentifier
+                | TokenKind::Number
+                | TokenKind::StringLiteral
+                | TokenKind::TemplateNoSub
+                | TokenKind::TemplateTail
+                | TokenKind::RegexLiteral => false,
+                TokenKind::Keyword(kw) => !matches!(
+                    kw,
+                    KeywordKind::Pravda
+                        | KeywordKind::Lozh
+                        | KeywordKind::Nol
+                        | KeywordKind::Undefined
+                        | KeywordKind::This
+                        | KeywordKind::Super
+                ),
+                TokenKind::Operator(op) => !matches!(op, OperatorKind::Increment | OperatorKind::Decrement),
+                TokenKind::Punctuation(p) => matches!(
+                    p,
+                    PunctuationKind::LParen
+                        | PunctuationKind::LBracket
+                        | PunctuationKind::LBrace
+                        | PunctuationKind::Comma
+                        | PunctuationKind::Semicolon
+                        | PunctuationKind::Colon
+                        | PunctuationKind::Question
+                        | PunctuationKind::Arrow
+                        | PunctuationKind::Spread
+                        | PunctuationKind::At
+                ),
+                TokenKind::TemplateHead | TokenKind::TemplateMiddle => true,
+                TokenKind::Eof | TokenKind::Unknown => true,
+            },
+        }
+    }
+
+    fn read_regex(&mut self, start: usize) -> Token {
+        let mut in_class = false;
+        let mut closed = false;
+        while !self.is_at_end() {
+            let ch = self.current_char();
+            if ch == '\n' {
+                break;
+            }
+            if ch == '\\' {
+                self.advance();
+                if !self.is_at_end() && self.current_char() != '\n' {
+                    self.advance();
+                }
+                continue;
+            }
+            if ch == '[' {
+                in_class = true;
+                self.advance();
+                continue;
+            }
+            if ch == ']' && in_class {
+                in_class = false;
+                self.advance();
+                continue;
+            }
+            if ch == '/' && !in_class {
+                self.advance();
+                closed = true;
+                break;
+            }
+            self.advance();
+        }
+        if !closed {
+            self.diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                message: "Незавершённый regex-литерал".to_string(),
+                span: Span { start, end: self.position },
+            });
+            return Token { kind: TokenKind::Unknown, span: Span { start, end: self.position } };
+        }
+        while !self.is_at_end() && self.current_char().is_ascii_alphabetic() {
+            self.advance();
+        }
+        let end = self.position;
+        Token { kind: TokenKind::RegexLiteral, span: Span { start, end } }
     }
 
     fn next_token(&mut self) -> Token {
@@ -251,6 +342,8 @@ impl<'src> Lexer<'src> {
                         self.advance();
                     }
                     return self.next_token();
+                } else if self.regex_context() {
+                    return self.read_regex(start);
                 } else if self.current_char() == '=' {
                     self.advance();
                     TokenKind::Operator(OperatorKind::DivAssign)

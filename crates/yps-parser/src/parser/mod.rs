@@ -49,6 +49,7 @@ impl<'a> Parser<'a> {
         match &self.current().kind {
             TokenKind::Number => Ok(self.parse_number()),
             TokenKind::StringLiteral => Ok(self.parse_string()),
+            TokenKind::RegexLiteral => Ok(self.parse_regex()),
             TokenKind::Keyword(KeywordKind::Pravda) => {
                 let span = self.current().span;
                 self.advance();
@@ -121,6 +122,35 @@ impl<'a> Parser<'a> {
         let value = Self::unescape_string(inner);
         self.advance();
         Expr::Literal(Literal::String { value, span })
+    }
+
+    fn parse_regex(&mut self) -> Expr {
+        let span = self.current().span;
+        let raw = self.source.slice(span);
+        let bytes = raw.as_bytes();
+        let mut i = 1;
+        let mut in_class = false;
+        let mut pat_end = bytes.len();
+        while i < bytes.len() {
+            let c = bytes[i];
+            if c == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if c == b'[' {
+                in_class = true;
+            } else if c == b']' && in_class {
+                in_class = false;
+            } else if c == b'/' && !in_class {
+                pat_end = i;
+                break;
+            }
+            i += 1;
+        }
+        let pattern = raw[1..pat_end].to_string();
+        let flags = if pat_end < raw.len() { raw[pat_end + 1..].to_string() } else { String::new() };
+        self.advance();
+        Expr::Literal(Literal::RegExp { pattern, flags, span })
     }
 
     fn unescape_string(s: &str) -> String {

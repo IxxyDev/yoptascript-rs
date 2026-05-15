@@ -132,6 +132,7 @@ impl Interpreter {
                             | Value::Symbol { .. }
                             | Value::Promise { .. }
                             | Value::Iterator(_)
+                            | Value::RegExp { .. }
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
@@ -391,6 +392,10 @@ impl Interpreter {
                     }
                 }
                 Ok(Value::Object(map))
+            }
+            Literal::RegExp { pattern, flags, span } => {
+                let compiled = crate::stdlib::regexp::compile(pattern, flags, *span)?;
+                Ok(Value::RegExp { pattern: pattern.clone(), flags: flags.clone(), compiled })
             }
         }
     }

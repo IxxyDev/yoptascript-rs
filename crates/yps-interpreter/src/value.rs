@@ -191,6 +191,11 @@ pub enum Value {
         cap: Box<Value>,
     },
     Iterator(Rc<RefCell<IteratorState>>),
+    RegExp {
+        pattern: String,
+        flags: String,
+        compiled: Rc<regex::Regex>,
+    },
     Undefined,
     Null,
 }
@@ -225,7 +230,8 @@ impl Value {
             | Value::Map(_)
             | Value::Set(_)
             | Value::Promise { .. }
-            | Value::Iterator(_) => "объект",
+            | Value::Iterator(_)
+            | Value::RegExp { .. } => "объект",
             Value::Symbol { .. } => "символ",
         }
     }
@@ -248,6 +254,7 @@ impl Value {
             Value::Symbol { .. } => "символ",
             Value::Promise { .. } => "обещание",
             Value::Iterator(_) => "итератор",
+            Value::RegExp { .. } => "регэксп",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -283,6 +290,7 @@ impl fmt::Debug for Value {
             Value::PromiseThenHandler { .. } => write!(f, "PromiseThenHandler"),
             Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
+            Value::RegExp { pattern, flags, .. } => write!(f, "RegExp(/{pattern}/{flags})"),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -361,6 +369,7 @@ impl fmt::Display for Value {
             Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
+            Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
         }
     }
 }
