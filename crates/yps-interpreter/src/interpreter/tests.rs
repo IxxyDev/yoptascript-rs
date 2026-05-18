@@ -5169,3 +5169,200 @@ fn regex_division_disambiguation() {
     );
     assert_eq!(interp.get("c"), Some(Value::Number(5.0)));
 }
+
+#[test]
+fn bigint_literal() {
+    let interp = run_code(
+        r#"
+        гыы a = 123n;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::BigInt(123)));
+}
+
+#[test]
+fn bigint_arithmetic() {
+    let interp = run_code(
+        r#"
+        гыы a = 1000000000000n;
+        гыы b = 2n;
+        гыы s = a + b;
+        гыы d = a - b;
+        гыы m = a * b;
+        гыы q = a / b;
+        гыы r = a % b;
+        гыы p = b ** 10n;
+        "#,
+    );
+    assert_eq!(interp.get("s"), Some(Value::BigInt(1_000_000_000_002)));
+    assert_eq!(interp.get("d"), Some(Value::BigInt(999_999_999_998)));
+    assert_eq!(interp.get("m"), Some(Value::BigInt(2_000_000_000_000)));
+    assert_eq!(interp.get("q"), Some(Value::BigInt(500_000_000_000)));
+    assert_eq!(interp.get("r"), Some(Value::BigInt(0)));
+    assert_eq!(interp.get("p"), Some(Value::BigInt(1024)));
+}
+
+#[test]
+fn bigint_unary_minus() {
+    let interp = run_code(
+        r#"
+        гыы a = -7n;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::BigInt(-7)));
+}
+
+#[test]
+fn bigint_compare() {
+    let interp = run_code(
+        r#"
+        гыы a = 5n < 7n;
+        гыы b = 5n == 5n;
+        гыы c = 5n > 7n;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("c"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn bigint_typeof() {
+    let interp = run_code(
+        r#"
+        гыы t = чезажижан 9n;
+        "#,
+    );
+    assert_eq!(interp.get("t"), Some(Value::String("бигцелое".to_string())));
+}
+
+#[test]
+fn bigint_mixed_with_number_errors() {
+    let err = run_code_err("гыы x = 1n + 2;");
+    assert!(err.message.contains("Нельзя смешивать"));
+}
+
+#[test]
+fn bigint_div_by_zero_errors() {
+    let err = run_code_err("гыы x = 5n / 0n;");
+    assert!(err.message.contains("ноль"));
+}
+
+#[test]
+fn bigint_constructor_from_string() {
+    let interp = run_code(
+        r#"
+        гыы a = БигЦелое("999");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::BigInt(999)));
+}
+
+#[test]
+fn bigint_constructor_from_number() {
+    let interp = run_code(
+        r#"
+        гыы a = БигЦелое(42);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::BigInt(42)));
+}
+
+#[test]
+fn bigint_constructor_rejects_fractional() {
+    let err = run_code_err(r#"гыы x = БигЦелое(1.5);"#);
+    assert!(err.message.contains("целое"));
+}
+
+#[test]
+fn proto_create_and_lookup() {
+    let interp = run_code(
+        r#"
+        гыы родитель = { привет: "ку" };
+        гыы потомок = Кент.создать(родитель);
+        гыы рез = потомок.привет;
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("ку".to_string())));
+}
+
+#[test]
+fn proto_own_shadows_parent() {
+    let interp = run_code(
+        r#"
+        гыы родитель = { x: 1 };
+        гыы потомок = Кент.создать(родитель);
+        потомок.x = 2;
+        гыы a = потомок.x;
+        гыы b = родитель.x;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn proto_get_proto_returns_null_when_none() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1 };
+        гыы p = Кент.прототип(o);
+        "#,
+    );
+    assert_eq!(interp.get("p"), Some(Value::Null));
+}
+
+#[test]
+fn proto_set_proto_changes_lookup() {
+    let interp = run_code(
+        r#"
+        гыы a = { ключ: "ааа" };
+        гыы b = { ключ: "ббб" };
+        гыы o = Кент.создать(a);
+        o = Кент.назначитьПрототип(o, b);
+        гыы r = o.ключ;
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("ббб".to_string())));
+}
+
+#[test]
+fn proto_chain_two_levels() {
+    let interp = run_code(
+        r#"
+        гыы дед = { имя: "дед" };
+        гыы отец = Кент.создать(дед);
+        гыы сын = Кент.создать(отец);
+        гыы рез = сын.имя;
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("дед".to_string())));
+}
+
+#[test]
+fn class_prototype_has_methods() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            привет() { отвечаю "хай"; }
+        }
+        гыы proto = К.прототип;
+        гыы m = proto.привет;
+        гыы t = чезажижан m;
+        "#,
+    );
+    assert_eq!(interp.get("t"), Some(Value::String("функция".to_string())));
+}
+
+#[test]
+fn instance_constructor_returns_class() {
+    let interp = run_code(
+        r#"
+        клёво К {}
+        гыы x = захуярить К();
+        гыы c = x.конструктор;
+        гыы тот = c == К;
+        "#,
+    );
+    assert_eq!(interp.get("тот"), Some(Value::Boolean(true)));
+}

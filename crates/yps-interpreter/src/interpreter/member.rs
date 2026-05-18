@@ -87,6 +87,12 @@ impl Interpreter {
                 if let Some(val) = map.get(property) {
                     return Ok(val.clone());
                 }
+                if (property == "конструктор" || property == "constructor")
+                    && let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
+                    && let Some(cls_val @ Value::Class(_)) = self.env.get(class_name)
+                {
+                    return Ok(cls_val);
+                }
                 if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
                     && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
                 {
@@ -107,9 +113,15 @@ impl Interpreter {
                         });
                     }
                 }
+                if let Some(proto) = map.get(symbols::PROTO).cloned() {
+                    return self.eval_member(proto, property, span);
+                }
                 Ok(Value::Undefined)
             }
             Value::Class(cls) => {
+                if property == "прототип" || property == "prototype" {
+                    return Ok(Self::class_prototype_object(cls));
+                }
                 if let Some((params, body, env)) = cls.static_getters.get(property) {
                     return self.call_method_with_this(params, body, env, vec![], None, span);
                 }
@@ -130,5 +142,25 @@ impl Interpreter {
             }
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
+    }
+
+    fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
+        let mut map = std::collections::HashMap::new();
+        let mut current: Option<&crate::value::ClassDef> = Some(cls);
+        while let Some(c) = current {
+            for (name, (params, body, env)) in &c.methods {
+                map.entry(name.clone()).or_insert_with(|| Value::Function {
+                    name: Rc::from(name.as_str()),
+                    params: params.clone(),
+                    body: Rc::clone(body),
+                    env: Rc::clone(env),
+                    is_generator: false,
+                    is_async: false,
+                });
+            }
+            current = c.parent.as_deref();
+        }
+        map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
+        Value::Object(map)
     }
 }

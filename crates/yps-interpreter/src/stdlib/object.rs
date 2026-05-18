@@ -17,6 +17,9 @@ pub fn build_object() -> Value {
         ("имеетСвоё", builtin("Кент.имеетСвоё")),
         ("изЗаписей", builtin("Кент.изЗаписей")),
         ("группировать", builtin("Кент.группировать")),
+        ("создать", builtin("Кент.создать")),
+        ("прототип", builtin("Кент.прототип")),
+        ("назначитьПрототип", builtin("Кент.назначитьПрототип")),
     ])
 }
 
@@ -154,6 +157,53 @@ pub fn call_static(
                 }
                 _ => Err(RuntimeError::new("Кент.изЗаписей ожидает массив", span)),
             }
+        }
+        "создать" => {
+            require_args(&args, 1, span, "Кент.создать")?;
+            let proto = args.into_iter().next().unwrap();
+            match &proto {
+                Value::Object(_) | Value::Class(_) | Value::Null => {}
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("Кент.создать ожидает объект, класс или ноль, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            }
+            let mut map = HashMap::new();
+            if !matches!(proto, Value::Null) {
+                map.insert(symbols::PROTO.to_string(), proto);
+            }
+            Ok(Value::Object(map))
+        }
+        "прототип" => {
+            require_args(&args, 1, span, "Кент.прототип")?;
+            match &args[0] {
+                Value::Object(map) => Ok(map.get(symbols::PROTO).cloned().unwrap_or(Value::Null)),
+                _ => Ok(Value::Null),
+            }
+        }
+        "назначитьПрототип" => {
+            require_args(&args, 2, span, "Кент.назначитьПрототип")?;
+            let mut iter = args.into_iter();
+            let target = iter.next().unwrap();
+            let proto = iter.next().unwrap();
+            match (&target, &proto) {
+                (Value::Object(_), Value::Object(_) | Value::Class(_) | Value::Null) => {}
+                _ => {
+                    return Err(RuntimeError::new("Кент.назначитьПрототип ожидает (объект, объект|класс|ноль)", span));
+                }
+            }
+            let mut map = match target {
+                Value::Object(m) => m,
+                _ => unreachable!(),
+            };
+            if matches!(proto, Value::Null) {
+                map.remove(symbols::PROTO);
+            } else {
+                map.insert(symbols::PROTO.to_string(), proto);
+            }
+            Ok(Value::Object(map))
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
     }

@@ -116,6 +116,9 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
         Value::Symbol { .. } => {
             return Err(RuntimeError::new("Символы нельзя сериализовать в JSON", span));
         }
+        Value::BigInt(_) => {
+            return Err(RuntimeError::new("Бигцелое нельзя сериализовать в JSON", span));
+        }
         Value::Promise { .. }
         | Value::PromiseCapability { .. }
         | Value::PromiseThenHandler { .. }
