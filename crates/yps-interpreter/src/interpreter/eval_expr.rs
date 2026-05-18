@@ -290,6 +290,7 @@ impl Interpreter {
                 .parse::<f64>()
                 .map(Value::Number)
                 .map_err(|_| RuntimeError::new(format!("Невалидное число: '{raw}'"), *span)),
+            Literal::BigInt { value, .. } => Ok(Value::BigInt(*value)),
             Literal::String { value, .. } => Ok(Value::String(value.clone())),
             Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
             Literal::Null { .. } => Ok(Value::Null),
@@ -404,10 +405,14 @@ impl Interpreter {
         match op {
             UnaryOp::Minus => match val {
                 Value::Number(n) => Ok(Value::Number(-n)),
+                Value::BigInt(n) => {
+                    n.checked_neg().map(Value::BigInt).ok_or_else(|| RuntimeError::new("Переполнение бигцелого", span))
+                }
                 _ => Err(RuntimeError::new(format!("Нельзя применить '-' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Plus => match val {
                 Value::Number(n) => Ok(Value::Number(n)),
+                Value::BigInt(_) => Err(RuntimeError::new("Нельзя применить унарный '+' к бигцелому", span)),
                 _ => Err(RuntimeError::new(format!("Нельзя применить '+' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
@@ -424,6 +429,30 @@ impl Interpreter {
         right: Value,
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        if matches!(
+            op,
+            BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::Exp
+                | BinaryOp::Less
+                | BinaryOp::Greater
+                | BinaryOp::LessOrEqual
+                | BinaryOp::GreaterOrEqual
+        ) {
+            if let (Value::BigInt(a), Value::BigInt(b)) = (&left, &right) {
+                return Self::bigint_op(op, *a, *b, span);
+            }
+            if matches!(left, Value::BigInt(_)) ^ matches!(right, Value::BigInt(_)) {
+                return Err(RuntimeError::new(
+                    format!("Нельзя смешивать '{}' и '{}' в одной операции", left.type_name(), right.type_name()),
+                    span,
+                ));
+            }
+        }
+
         match op {
             BinaryOp::Add => match (&left, &right) {
                 (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
@@ -518,5 +547,37 @@ impl Interpreter {
             | BinaryOp::DivAssign
             | BinaryOp::ExpAssign => unreachable!("handled in eval_expr"),
         }
+    }
+
+    fn bigint_op(op: BinaryOp, a: i128, b: i128, span: Span) -> Result<Value, RuntimeError> {
+        let checked = match op {
+            BinaryOp::Add => a.checked_add(b),
+            BinaryOp::Sub => a.checked_sub(b),
+            BinaryOp::Mul => a.checked_mul(b),
+            BinaryOp::Div => {
+                if b == 0 {
+                    return Err(RuntimeError::new("Деление на ноль", span));
+                }
+                a.checked_div(b)
+            }
+            BinaryOp::Mod => {
+                if b == 0 {
+                    return Err(RuntimeError::new("Деление на ноль", span));
+                }
+                a.checked_rem(b)
+            }
+            BinaryOp::Exp => {
+                if b < 0 {
+                    return Err(RuntimeError::new("Отрицательный показатель степени у бигцелого", span));
+                }
+                if b > u32::MAX as i128 { None } else { a.checked_pow(b as u32) }
+            }
+            BinaryOp::Less => return Ok(Value::Boolean(a < b)),
+            BinaryOp::Greater => return Ok(Value::Boolean(a > b)),
+            BinaryOp::LessOrEqual => return Ok(Value::Boolean(a <= b)),
+            BinaryOp::GreaterOrEqual => return Ok(Value::Boolean(a >= b)),
+            _ => unreachable!("bigint_op: неподдерживаемая операция"),
+        };
+        checked.map(Value::BigInt).ok_or_else(|| RuntimeError::new("Переполнение бигцелого", span))
     }
 }
