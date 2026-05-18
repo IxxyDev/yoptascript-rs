@@ -1,6 +1,7 @@
 pub const CLASS_TAG: &str = "__class__";
 pub const SUPER: &str = "__super__";
 pub const THIS: &str = "тырыпыры";
+pub const PROTO: &str = "__proto__";
 
 pub const ERROR_NAME: &str = "Косяк";
 pub const ERROR_NAME_FIELD: &str = "name";
@@ -35,5 +36,5 @@ pub fn setter_key(prop: &str) -> String {
 
 #[must_use]
 pub fn is_internal_key(k: &str) -> bool {
-    k == CLASS_TAG || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
+    k == CLASS_TAG || k == PROTO || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
 }

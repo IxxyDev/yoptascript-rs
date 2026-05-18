@@ -279,12 +279,18 @@ impl<'src> Lexer<'src> {
             self.advance();
         }
 
+        let mut had_decimal = false;
         if self.current_char() == '.' && self.peek_char(1).is_ascii_digit() {
             self.advance();
+            had_decimal = true;
 
             while self.current_char().is_ascii_digit() || self.current_char() == '_' {
                 self.advance();
             }
+        }
+
+        if !had_decimal && self.current_char() == 'n' {
+            self.advance();
         }
 
         let end = self.position;

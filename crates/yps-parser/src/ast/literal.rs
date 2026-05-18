@@ -18,6 +18,7 @@ pub enum ObjectEntry {
 #[derive(Debug, Clone)]
 pub enum Literal {
     Number { raw: String, span: Span },
+    BigInt { value: i128, span: Span },
     String { value: String, span: Span },
     Boolean { value: bool, span: Span },
     Null { span: Span },

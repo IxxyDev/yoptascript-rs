@@ -44,6 +44,32 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
                 _ => Ok(Value::Null),
             }
         }
+        "БигЦелое" => {
+            if args.len() != 1 {
+                return Err(RuntimeError::new("'БигЦелое' принимает 1 аргумент", span));
+            }
+            match &args[0] {
+                Value::BigInt(n) => Ok(Value::BigInt(*n)),
+                Value::Number(n) => {
+                    if !n.is_finite() || n.fract() != 0.0 {
+                        return Err(RuntimeError::new("БигЦелое требует целое число", span));
+                    }
+                    if *n < i128::MIN as f64 || *n > i128::MAX as f64 {
+                        return Err(RuntimeError::new("Число вне диапазона бигцелого", span));
+                    }
+                    Ok(Value::BigInt(*n as i128))
+                }
+                Value::String(s) => s
+                    .trim()
+                    .parse::<i128>()
+                    .map(Value::BigInt)
+                    .map_err(|_| RuntimeError::new(format!("Нельзя разобрать '{s}' как бигцелое"), span)),
+                Value::Boolean(b) => Ok(Value::BigInt(if *b { 1 } else { 0 })),
+                other => {
+                    Err(RuntimeError::new(format!("Нельзя сконвертировать '{}' в бигцелое", other.type_name()), span))
+                }
+            }
+        }
         "строка" => {
             if args.len() != 1 {
                 return Err(RuntimeError::new("'строка' принимает 1 аргумент", span));
@@ -70,7 +96,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
 }
 
 pub fn builtin_names() -> &'static [&'static str] {
-    &["сказать", "длина", "тип", "число", "строка", "втолкнуть", symbols::ERROR_NAME, "этоКосяк"]
+    &["сказать", "длина", "тип", "число", "БигЦелое", "строка", "втолкнуть", symbols::ERROR_NAME, "этоКосяк"]
 }
 
 fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {

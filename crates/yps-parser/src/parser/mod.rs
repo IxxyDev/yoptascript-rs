@@ -112,7 +112,18 @@ impl<'a> Parser<'a> {
         let span = self.current().span;
         let raw = self.source.slice(span).to_string();
         self.advance();
-        Expr::Literal(Literal::Number { raw, span })
+        if let Some(stripped) = raw.strip_suffix('n') {
+            let cleaned: String = stripped.chars().filter(|c| *c != '_').collect();
+            match cleaned.parse::<i128>() {
+                Ok(value) => Expr::Literal(Literal::BigInt { value, span }),
+                Err(_) => {
+                    self.push_error(span, format!("Невалидный BigInt: '{raw}'"));
+                    Expr::Literal(Literal::BigInt { value: 0, span })
+                }
+            }
+        } else {
+            Expr::Literal(Literal::Number { raw, span })
+        }
     }
 
     fn parse_string(&mut self) -> Expr {

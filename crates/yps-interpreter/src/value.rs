@@ -153,6 +153,7 @@ pub struct ClassDef {
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
+    BigInt(i128),
     String(String),
     Boolean(bool),
     Array(Vec<Value>),
@@ -206,6 +207,7 @@ impl Value {
             Value::Undefined | Value::Null => false,
             Value::Boolean(b) => *b,
             Value::Number(n) => *n != 0.0,
+            Value::BigInt(n) => *n != 0,
             Value::String(s) => !s.is_empty(),
             Value::Array(a) => !a.is_empty(),
             _ => true,
@@ -215,6 +217,7 @@ impl Value {
     pub fn typeof_str(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",
+            Value::BigInt(_) => "бигцелое",
             Value::String(_) => "строка",
             Value::Boolean(_) => "булево",
             Value::Undefined => "неопределено",
@@ -239,6 +242,7 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",
+            Value::BigInt(_) => "бигцелое",
             Value::String(_) => "строка",
             Value::Boolean(_) => "булево",
             Value::Array(_) => "массив",
@@ -265,6 +269,7 @@ impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Number(n) => write!(f, "Number({n})"),
+            Value::BigInt(n) => write!(f, "BigInt({n})"),
             Value::String(s) => write!(f, "String({s:?})"),
             Value::Boolean(b) => write!(f, "Boolean({b})"),
             Value::Array(a) => f.debug_tuple("Array").field(a).finish(),
@@ -307,6 +312,7 @@ impl fmt::Display for Value {
                     write!(f, "{n}")
                 }
             }
+            Value::BigInt(n) => write!(f, "{n}n"),
             Value::String(s) => write!(f, "{s}"),
             Value::Boolean(b) => write!(f, "{b}"),
             Value::Undefined => write!(f, "undefined"),
@@ -378,6 +384,7 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::BigInt(a), Value::BigInt(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,

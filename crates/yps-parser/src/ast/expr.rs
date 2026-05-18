@@ -65,6 +65,7 @@ impl Expr {
             Self::Identifier(id) => id.span,
             Self::Literal(lit) => match lit {
                 Literal::Number { span, .. }
+                | Literal::BigInt { span, .. }
                 | Literal::String { span, .. }
                 | Literal::Boolean { span, .. }
                 | Literal::Null { span }
