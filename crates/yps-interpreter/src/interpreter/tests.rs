@@ -5366,3 +5366,354 @@ fn instance_constructor_returns_class() {
     );
     assert_eq!(interp.get("тот"), Some(Value::Boolean(true)));
 }
+
+#[test]
+fn чутка_fires_in_deadline_order() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        чутка(() => { лог = втолкнуть(лог, "A"); }, 30);
+        чутка(() => { лог = втолкнуть(лог, "B"); }, 5);
+        "#,
+    );
+    let log = interp.get("лог").unwrap();
+    assert_eq!(log, Value::Array(vec![Value::String("B".into()), Value::String("A".into())]));
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn отменаЧутки_prevents_callback() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        гыы ид = чутка(() => { лог = втолкнуть(лог, "X"); }, 5);
+        отменаЧутки(ид);
+        "#,
+    );
+    assert_eq!(interp.get("лог"), Some(Value::Array(vec![])));
+}
+
+#[test]
+fn интервал_fires_multiple_times_then_cancels() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        гыы ид = ноль;
+        ид = интервал(() => {
+            счёт = счёт + 1;
+            вилкойвглаз (счёт >= 3) {
+                отменаИнтервала(ид);
+            }
+        }, 1);
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn сразу_runs_before_macrotask() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        чутка(() => { лог = втолкнуть(лог, "макро"); }, 0);
+        сразу(() => { лог = втолкнуть(лог, "микро"); });
+        "#,
+    );
+    assert_eq!(
+        interp.get("лог"),
+        Some(Value::Array(vec![Value::String("микро".into()), Value::String("макро".into())]))
+    );
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn наСледующемТике_has_priority_over_сразу() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        чутка(() => {
+            сразу(() => { лог = втолкнуть(лог, "обычная"); });
+            наСледующемТике(() => { лог = втолкнуть(лог, "приоритет"); });
+        }, 0);
+        "#,
+    );
+    assert_eq!(
+        interp.get("лог"),
+        Some(Value::Array(vec![Value::String("приоритет".into()), Value::String("обычная".into())]))
+    );
+}
+
+#[test]
+fn await_parks_on_pending_promise_resolved_by_chutka() {
+    let interp = run_code(
+        r#"
+        ассо йопта получить() {
+            отвечаю захуярить СловоПацана((решить, _) => {
+                чутка(() => решить(42), 5);
+            });
+        }
+        ассо йопта главное() {
+            гыы х = сидетьНахуй получить();
+            отвечаю х;
+        }
+        гыы p = главное();
+        гыы итог = ноль;
+        p.потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn top_level_await_drives_loop() {
+    let interp = run_code(
+        r#"
+        гыы р = захуярить СловоПацана((решить, _) => {
+            чутка(() => решить("готово"), 5);
+        });
+        гыы значение = сидетьНахуй р;
+        "#,
+    );
+    assert_eq!(interp.get("значение"), Some(Value::String("готово".into())));
+}
+
+#[test]
+fn await_chain_across_delays() {
+    let interp = run_code(
+        r#"
+        йопта задержанный(значение, мс) {
+            отвечаю захуярить СловоПацана((решить, _) => {
+                чутка(() => решить(значение), мс);
+            });
+        }
+        ассо йопта суммаЧерезЗадержки() {
+            гыы а = сидетьНахуй задержанный(10, 5);
+            гыы б = сидетьНахуй задержанный(20, 5);
+            гыы в = сидетьНахуй задержанный(30, 5);
+            отвечаю а + б + в;
+        }
+        гыы итог = ноль;
+        суммаЧерезЗадержки().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(60.0)));
+}
+
+#[test]
+fn await_rejected_promise_caught_by_try_catch() {
+    let interp = run_code(
+        r#"
+        ассо йопта плохо() {
+            гыы p = захуярить СловоПацана((_, отвергнуть) => {
+                чутка(() => отвергнуть("боль"), 5);
+            });
+            сидетьНахуй p;
+        }
+        ассо йопта главное() {
+            гыы пойман = ноль;
+            хапнуть {
+                сидетьНахуй плохо();
+            } гоп (e) {
+                пойман = e;
+            }
+            отвечаю пойман;
+        }
+        гыы итог = ноль;
+        главное().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::String("боль".into())));
+}
+
+#[test]
+fn timer_callback_throw_does_not_kill_loop() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        чутка(() => { кидай "плохой коллбэк"; }, 5);
+        чутка(() => { лог = втолкнуть(лог, "выжил"); }, 10);
+        "#,
+    );
+    assert_eq!(interp.get("лог"), Some(Value::Array(vec![Value::String("выжил".into())])));
+}
+
+#[test]
+fn interval_continues_after_throwing_tick() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        гыы ид = ноль;
+        ид = интервал(() => {
+            счёт = счёт + 1;
+            вилкойвглаз (счёт == 1) {
+                кидай "сбой";
+            }
+            вилкойвглаз (счёт >= 3) {
+                отменаИнтервала(ид);
+            }
+        }, 1);
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn await_on_non_promise_returns_value() {
+    let interp = run_code(
+        r#"
+        ассо йопта f() {
+            отвечаю сидетьНахуй 42;
+        }
+        гыы итог = ноль;
+        f().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn async_fn_returns_pending_immediately() {
+    let interp = run_code(
+        r#"
+        гыы маркер = "before";
+        ассо йопта работа() {
+            маркер = "inside";
+            отвечаю 1;
+        }
+        гыы пара = [работа(), маркер];
+        "#,
+    );
+    let pair = interp.get("пара").unwrap();
+    let Value::Array(items) = pair else { panic!("expected array") };
+    assert!(matches!(items[0], Value::Promise { .. }), "first element must be a Promise");
+    assert_eq!(items[1], Value::String("before".into()));
+    assert_eq!(interp.get("маркер"), Some(Value::String("inside".into())));
+}
+
+#[test]
+fn async_fn_returning_pending_promise_adopts() {
+    let interp = run_code(
+        r#"
+        ассо йопта внутри() {
+            отвечаю захуярить СловоПацана((решить, _) => {
+                чутка(() => решить(99), 5);
+            });
+        }
+        ассо йопта снаружи() {
+            отвечаю внутри();
+        }
+        гыы итог = ноль;
+        снаружи().потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Number(99.0)));
+}
+
+#[test]
+fn non_callable_to_chutka_errors_with_call_site() {
+    let err = run_code_err(r#"чутка(42, 10);"#);
+    assert!(err.message.contains("'чутка'"), "got: {}", err.message);
+    assert!(err.message.contains("функцию"), "got: {}", err.message);
+}
+
+#[test]
+fn non_callable_to_srazu_errors() {
+    let err = run_code_err(r#"сразу("не функция");"#);
+    assert!(err.message.contains("'сразу'"), "got: {}", err.message);
+}
+
+#[test]
+fn await_depth_limit_caught() {
+    let interp = run_code(
+        r#"
+        ассо йопта глубина(н) {
+            вилкойвглаз (н <= 0) {
+                отвечаю 0;
+            }
+            гыы p = захуярить СловоПацана((решить, _) => {
+                чутка(() => решить(н), 0);
+            });
+            гыы значение = сидетьНахуй p;
+            гыы дальше = сидетьНахуй глубина(н - 1);
+            отвечаю значение + дальше;
+        }
+        гыы пойман = ноль;
+        ассо йопта запуск() {
+            хапнуть {
+                сидетьНахуй глубина(30);
+            } гоп (e) {
+                пойман = e.message;
+            }
+        }
+        запуск();
+        "#,
+    );
+    let caught = interp.get("пойман").unwrap();
+    if let Value::String(s) = caught {
+        assert!(s.contains("глубин"), "expected depth-limit message, got: {s}");
+    } else {
+        panic!("expected error string, got {caught:?}");
+    }
+}
+
+#[test]
+fn nested_intervals_independent_cancellation() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        гыы внешнийИд = ноль;
+        гыы внутреннийИд = ноль;
+        гыы внешнийСчёт = 0;
+        внешнийИд = интервал(() => {
+            внешнийСчёт = внешнийСчёт + 1;
+            лог = втолкнуть(лог, "внешний");
+            вилкойвглаз (внешнийСчёт == 1) {
+                гыы внутреннийСчёт = 0;
+                внутреннийИд = интервал(() => {
+                    внутреннийСчёт = внутреннийСчёт + 1;
+                    лог = втолкнуть(лог, "внутренний");
+                    вилкойвглаз (внутреннийСчёт >= 2) {
+                        отменаИнтервала(внутреннийИд);
+                    }
+                }, 1);
+            }
+            вилкойвглаз (внешнийСчёт >= 3) {
+                отменаИнтервала(внешнийИд);
+            }
+        }, 5);
+        "#,
+    );
+    let log = interp.get("лог").unwrap();
+    let Value::Array(items) = log else { panic!("expected array") };
+    let labels: Vec<&str> = items.iter().map(|v| if let Value::String(s) = v { s.as_str() } else { "?" }).collect();
+    assert_eq!(labels.iter().filter(|l| **l == "внешний").count(), 3);
+    assert_eq!(labels.iter().filter(|l| **l == "внутренний").count(), 2);
+}
+
+#[test]
+fn interval_cancelled_mid_callback_fires_exactly_once() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        гыы ид = ноль;
+        ид = интервал(() => {
+            счёт = счёт + 1;
+            отменаИнтервала(ид);
+        }, 1);
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn rejected_promise_then_catch_path() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        захуярить СловоПацана((_, отвергнуть) => {
+            чутка(() => отвергнуть("ошибка"), 5);
+        }).ловить((e) => { пойман = e; });
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("ошибка".into())));
+}

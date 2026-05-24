@@ -18,12 +18,15 @@ mod call;
 mod class;
 mod delete;
 mod eval_expr;
+mod event_loop;
 mod exec_stmt;
 pub(crate) mod generator;
 mod member;
 mod module_loader;
 mod promise_rt;
 mod types;
+
+use event_loop::MacrotaskQueue;
 
 pub(super) use types::{AccessSegment, ControlFlow};
 
@@ -34,7 +37,11 @@ pub struct Interpreter {
     pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
     pub(super) current_exports: HashMap<String, Value>,
     pub(super) microtasks: VecDeque<Microtask>,
+    pub(super) macrotasks: MacrotaskQueue,
+    pub(super) await_depth: usize,
 }
+
+pub(super) const MAX_AWAIT_DEPTH: usize = 16;
 
 impl Default for Interpreter {
     fn default() -> Self {
@@ -59,6 +66,8 @@ impl Interpreter {
             module_cache: Rc::new(RefCell::new(HashMap::new())),
             current_exports: HashMap::new(),
             microtasks: VecDeque::new(),
+            macrotasks: MacrotaskQueue::new(),
+            await_depth: 0,
         }
     }
 
@@ -84,15 +93,12 @@ impl Interpreter {
                         return Err(RuntimeError::new("'двигай' вне цикла", Span { start: 0, end: 0 }));
                     }
                     ControlFlow::Throw(val) => {
-                        return Err(RuntimeError::new(
-                            format!("Необработанное исключение: {val}"),
-                            Span { start: 0, end: 0 },
-                        ));
+                        return Err(RuntimeError::thrown(val, Span { start: 0, end: 0 }));
                     }
                 }
             }
         }
-        self.drain_microtasks(Span { start: 0, end: 0 })?;
+        self.drive_event_loop(Span { start: 0, end: 0 })?;
         Ok(())
     }
 }

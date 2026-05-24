@@ -180,13 +180,18 @@ impl Interpreter {
                         if let Some(cb) = catch_block {
                             self.env.push_scope();
                             if let Some(param) = catch_param {
-                                let mut map = HashMap::new();
-                                map.insert(
-                                    symbols::ERROR_NAME_FIELD.to_string(),
-                                    Value::String(symbols::ERROR_NAME.to_string()),
-                                );
-                                map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
-                                self.env.define(param.name.clone(), Value::Object(map), false);
+                                let bound = if let Some(thrown) = err.thrown {
+                                    thrown
+                                } else {
+                                    let mut map = HashMap::new();
+                                    map.insert(
+                                        symbols::ERROR_NAME_FIELD.to_string(),
+                                        Value::String(symbols::ERROR_NAME.to_string()),
+                                    );
+                                    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
+                                    Value::Object(map)
+                                };
+                                self.env.define(param.name.clone(), bound, false);
                             }
                             let r = self.exec_block_stmts(&cb.stmts);
                             self.env.pop_scope();
