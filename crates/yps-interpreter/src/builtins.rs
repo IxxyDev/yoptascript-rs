@@ -96,7 +96,23 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
 }
 
 pub fn builtin_names() -> &'static [&'static str] {
-    &["сказать", "длина", "тип", "число", "БигЦелое", "строка", "втолкнуть", symbols::ERROR_NAME, "этоКосяк"]
+    &[
+        "сказать",
+        "длина",
+        "тип",
+        "число",
+        "БигЦелое",
+        "строка",
+        "втолкнуть",
+        symbols::ERROR_NAME,
+        "этоКосяк",
+        "чутка",
+        "отменаЧутки",
+        "интервал",
+        "отменаИнтервала",
+        "сразу",
+        "наСледующемТике",
+    ]
 }
 
 fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {

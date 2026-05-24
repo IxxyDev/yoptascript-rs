@@ -58,7 +58,7 @@ impl Interpreter {
             Some(ControlFlow::Return(val)) => Ok((val, updated_this)),
             Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
             Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             None => Ok((Value::Undefined, updated_this)),
         }
     }
@@ -107,6 +107,9 @@ impl Interpreter {
         }
         match func {
             Value::BuiltinFunction(name) => {
+                if let Some(res) = self.try_call_timer_builtin(&name, args.clone(), span) {
+                    return res;
+                }
                 if let Some(res) = crate::stdlib::call_static_namespaced(self, &name, args.clone(), span) {
                     return res;
                 }
@@ -156,17 +159,37 @@ impl Interpreter {
                         gen_state,
                     ))))))
                 } else if is_async {
-                    let result = self.exec_block_stmts(&body.stmts);
+                    let async_env = self.env.snapshot();
                     self.env = saved_env;
-                    let promise = match result {
-                        Ok(Some(ControlFlow::Return(val))) => Self::make_fulfilled_promise(val),
-                        Ok(None) => Self::make_fulfilled_promise(Value::Undefined),
-                        Ok(Some(ControlFlow::Throw(val))) => Self::make_rejected_promise(val),
-                        Ok(Some(ControlFlow::Break)) => return Err(RuntimeError::new("'харэ' вне цикла", span)),
-                        Ok(Some(ControlFlow::Continue)) => return Err(RuntimeError::new("'двигай' вне цикла", span)),
-                        Err(e) => return Err(e),
+                    let (outer, _resolve, _reject) = Self::make_pending_promise();
+                    let outer_state = match &outer {
+                        Value::Promise { state } => Rc::clone(state),
+                        _ => unreachable!(),
                     };
-                    Ok(promise)
+                    let body_for_task = Rc::clone(&body);
+                    self.enqueue_microtask(Box::new(move |interp, sp| {
+                        let caller_env = interp.env.clone();
+                        interp.env = Environment::from_snapshot(async_env);
+                        let result = interp.exec_block_stmts(&body_for_task.stmts);
+                        interp.env = caller_env;
+                        let (kind, value) = match result {
+                            Ok(Some(ControlFlow::Return(val))) => (crate::value::CapKind::Resolve, val),
+                            Ok(None) => (crate::value::CapKind::Resolve, Value::Undefined),
+                            Ok(Some(ControlFlow::Throw(val))) => (crate::value::CapKind::Reject, val),
+                            Ok(Some(ControlFlow::Break)) => {
+                                return Err(RuntimeError::new("'харэ' вне цикла", sp));
+                            }
+                            Ok(Some(ControlFlow::Continue)) => {
+                                return Err(RuntimeError::new("'двигай' вне цикла", sp));
+                            }
+                            Err(e) => match e.thrown {
+                                Some(val) => (crate::value::CapKind::Reject, val),
+                                None => return Err(e),
+                            },
+                        };
+                        Interpreter::settle_promise(&outer_state, kind, value, interp, sp)
+                    }));
+                    Ok(outer)
                 } else {
                     let result = self.exec_block_stmts(&body.stmts);
                     self.env = saved_env;
@@ -174,9 +197,7 @@ impl Interpreter {
                         Some(ControlFlow::Return(val)) => Ok(val),
                         Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
                         Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
-                        Some(ControlFlow::Throw(val)) => {
-                            Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
-                        }
+                        Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
                         None => Ok(Value::Undefined),
                     }
                 }
@@ -247,7 +268,7 @@ impl Interpreter {
             Some(ControlFlow::Return(val)) => Ok(val),
             Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
             Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             None => Ok(Value::Undefined),
         }
     }

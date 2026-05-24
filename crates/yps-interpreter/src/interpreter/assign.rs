@@ -148,7 +148,7 @@ impl Interpreter {
         let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
         self.env = saved_env;
         match result? {
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             _ => Ok(updated_this),
         }
     }

@@ -2,16 +2,25 @@ use std::fmt;
 
 use yps_lexer::Span;
 
+use crate::value::Value;
+
 #[derive(Debug)]
 pub struct RuntimeError {
     pub message: String,
     pub span: Span,
     pub cause: Option<Box<RuntimeError>>,
+    pub thrown: Option<Value>,
 }
 
 impl RuntimeError {
     pub fn new(message: impl Into<String>, span: Span) -> Self {
-        Self { message: message.into(), span, cause: None }
+        Self { message: message.into(), span, cause: None, thrown: None }
+    }
+
+    pub fn thrown(value: Value, span: Span) -> Self {
+        Self {
+            message: format!("Необработанное исключение: {value}"), span, cause: None, thrown: Some(value)
+        }
     }
 
     #[must_use]
