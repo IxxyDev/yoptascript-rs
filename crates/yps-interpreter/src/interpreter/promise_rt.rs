@@ -53,6 +53,9 @@ impl Interpreter {
         match kind {
             CapKind::Resolve => {
                 if let Value::Promise { state: other } = &value {
+                    if Rc::ptr_eq(state, other) {
+                        return Err(RuntimeError::new("Обещание не может разрешить само себя", span));
+                    }
                     let other_state = other.borrow().clone();
                     match other_state {
                         PromiseState::Fulfilled(v) => {
@@ -62,7 +65,14 @@ impl Interpreter {
                             Self::set_rejected(state, v, interp);
                         }
                         PromiseState::Pending { .. } => {
-                            return Err(RuntimeError::new("обещание не разрешено синхронно", span));
+                            let resolve_cap =
+                                Value::PromiseCapability { state: Rc::clone(state), kind: CapKind::Resolve };
+                            let reject_cap =
+                                Value::PromiseCapability { state: Rc::clone(state), kind: CapKind::Reject };
+                            if let PromiseState::Pending { on_resolve, on_reject } = &mut *other.borrow_mut() {
+                                on_resolve.push(resolve_cap);
+                                on_reject.push(reject_cap);
+                            }
                         }
                     }
                 } else {
@@ -105,19 +115,38 @@ impl Interpreter {
     }
 
     pub(crate) fn do_await(&mut self, value: Value, span: Span) -> Result<Value, RuntimeError> {
-        match value {
-            Value::Promise { state } => {
-                self.drain_microtasks(span)?;
-                let snapshot = state.borrow().clone();
-                match snapshot {
-                    PromiseState::Fulfilled(v) => Ok(v),
-                    PromiseState::Rejected(v) => {
-                        Err(RuntimeError::new(format!("Необработанное исключение: {v}"), span))
+        let Value::Promise { state } = value else {
+            return Ok(value);
+        };
+        if self.await_depth >= super::MAX_AWAIT_DEPTH {
+            return Err(RuntimeError::new(
+                format!("Превышена глубина ожидания обещаний ({})", super::MAX_AWAIT_DEPTH),
+                span,
+            ));
+        }
+        self.await_depth += 1;
+        let result = loop {
+            if let Err(e) = self.drain_microtasks(span) {
+                break Err(e);
+            }
+            let snapshot = state.borrow().clone();
+            match snapshot {
+                PromiseState::Fulfilled(v) => break Ok(v),
+                PromiseState::Rejected(v) => break Err(RuntimeError::thrown(v, span)),
+                PromiseState::Pending { .. } => {
+                    if self.macrotasks.is_empty() {
+                        break Err(RuntimeError::new("Обещание не разрешено и очередь задач пуста", span));
                     }
-                    PromiseState::Pending { .. } => Err(RuntimeError::new("обещание не разрешено синхронно", span)),
+                    let Some(task) = self.macrotasks.pop_next_blocking() else {
+                        break Err(RuntimeError::new("Обещание не разрешено: нет готовых задач", span));
+                    };
+                    if let Err(e) = (task.task)(self, span) {
+                        break Err(e);
+                    }
                 }
             }
-            other => Ok(other),
-        }
+        };
+        self.await_depth -= 1;
+        result
     }
 }

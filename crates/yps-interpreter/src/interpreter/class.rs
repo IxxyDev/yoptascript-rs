@@ -369,9 +369,7 @@ impl Interpreter {
 
             match result? {
                 Some(ControlFlow::Return(_)) | None => Ok(this_after),
-                Some(ControlFlow::Throw(val)) => {
-                    Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span))
-                }
+                Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
                 Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
                 Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
             }
@@ -462,7 +460,7 @@ impl Interpreter {
 
         match result? {
             Some(ControlFlow::Return(_)) | None => Ok(this_after),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::new(format!("Необработанное исключение: {val}"), span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
             Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
         }
