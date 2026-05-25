@@ -1,12 +1,15 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{as_number, as_string, regexp, require_args};
-use crate::value::Value;
+use crate::value::{IteratorState, Value};
 
 pub fn call(
-    _interp: &mut Interpreter,
+    interp: &mut Interpreter,
     receiver: Value,
     method: &str,
     args: Vec<Value>,
@@ -92,17 +95,25 @@ pub fn call(
         "replace" | "заменить" => {
             require_args(&args, 2, span, "replace")?;
             if let Value::RegExp { compiled, flags, .. } = &args[0] {
-                let replacement = match &args[1] {
-                    Value::String(s) => s.clone(),
+                let compiled = compiled.clone();
+                let global = flags.contains('g');
+                match &args[1] {
+                    Value::String(rep) => {
+                        let rep = rep.clone();
+                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, global)), None));
+                    }
+                    Value::Function { .. } | Value::BuiltinFunction(_) => {
+                        let fn_val = args[1].clone();
+                        let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, global, span)?;
+                        return Ok((Value::String(out), None));
+                    }
                     other => {
                         return Err(RuntimeError::new(
-                            format!("'replace' с regex ожидает строку-замену, получено '{}'", other.type_name()),
+                            format!("'replace' с regex ожидает строку или функцию, получено '{}'", other.type_name()),
                             span,
                         ));
                     }
-                };
-                let global = flags.contains('g');
-                return Ok((Value::String(regexp::replace_string(compiled, &s, &replacement, global)), None));
+                }
             }
             let from = as_string(&args[0], span, "replace")?;
             let to = as_string(&args[1], span, "replace")?;
@@ -114,16 +125,27 @@ pub fn call(
                 if !flags.contains('g') {
                     return Err(RuntimeError::new("replaceAll с regex требует флаг 'g'", span));
                 }
-                let replacement = match &args[1] {
-                    Value::String(s) => s.clone(),
+                let compiled = compiled.clone();
+                match &args[1] {
+                    Value::String(rep) => {
+                        let rep = rep.clone();
+                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, true)), None));
+                    }
+                    Value::Function { .. } | Value::BuiltinFunction(_) => {
+                        let fn_val = args[1].clone();
+                        let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, true, span)?;
+                        return Ok((Value::String(out), None));
+                    }
                     other => {
                         return Err(RuntimeError::new(
-                            format!("'replaceAll' с regex ожидает строку-замену, получено '{}'", other.type_name()),
+                            format!(
+                                "'replaceAll' с regex ожидает строку или функцию, получено '{}'",
+                                other.type_name()
+                            ),
                             span,
                         ));
                     }
-                };
-                return Ok((Value::String(regexp::replace_string(compiled, &s, &replacement, true)), None));
+                }
             }
             let from = as_string(&args[0], span, "replaceAll")?;
             let to = as_string(&args[1], span, "replaceAll")?;
@@ -160,7 +182,8 @@ pub fn call(
             if !flags.contains('g') {
                 return Err(RuntimeError::new("matchAll требует флаг 'g'", span));
             }
-            Ok((Value::Array(regexp::match_all_detailed(compiled, &s)), None))
+            let state = IteratorState::RegexMatches { re: Rc::clone(compiled), input: s.clone(), byte_pos: 0 };
+            Ok((Value::Iterator(Rc::new(RefCell::new(state))), None))
         }
         "search" | "найтиИндекс" => {
             require_args(&args, 1, span, "search")?;

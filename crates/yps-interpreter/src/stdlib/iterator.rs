@@ -344,6 +344,26 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             *state = IteratorState::Done;
             Ok(None)
         }
+        IteratorState::RegexMatches { re, input, byte_pos } => {
+            if *byte_pos > input.len() {
+                *state = IteratorState::Done;
+                return Ok(None);
+            }
+            let re = Rc::clone(re);
+            match re.captures_at(input, *byte_pos) {
+                None => {
+                    *state = IteratorState::Done;
+                    Ok(None)
+                }
+                Some(caps) => {
+                    let whole = caps.get(0).expect("match group 0");
+                    let new_pos = if whole.end() == whole.start() { whole.end() + 1 } else { whole.end() };
+                    let obj = crate::stdlib::regexp::build_match_object(&caps, input, &re);
+                    *byte_pos = new_pos;
+                    Ok(Some(obj))
+                }
+            }
+        }
         IteratorState::Generator(gen_state) => {
             let result = crate::interpreter::generator::step_generator(interp, gen_state, Value::Undefined, span)?;
             match result {

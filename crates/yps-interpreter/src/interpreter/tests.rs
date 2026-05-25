@@ -5176,13 +5176,41 @@ fn regex_str_match_global() {
 fn regex_str_match_all() {
     let interp = run_code(
         r#"
-        гыы r = "a1 b2".найтиВсе(/(\w)(\d)/g);
-        гыы first = r[0]["0"];
-        гыы second_g1 = r[1]["1"];
+        гыы first = "";
+        гыы second_g1 = "";
+        гыы i = 0;
+        го (м сашаГрей "a1 b2".найтиВсе(/(\w)(\d)/g)) {
+            вилкойвглаз (i == 0) { first = м["0"]; }
+            вилкойвглаз (i == 1) { second_g1 = м["1"]; }
+            i = i + 1;
+        }
         "#,
     );
     assert_eq!(interp.get("first"), Some(Value::String("a1".to_string())));
     assert_eq!(interp.get("second_g1"), Some(Value::String("b".to_string())));
+}
+
+#[test]
+fn regex_matchall_lazy_iterator() {
+    let interp = run_code(
+        r#"
+        гыы out = "";
+        го (м сашаГрей "a1 b2 c3".найтиВсе(/\d/g)) {
+            out = out + м["0"];
+        }
+        "#,
+    );
+    assert_eq!(interp.get("out"), Some(Value::String("123".to_string())));
+}
+
+#[test]
+fn regex_matchall_returns_iterator_type() {
+    let interp = run_code(
+        r#"
+        гыы t = тип("x".найтиВсе(/x/g));
+        "#,
+    );
+    assert_eq!(interp.get("t"), Some(Value::String("итератор".to_string())));
 }
 
 #[test]
@@ -5233,6 +5261,70 @@ fn regex_str_replace_named_backref() {
         "#,
     );
     assert_eq!(interp.get("r"), Some(Value::String("Smith John".to_string())));
+}
+
+#[test]
+fn regex_replace_with_fn() {
+    let interp = run_code(
+        r#"
+        гыы r = "a1b2".заменить(/\d/g, (m) => число(m) * 10 + "");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("a10b20".to_string())));
+}
+
+#[test]
+fn regex_replace_with_fn_groups() {
+    let interp = run_code(
+        r#"
+        гыы r = "foo bar".заменить(/(\w+) (\w+)/, (m, a, b) => b + " " + a);
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("bar foo".to_string())));
+}
+
+#[test]
+fn regex_replace_with_fn_offset() {
+    let interp = run_code(
+        r#"
+        гыы r = "abc".заменить(/./g, (m, off) => off + "");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("012".to_string())));
+}
+
+#[test]
+fn regex_replace_with_fn_no_g_only_first() {
+    let interp = run_code(
+        r#"
+        гыы r = "a1b2c3".заменить(/\d/, (m) => "X");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("aXb2c3".to_string())));
+}
+
+#[test]
+fn regex_replace_all_with_fn() {
+    let interp = run_code(
+        r#"
+        гыы r = "a1b2".заменитьВсе(/\d/g, (m) => число(m) + 1 + "");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("a2b3".to_string())));
+}
+
+#[test]
+fn regex_str_replace_multi_digit_backref() {
+    let interp = run_code(
+        r#"
+        гыы a = "abc".заменить(/(a)(b)(c)/, "$3$2$1");
+        гыы b = "XabcdefghijY".заменить(/(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)/, "$10$9$8");
+        гыы c = "aZ".заменить(/(a)/, "$10");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("cba".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("XjihY".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("a0Z".to_string())));
 }
 
 #[test]

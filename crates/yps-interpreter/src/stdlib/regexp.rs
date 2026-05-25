@@ -145,7 +145,7 @@ fn char_index_at(s: &str, byte_pos: usize) -> i64 {
     s[..byte_pos].chars().count() as i64
 }
 
-fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex) -> Value {
+pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex) -> Value {
     let mut map: HashMap<String, Value> = HashMap::new();
     for i in 0..caps.len() {
         let key = i.to_string();
@@ -196,6 +196,45 @@ pub fn replace_string(re: &Rc<regex::Regex>, s: &str, replacement: &str, global:
     if global { re.replace_all(s, &rep).into_owned() } else { re.replace(s, &rep).into_owned() }
 }
 
+pub fn replace_with_fn(
+    interp: &mut Interpreter,
+    re: &Rc<regex::Regex>,
+    s: &str,
+    fn_val: Value,
+    global: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    let mut out = String::new();
+    let mut last_end = 0usize;
+    for caps in re.captures_iter(s) {
+        let whole = caps.get(0).expect("match group 0");
+        out.push_str(&s[last_end..whole.start()]);
+        let mut call_args: Vec<Value> = Vec::with_capacity(caps.len() + 2);
+        call_args.push(Value::String(whole.as_str().to_string()));
+        for i in 1..caps.len() {
+            match caps.get(i) {
+                Some(m) => call_args.push(Value::String(m.as_str().to_string())),
+                None => call_args.push(Value::Null),
+            }
+        }
+        let char_offset = char_index_at(s, whole.start());
+        call_args.push(Value::Number(char_offset as f64));
+        call_args.push(Value::String(s.to_string()));
+        let returned = interp.call_function(fn_val.clone(), call_args, span)?;
+        let rep = match returned {
+            Value::String(rs) => rs,
+            other => other.to_string(),
+        };
+        out.push_str(&rep);
+        last_end = whole.end();
+        if !global {
+            break;
+        }
+    }
+    out.push_str(&s[last_end..]);
+    Ok(out)
+}
+
 pub fn search_index(re: &Rc<regex::Regex>, s: &str) -> i64 {
     match re.find(s) {
         Some(m) => char_index_at(s, m.start()),
@@ -235,10 +274,47 @@ impl regex::Replacer for &ReplacementTemplate<'_> {
                         continue;
                     }
                     b'0'..=b'9' => {
-                        let idx = (nb - b'0') as usize;
-                        if let Some(Some(m)) = caps.get(idx).map(Some) {
-                            dst.push_str(m.as_str());
+                        let d1 = (nb - b'0') as usize;
+                        let total = caps.len();
+                        let max_group = total.saturating_sub(1);
+                        let two_digit = if i + 2 < bytes.len() {
+                            let nb2 = bytes[i + 2];
+                            if nb2.is_ascii_digit() { Some((nb2 - b'0') as usize) } else { None }
+                        } else {
+                            None
+                        };
+                        if let Some(d2) = two_digit {
+                            let nn = d1 * 10 + d2;
+                            if nn != 0 && nn <= max_group {
+                                if let Some(m) = caps.get(nn) {
+                                    dst.push_str(m.as_str());
+                                }
+                                i += 3;
+                                continue;
+                            }
+                            if d1 != 0 && d1 <= max_group {
+                                if let Some(m) = caps.get(d1) {
+                                    dst.push_str(m.as_str());
+                                }
+                                dst.push(bytes[i + 2] as char);
+                                i += 3;
+                                continue;
+                            }
+                            dst.push('$');
+                            dst.push(nb as char);
+                            dst.push(bytes[i + 2] as char);
+                            i += 3;
+                            continue;
                         }
+                        if d1 != 0 && d1 <= max_group {
+                            if let Some(m) = caps.get(d1) {
+                                dst.push_str(m.as_str());
+                            }
+                            i += 2;
+                            continue;
+                        }
+                        dst.push('$');
+                        dst.push(nb as char);
                         i += 2;
                         continue;
                     }
