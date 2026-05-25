@@ -133,6 +133,8 @@ impl Interpreter {
                             | Value::Promise { .. }
                             | Value::Iterator(_)
                             | Value::RegExp { .. }
+                            | Value::AbortController { .. }
+                            | Value::AbortSignal { .. }
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =

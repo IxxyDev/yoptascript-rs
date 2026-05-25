@@ -3,6 +3,13 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::rc::Rc;
 
+pub struct AbortState {
+    pub aborted: bool,
+    pub reason: Value,
+    pub next_token: u64,
+    pub listeners: Vec<(u64, Value)>,
+}
+
 use yps_parser::ast::{Block, Expr, Param, Stmt};
 
 use crate::environment::{EnvFrame, Environment};
@@ -225,6 +232,22 @@ pub enum Value {
         flags: String,
         compiled: Rc<regex::Regex>,
     },
+    AbortController {
+        state: Rc<RefCell<AbortState>>,
+    },
+    AbortSignal {
+        state: Rc<RefCell<AbortState>>,
+    },
+    AbortListener {
+        target: Rc<RefCell<AbortState>>,
+    },
+    AbortUnsubscribe {
+        state: Rc<RefCell<AbortState>>,
+        token: u64,
+    },
+    AbortCancelTimer {
+        timer_id: u64,
+    },
     Undefined,
     Null,
 }
@@ -265,6 +288,9 @@ impl Value {
             | Value::Iterator(_)
             | Value::RegExp { .. } => "объект",
             Value::Symbol { .. } => "символ",
+            Value::AbortController { .. } => "контроллёрОтмены",
+            Value::AbortSignal { .. } => "сигналОтмены",
+            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => "функция",
         }
     }
 
@@ -289,6 +315,9 @@ impl Value {
             Value::Promise { .. } => "обещание",
             Value::Iterator(_) => "итератор",
             Value::RegExp { .. } => "регэксп",
+            Value::AbortController { .. } => "контроллёрОтмены",
+            Value::AbortSignal { .. } => "сигналОтмены",
+            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => "функция",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -327,6 +356,23 @@ impl fmt::Debug for Value {
             Value::PromiseAggregateHandler { .. } => write!(f, "PromiseAggregateHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
             Value::RegExp { pattern, flags, .. } => write!(f, "RegExp(/{pattern}/{flags})"),
+            Value::AbortController { state } => {
+                if state.borrow().aborted {
+                    write!(f, "AbortController(aborted)")
+                } else {
+                    write!(f, "AbortController(active)")
+                }
+            }
+            Value::AbortSignal { state } => {
+                if state.borrow().aborted {
+                    write!(f, "AbortSignal(aborted)")
+                } else {
+                    write!(f, "AbortSignal(active)")
+                }
+            }
+            Value::AbortListener { .. } => write!(f, "AbortListener"),
+            Value::AbortUnsubscribe { token, .. } => write!(f, "AbortUnsubscribe(token={token})"),
+            Value::AbortCancelTimer { timer_id } => write!(f, "AbortCancelTimer(timer_id={timer_id})"),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -408,6 +454,23 @@ impl fmt::Display for Value {
             Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
             Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
+            Value::AbortController { state } => {
+                if state.borrow().aborted {
+                    write!(f, "[контроллёрОтмены отменён]")
+                } else {
+                    write!(f, "[контроллёрОтмены активен]")
+                }
+            }
+            Value::AbortSignal { state } => {
+                if state.borrow().aborted {
+                    write!(f, "[сигналОтмены отменён]")
+                } else {
+                    write!(f, "[сигналОтмены активен]")
+                }
+            }
+            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => {
+                write!(f, "[отписка]")
+            }
         }
     }
 }
@@ -426,6 +489,12 @@ impl PartialEq for Value {
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),
+            (Value::AbortController { state: a }, Value::AbortController { state: b }) => Rc::ptr_eq(a, b),
+            (Value::AbortSignal { state: a }, Value::AbortSignal { state: b }) => Rc::ptr_eq(a, b),
+            (Value::AbortListener { target: a }, Value::AbortListener { target: b }) => Rc::ptr_eq(a, b),
+            (Value::AbortUnsubscribe { state: a, token: ta }, Value::AbortUnsubscribe { state: b, token: tb }) => {
+                Rc::ptr_eq(a, b) && ta == tb
+            }
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

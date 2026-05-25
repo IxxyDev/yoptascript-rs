@@ -223,6 +223,17 @@ impl Interpreter {
                 crate::stdlib::promise::apply_aggregate(self, state, index, role, val, span)?;
                 Ok(Value::Undefined)
             }
+            Value::AbortUnsubscribe { state, token } => {
+                if token != u64::MAX {
+                    state.borrow_mut().listeners.retain(|(id, _)| *id != token);
+                }
+                Ok(Value::Undefined)
+            }
+            Value::AbortListener { target } => {
+                let reason = target.borrow().reason.clone();
+                crate::stdlib::abort::abort_state(&target, reason, self, span)?;
+                Ok(Value::Undefined)
+            }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
     }
