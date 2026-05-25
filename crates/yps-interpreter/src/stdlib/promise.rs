@@ -7,7 +7,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::require_args;
-use crate::value::{PromiseState, Value};
+use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, Value};
 
 pub fn construct(interp: &mut Interpreter, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     require_args(&args, 1, span, "СловоПацана")?;
@@ -38,62 +38,25 @@ pub fn call_static(
         "всех" => {
             require_args(&args, 1, span, "СловоПацана.всех")?;
             let arr = expect_array(args.into_iter().next().unwrap(), "СловоПацана.всех", span)?;
-            let mut results: Vec<Value> = Vec::with_capacity(arr.len());
-            for item in arr {
-                match settle_value(interp, item, span)? {
-                    PromiseOutcome::Fulfilled(v) => results.push(v),
-                    PromiseOutcome::Rejected(v) => return Ok(Interpreter::make_rejected_promise(v)),
-                }
-            }
-            Ok(Interpreter::make_fulfilled_promise(Value::Array(results)))
+            Ok(run_aggregate(interp, AggregateKind::All, arr, span))
         }
         "всехУстаканить" => {
             require_args(&args, 1, span, "СловоПацана.всехУстаканить")?;
             let arr = expect_array(args.into_iter().next().unwrap(), "СловоПацана.всехУстаканить", span)?;
-            let mut results: Vec<Value> = Vec::with_capacity(arr.len());
-            for item in arr {
-                let mut entry = HashMap::new();
-                match settle_value(interp, item, span)? {
-                    PromiseOutcome::Fulfilled(v) => {
-                        entry.insert("статус".to_string(), Value::String("выполнено".to_string()));
-                        entry.insert("значение".to_string(), v);
-                    }
-                    PromiseOutcome::Rejected(v) => {
-                        entry.insert("статус".to_string(), Value::String("отклонено".to_string()));
-                        entry.insert("причина".to_string(), v);
-                    }
-                }
-                results.push(Value::Object(entry));
-            }
-            Ok(Interpreter::make_fulfilled_promise(Value::Array(results)))
+            Ok(run_aggregate(interp, AggregateKind::AllSettled, arr, span))
         }
         "любой" => {
             require_args(&args, 1, span, "СловоПацана.любой")?;
             let arr = expect_array(args.into_iter().next().unwrap(), "СловоПацана.любой", span)?;
-            let mut errors: Vec<Value> = Vec::with_capacity(arr.len());
-            for item in arr {
-                match settle_value(interp, item, span)? {
-                    PromiseOutcome::Fulfilled(v) => return Ok(Interpreter::make_fulfilled_promise(v)),
-                    PromiseOutcome::Rejected(v) => errors.push(v),
-                }
-            }
-            let mut agg = HashMap::new();
-            agg.insert("name".to_string(), Value::String("ВсёОбосралось".to_string()));
-            agg.insert("message".to_string(), Value::String("Все обещания отклонены".to_string()));
-            agg.insert("errors".to_string(), Value::Array(errors));
-            Ok(Interpreter::make_rejected_promise(Value::Object(agg)))
+            Ok(run_aggregate(interp, AggregateKind::Any, arr, span))
         }
         "гонка" => {
             require_args(&args, 1, span, "СловоПацана.гонка")?;
             let arr = expect_array(args.into_iter().next().unwrap(), "СловоПацана.гонка", span)?;
-            let first = arr
-                .into_iter()
-                .next()
-                .ok_or_else(|| RuntimeError::new("'СловоПацана.гонка' требует непустой массив", span))?;
-            match settle_value(interp, first, span)? {
-                PromiseOutcome::Fulfilled(v) => Ok(Interpreter::make_fulfilled_promise(v)),
-                PromiseOutcome::Rejected(v) => Ok(Interpreter::make_rejected_promise(v)),
+            if arr.is_empty() {
+                return Err(RuntimeError::new("'СловоПацана.гонка' требует непустой массив", span));
             }
+            Ok(run_aggregate(interp, AggregateKind::Race, arr, span))
         }
         "сРешалками" => {
             let (promise, resolve, reject) = Interpreter::make_pending_promise();
@@ -155,11 +118,6 @@ pub fn call(
     }
 }
 
-enum PromiseOutcome {
-    Fulfilled(Value),
-    Rejected(Value),
-}
-
 fn expect_array(v: Value, ctx: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
     match v {
         Value::Array(a) => Ok(a),
@@ -167,19 +125,197 @@ fn expect_array(v: Value, ctx: &str, span: Span) -> Result<Vec<Value>, RuntimeEr
     }
 }
 
-fn settle_value(interp: &mut Interpreter, value: Value, span: Span) -> Result<PromiseOutcome, RuntimeError> {
+fn run_aggregate(interp: &mut Interpreter, kind: AggregateKind, items: Vec<Value>, span: Span) -> Value {
+    let (promise, resolve_cap, reject_cap) = Interpreter::make_pending_promise();
+    let n = items.len();
+
+    if n == 0 {
+        match kind {
+            AggregateKind::All | AggregateKind::AllSettled => {
+                interp.enqueue_microtask(Box::new(move |interp, sp| {
+                    interp.call_function(resolve_cap, vec![Value::Array(Vec::new())], sp).map(|_| ())
+                }));
+            }
+            AggregateKind::Any => {
+                let err = aggregate_error(Vec::new());
+                interp.enqueue_microtask(Box::new(move |interp, sp| {
+                    interp.call_function(reject_cap, vec![err], sp).map(|_| ())
+                }));
+            }
+            AggregateKind::Race => {}
+        }
+        return promise;
+    }
+
+    let state = Rc::new(RefCell::new(AggregateState {
+        kind,
+        remaining: n,
+        results: vec![Value::Undefined; n],
+        resolve: resolve_cap,
+        reject: reject_cap,
+        settled: false,
+    }));
+
+    for (idx, item) in items.into_iter().enumerate() {
+        attach_aggregate(interp, &state, idx, item, span);
+    }
+
+    promise
+}
+
+fn attach_aggregate(
+    interp: &mut Interpreter,
+    state: &Rc<RefCell<AggregateState>>,
+    index: usize,
+    value: Value,
+    _span: Span,
+) {
+    let fulfill = Value::PromiseAggregateHandler { state: Rc::clone(state), index, role: AggregateRole::Fulfill };
+    let reject = Value::PromiseAggregateHandler { state: Rc::clone(state), index, role: AggregateRole::Reject };
     match value {
-        Value::Promise { state } => {
-            interp.drain_microtasks(span)?;
-            let snap = state.borrow().clone();
+        Value::Promise { state: p_state } => {
+            let snap = p_state.borrow().clone();
             match snap {
-                PromiseState::Fulfilled(v) => Ok(PromiseOutcome::Fulfilled(v)),
-                PromiseState::Rejected(v) => Ok(PromiseOutcome::Rejected(v)),
-                PromiseState::Pending { .. } => Err(RuntimeError::new("обещание не разрешено синхронно", span)),
+                PromiseState::Fulfilled(v) => {
+                    interp.enqueue_microtask(Box::new(move |interp, sp| {
+                        interp.call_function(fulfill, vec![v], sp).map(|_| ())
+                    }));
+                }
+                PromiseState::Rejected(v) => {
+                    interp.enqueue_microtask(Box::new(move |interp, sp| {
+                        interp.call_function(reject, vec![v], sp).map(|_| ())
+                    }));
+                }
+                PromiseState::Pending { .. } => {
+                    if let PromiseState::Pending { on_resolve, on_reject } = &mut *p_state.borrow_mut() {
+                        on_resolve.push(fulfill);
+                        on_reject.push(reject);
+                    }
+                }
             }
         }
-        other => Ok(PromiseOutcome::Fulfilled(other)),
+        other => {
+            interp.enqueue_microtask(Box::new(move |interp, sp| {
+                interp.call_function(fulfill, vec![other], sp).map(|_| ())
+            }));
+        }
     }
+}
+
+pub(crate) fn apply_aggregate(
+    interp: &mut Interpreter,
+    state: Rc<RefCell<AggregateState>>,
+    index: usize,
+    role: AggregateRole,
+    value: Value,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let (kind, settled) = {
+        let s = state.borrow();
+        (s.kind, s.settled)
+    };
+
+    let action: Option<(Value, Value)> = match (kind, role) {
+        (AggregateKind::All, AggregateRole::Fulfill) => {
+            if settled {
+                None
+            } else {
+                let mut s = state.borrow_mut();
+                s.results[index] = value;
+                s.remaining -= 1;
+                if s.remaining == 0 {
+                    s.settled = true;
+                    let res = std::mem::take(&mut s.results);
+                    Some((s.resolve.clone(), Value::Array(res)))
+                } else {
+                    None
+                }
+            }
+        }
+        (AggregateKind::All, AggregateRole::Reject) => {
+            if settled {
+                None
+            } else {
+                let mut s = state.borrow_mut();
+                s.settled = true;
+                Some((s.reject.clone(), value))
+            }
+        }
+        (AggregateKind::AllSettled, role) => {
+            let mut entry = HashMap::new();
+            match role {
+                AggregateRole::Fulfill => {
+                    entry.insert("статус".to_string(), Value::String("выполнено".to_string()));
+                    entry.insert("значение".to_string(), value);
+                }
+                AggregateRole::Reject => {
+                    entry.insert("статус".to_string(), Value::String("отклонено".to_string()));
+                    entry.insert("причина".to_string(), value);
+                }
+            }
+            let mut s = state.borrow_mut();
+            s.results[index] = Value::Object(entry);
+            s.remaining -= 1;
+            if s.remaining == 0 {
+                s.settled = true;
+                let res = std::mem::take(&mut s.results);
+                Some((s.resolve.clone(), Value::Array(res)))
+            } else {
+                None
+            }
+        }
+        (AggregateKind::Any, AggregateRole::Fulfill) => {
+            if settled {
+                None
+            } else {
+                let mut s = state.borrow_mut();
+                s.settled = true;
+                Some((s.resolve.clone(), value))
+            }
+        }
+        (AggregateKind::Any, AggregateRole::Reject) => {
+            if settled {
+                None
+            } else {
+                let mut s = state.borrow_mut();
+                s.results[index] = value;
+                s.remaining -= 1;
+                if s.remaining == 0 {
+                    s.settled = true;
+                    let errs = std::mem::take(&mut s.results);
+                    Some((s.reject.clone(), aggregate_error(errs)))
+                } else {
+                    None
+                }
+            }
+        }
+        (AggregateKind::Race, role) => {
+            if settled {
+                None
+            } else {
+                let mut s = state.borrow_mut();
+                s.settled = true;
+                let cap = match role {
+                    AggregateRole::Fulfill => s.resolve.clone(),
+                    AggregateRole::Reject => s.reject.clone(),
+                };
+                Some((cap, value))
+            }
+        }
+    };
+
+    if let Some((cap, val)) = action {
+        interp.call_function(cap, vec![val], span)?;
+    }
+    Ok(())
+}
+
+fn aggregate_error(errors: Vec<Value>) -> Value {
+    let mut agg = HashMap::new();
+    agg.insert("name".to_string(), Value::String("ВсёОбосралось".to_string()));
+    agg.insert("message".to_string(), Value::String("Все обещания отклонены".to_string()));
+    agg.insert("errors".to_string(), Value::Array(errors));
+    Value::Object(agg)
 }
 
 fn chain_promise(

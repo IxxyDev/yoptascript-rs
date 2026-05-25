@@ -5717,3 +5717,151 @@ fn rejected_promise_then_catch_path() {
     );
     assert_eq!(interp.get("пойман"), Some(Value::String("ошибка".into())));
 }
+
+#[test]
+fn promise_all_resolves_after_async_delays() {
+    let interp = run_code(
+        r#"
+        йопта задержка(значение, мс) {
+            отвечаю захуярить СловоПацана((решить, _) => {
+                чутка(() => решить(значение), мс);
+            });
+        }
+        гыы итог = ноль;
+        СловоПацана.всех([задержка(1, 10), задержка(2, 5), задержка(3, 15)])
+            .потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(
+        interp.get("итог"),
+        Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]))
+    );
+}
+
+#[test]
+fn promise_all_rejects_on_first_failure() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        СловоПацана.всех([
+            захуярить СловоПацана((решить, _) => { чутка(() => решить(1), 20); }),
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("плохо"), 5); })
+        ]).ловить((e) => { пойман = e; });
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("плохо".into())));
+}
+
+#[test]
+fn promise_race_takes_first_settled() {
+    let interp = run_code(
+        r#"
+        гыы итог = ноль;
+        СловоПацана.гонка([
+            захуярить СловоПацана((решить, _) => { чутка(() => решить("медленно"), 20); }),
+            захуярить СловоПацана((решить, _) => { чутка(() => решить("быстро"), 5); })
+        ]).потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::String("быстро".into())));
+}
+
+#[test]
+fn promise_any_skips_rejections_returns_first_success() {
+    let interp = run_code(
+        r#"
+        гыы итог = ноль;
+        СловоПацана.любой([
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("a"), 5); }),
+            захуярить СловоПацана((решить, _) => { чутка(() => решить("ок"), 10); }),
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("b"), 15); })
+        ]).потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::String("ок".into())));
+}
+
+#[test]
+fn promise_any_all_rejected_emits_aggregate_error() {
+    let interp = run_code(
+        r#"
+        гыы имя = ноль;
+        гыы ошибки = ноль;
+        СловоПацана.любой([
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("a"), 5); }),
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("b"), 10); })
+        ]).ловить((e) => { имя = e.name; ошибки = e.errors; });
+        "#,
+    );
+    assert_eq!(interp.get("имя"), Some(Value::String("ВсёОбосралось".into())));
+    assert_eq!(interp.get("ошибки"), Some(Value::Array(vec![Value::String("a".into()), Value::String("b".into())])));
+}
+
+#[test]
+fn promise_all_settled_collects_all_outcomes() {
+    let interp = run_code(
+        r#"
+        гыы статусы = ноль;
+        гыы первое = ноль;
+        гыы причина = ноль;
+        гыы третье = ноль;
+        СловоПацана.всехУстаканить([
+            захуярить СловоПацана((решить, _) => { чутка(() => решить(1), 5); }),
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("плохо"), 10); }),
+            захуярить СловоПацана((решить, _) => { чутка(() => решить(3), 15); })
+        ]).потом((v) => {
+            статусы = [v[0].статус, v[1].статус, v[2].статус];
+            первое = v[0].значение;
+            причина = v[1].причина;
+            третье = v[2].значение;
+        });
+        "#,
+    );
+    assert_eq!(
+        interp.get("статусы"),
+        Some(Value::Array(vec![
+            Value::String("выполнено".into()),
+            Value::String("отклонено".into()),
+            Value::String("выполнено".into()),
+        ]))
+    );
+    assert_eq!(interp.get("первое"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("причина"), Some(Value::String("плохо".into())));
+    assert_eq!(interp.get("третье"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn promise_all_empty_array_resolves_to_empty() {
+    let interp = run_code(
+        r#"
+        гыы итог = ноль;
+        СловоПацана.всех([]).потом((v) => { итог = v; });
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Array(Vec::new())));
+}
+
+#[test]
+fn promise_any_empty_array_rejects_with_aggregate() {
+    let interp = run_code(
+        r#"
+        гыы имя = ноль;
+        СловоПацана.любой([]).ловить((e) => { имя = e.name; });
+        "#,
+    );
+    assert_eq!(interp.get("имя"), Some(Value::String("ВсёОбосралось".into())));
+}
+
+#[test]
+fn promise_race_with_rejection_first_propagates() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        СловоПацана.гонка([
+            захуярить СловоПацана((решить, _) => { чутка(() => решить("поздно"), 20); }),
+            захуярить СловоПацана((_, отвергнуть) => { чутка(() => отвергнуть("рано"), 5); })
+        ]).ловить((e) => { пойман = e; });
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("рано".into())));
+}

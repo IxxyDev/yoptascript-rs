@@ -122,7 +122,8 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
         Value::Promise { .. }
         | Value::PromiseCapability { .. }
         | Value::PromiseThenHandler { .. }
-        | Value::PromiseFinallyHandler { .. } => {
+        | Value::PromiseFinallyHandler { .. }
+        | Value::PromiseAggregateHandler { .. } => {
             return Err(RuntimeError::new("Обещания нельзя сериализовать в JSON", span));
         }
         Value::Iterator(_) => {

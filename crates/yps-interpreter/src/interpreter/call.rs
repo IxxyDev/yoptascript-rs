@@ -218,6 +218,11 @@ impl Interpreter {
                 self.call_function(*cap, vec![val], span)?;
                 Ok(Value::Undefined)
             }
+            Value::PromiseAggregateHandler { state, index, role } => {
+                let val = args.into_iter().next().unwrap_or(Value::Undefined);
+                crate::stdlib::promise::apply_aggregate(self, state, index, role, val, span)?;
+                Ok(Value::Undefined)
+            }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
     }
