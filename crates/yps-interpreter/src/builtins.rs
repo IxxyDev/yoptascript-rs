@@ -1,7 +1,10 @@
+use std::rc::Rc;
+
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::stdlib;
+use crate::stdlib::regexp;
 use crate::symbols;
 use crate::value::Value;
 
@@ -9,6 +12,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
     match name {
         s if s == symbols::ERROR_NAME => stdlib::error::construct(args, span),
         "этоКосяк" => is_kosyak(args, span),
+        "RegExp" => construct_regexp(args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             println!("{}", parts.join(" "));
@@ -106,6 +110,7 @@ pub fn builtin_names() -> &'static [&'static str] {
         "втолкнуть",
         symbols::ERROR_NAME,
         "этоКосяк",
+        "RegExp",
         "чутка",
         "отменаЧутки",
         "интервал",
@@ -113,6 +118,45 @@ pub fn builtin_names() -> &'static [&'static str] {
         "сразу",
         "наСледующемТике",
     ]
+}
+
+fn construct_regexp(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    let mut it = args.into_iter();
+    let first = match it.next() {
+        Some(v) => v,
+        None => return Err(RuntimeError::new("RegExp требует pattern", span)),
+    };
+    let second = it.next();
+
+    let flags_override = match &second {
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(Value::Undefined) | Some(Value::Null) | None => None,
+        Some(other) => {
+            return Err(RuntimeError::new(
+                format!("RegExp ожидает строку flags, получено '{}'", other.type_name()),
+                span,
+            ));
+        }
+    };
+
+    match first {
+        Value::String(pattern) => {
+            let flags = flags_override.unwrap_or_default();
+            let compiled = regexp::compile(&pattern, &flags, span)?;
+            Ok(Value::RegExp { pattern, flags, compiled })
+        }
+        Value::RegExp { pattern, flags, compiled } => match flags_override {
+            None => Ok(Value::RegExp { pattern, flags, compiled: Rc::clone(&compiled) }),
+            Some(new_flags) => {
+                let recompiled = regexp::compile(&pattern, &new_flags, span)?;
+                Ok(Value::RegExp { pattern, flags: new_flags, compiled: recompiled })
+            }
+        },
+        other => Err(RuntimeError::new(
+            format!("RegExp ожидает строку или regex как pattern, получено '{}'", other.type_name()),
+            span,
+        )),
+    }
 }
 
 fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {

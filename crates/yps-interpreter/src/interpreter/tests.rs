@@ -5127,11 +5127,299 @@ fn regex_literal_test_and_find() {
         гыы шаблон = /\d+/;
         гыы есть = шаблон.проверить("номер 42");
         гыы найдено = шаблон.найти("abc 123 def");
-        гыы первое = найдено[0];
+        гыы первое = найдено["0"];
+        гыы idx = найдено.index;
         "#,
     );
     assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
     assert_eq!(interp.get("первое"), Some(Value::String("123".to_string())));
+    assert_eq!(interp.get("idx"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn regex_str_match_no_g() {
+    let interp = run_code(
+        r#"
+        гыы r = "abc 123 def".совпадает(/\d+/);
+        гыы m = r["0"];
+        "#,
+    );
+    assert_eq!(interp.get("m"), Some(Value::String("123".to_string())));
+}
+
+#[test]
+fn regex_str_match_no_match() {
+    let interp = run_code(
+        r#"
+        гыы r = "abc".совпадает(/\d+/);
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::Null));
+}
+
+#[test]
+fn regex_str_match_global() {
+    let interp = run_code(
+        r#"
+        гыы r = "a1 b2 c3".совпадает(/\d/g);
+        гыы a = r[0];
+        гыы b = r[1];
+        гыы c = r[2];
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("1".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("2".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("3".to_string())));
+}
+
+#[test]
+fn regex_str_match_all() {
+    let interp = run_code(
+        r#"
+        гыы r = "a1 b2".найтиВсе(/(\w)(\d)/g);
+        гыы first = r[0]["0"];
+        гыы second_g1 = r[1]["1"];
+        "#,
+    );
+    assert_eq!(interp.get("first"), Some(Value::String("a1".to_string())));
+    assert_eq!(interp.get("second_g1"), Some(Value::String("b".to_string())));
+}
+
+#[test]
+fn regex_str_replace() {
+    let interp = run_code(
+        r#"
+        гыы r = "hello world".заменить(/world/, "yopta");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("hello yopta".to_string())));
+}
+
+#[test]
+fn regex_str_replace_global() {
+    let interp = run_code(
+        r#"
+        гыы r = "a-b-c".заменить(/-/g, "_");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("a_b_c".to_string())));
+}
+
+#[test]
+fn regex_str_replace_backref() {
+    let interp = run_code(
+        r#"
+        гыы r = "John Smith".заменить(/(\w+) (\w+)/, "$2 $1");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("Smith John".to_string())));
+}
+
+#[test]
+fn regex_str_replace_dollar_escape() {
+    let interp = run_code(
+        r#"
+        гыы r = "abc".заменить(/b/, "$$");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("a$c".to_string())));
+}
+
+#[test]
+fn regex_str_replace_named_backref() {
+    let interp = run_code(
+        r#"
+        гыы r = "John Smith".заменить(/(?<first>\w+) (?<last>\w+)/, "$<last> $<first>");
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("Smith John".to_string())));
+}
+
+#[test]
+fn regex_str_split() {
+    let interp = run_code(
+        r#"
+        гыы r = "a, b,  c,d".разбить(/,\s*/);
+        гыы a = r[0];
+        гыы b = r[1];
+        гыы c = r[2];
+        гыы d = r[3];
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("c".to_string())));
+    assert_eq!(interp.get("d"), Some(Value::String("d".to_string())));
+}
+
+#[test]
+fn regex_str_search() {
+    let interp = run_code(
+        r#"
+        гыы a = "abc 123".найтиИндекс(/\d+/);
+        гыы b = "abc".найтиИндекс(/\d+/);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(-1.0)));
+}
+
+#[test]
+fn regex_exec_object_shape() {
+    let interp = run_code(
+        r#"
+        гыы r = /(\w+)/.найти("hello");
+        гыы whole = r["0"];
+        гыы g1 = r["1"];
+        гыы idx = r.index;
+        гыы inp = r.input;
+        гыы grp = r.groups;
+        "#,
+    );
+    assert_eq!(interp.get("whole"), Some(Value::String("hello".to_string())));
+    assert_eq!(interp.get("g1"), Some(Value::String("hello".to_string())));
+    assert_eq!(interp.get("idx"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("inp"), Some(Value::String("hello".to_string())));
+    assert_eq!(interp.get("grp"), Some(Value::Null));
+}
+
+#[test]
+fn regex_exec_named_groups() {
+    let interp = run_code(
+        r#"
+        гыы r = /(?<word>\w+)/.найти("hi");
+        гыы w = r.groups.word;
+        "#,
+    );
+    assert_eq!(interp.get("w"), Some(Value::String("hi".to_string())));
+}
+
+#[test]
+fn regex_exec_global_rejected() {
+    let err = run_code_err(
+        r#"
+        /\d+/g.найти("abc 123");
+        "#,
+    );
+    assert!(err.message.contains("g") && err.message.contains("matchAll"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_new_regexp_with_flags() {
+    let interp = run_code(
+        r#"
+        гыы re = RegExp("hello", "i");
+        гыы ok = re.проверить("HELLO");
+        "#,
+    );
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn regex_new_regexp_no_flags() {
+    let interp = run_code(
+        r#"
+        гыы re = RegExp("abc");
+        гыы ok = re.проверить("xabcx");
+        гыы fl = re.флаги;
+        "#,
+    );
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("fl"), Some(Value::String(String::new())));
+}
+
+#[test]
+fn regex_new_regexp_from_regex_with_flags() {
+    let interp = run_code(
+        r#"
+        гыы base = /hello/;
+        гыы re = RegExp(base, "i");
+        гыы ok = re.проверить("HELLO");
+        гыы fl = re.флаги;
+        "#,
+    );
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("fl"), Some(Value::String("i".to_string())));
+}
+
+#[test]
+fn regex_new_regexp_invalid_pattern() {
+    let err = run_code_err(
+        r#"
+        RegExp("(unclosed");
+        "#,
+    );
+    assert!(err.message.contains("(unclosed"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_lookbehind_rejected() {
+    let err = run_code_err(
+        r#"
+        RegExp("(?<=foo)bar");
+        "#,
+    );
+    assert!(err.message.contains("lookbehind"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_backref_rejected() {
+    let err = run_code_err(
+        r#"
+        RegExp("(a)\\1");
+        "#,
+    );
+    assert!(err.message.contains("backreferences"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_sticky_flag_rejected() {
+    let err = run_code_err(
+        r#"
+        RegExp("a", "y");
+        "#,
+    );
+    assert!(err.message.contains("y"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_indices_flag_rejected() {
+    let err = run_code_err(
+        r#"
+        RegExp("a", "d");
+        "#,
+    );
+    assert!(err.message.contains("d"), "got: {}", err.message);
+}
+
+#[test]
+fn regex_escape_safe_literal_paren() {
+    let interp = run_code(
+        r#"
+        гыы re = RegExp("\\(\\?<x>foo\\)");
+        гыы ok = re.проверить("(?<x>foo)");
+        "#,
+    );
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn regex_escape_safe_char_class() {
+    let interp = run_code(
+        r#"
+        гыы re = RegExp("[(?<x>]");
+        гыы a = re.проверить("(");
+        гыы b = re.проверить("?");
+        гыы c = re.проверить("<");
+        гыы d = re.проверить("x");
+        гыы e = re.проверить(">");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("c"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("d"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("e"), Some(Value::Boolean(true)));
 }
 
 #[test]
