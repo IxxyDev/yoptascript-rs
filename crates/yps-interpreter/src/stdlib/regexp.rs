@@ -23,9 +23,7 @@ pub fn compile(pattern: &str, flags: &str, span: Span) -> Result<Rc<regex::Regex
                 }
                 prefix.push(c);
             }
-            'g' | 'u' => {}
-            'y' => return Err(RuntimeError::new("флаг 'y' не поддерживается", span)),
-            'd' => return Err(RuntimeError::new("флаг 'd' не поддерживается", span)),
+            'g' | 'u' | 'y' | 'd' => {}
             other => {
                 return Err(RuntimeError::new(format!("Неизвестный флаг regex: '{other}'"), span));
             }
@@ -145,7 +143,7 @@ fn char_index_at(s: &str, byte_pos: usize) -> i64 {
     s[..byte_pos].chars().count() as i64
 }
 
-pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex) -> Value {
+pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex, with_indices: bool) -> Value {
     let mut map: HashMap<String, Value> = HashMap::new();
     for i in 0..caps.len() {
         let key = i.to_string();
@@ -169,13 +167,86 @@ pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex
     }
     let groups_val = if has_named { Value::Object(groups) } else { Value::Null };
     map.insert("groups".to_string(), groups_val);
+
+    if with_indices {
+        let pair = |m: regex::Match<'_>| {
+            Value::Array(vec![
+                Value::Number(char_index_at(s, m.start()) as f64),
+                Value::Number(char_index_at(s, m.end()) as f64),
+            ])
+        };
+        let mut indices_obj: HashMap<String, Value> = HashMap::new();
+        for i in 0..caps.len() {
+            let v = caps.get(i).map(pair).unwrap_or(Value::Null);
+            indices_obj.insert(i.to_string(), v);
+        }
+        let mut named_groups: HashMap<String, Value> = HashMap::new();
+        for name in re.capture_names().flatten() {
+            let v = caps.name(name).map(pair).unwrap_or(Value::Null);
+            named_groups.insert(name.to_string(), v);
+        }
+        let groups_d = if named_groups.is_empty() { Value::Null } else { Value::Object(named_groups) };
+        indices_obj.insert("groups".to_string(), groups_d);
+        map.insert("indices".to_string(), Value::Object(indices_obj));
+    }
+
     Value::Object(map)
 }
 
 pub fn match_first(re: &Rc<regex::Regex>, s: &str) -> Value {
     match re.captures(s) {
-        Some(caps) => build_match_object(&caps, s, re),
+        Some(caps) => build_match_object(&caps, s, re, false),
         None => Value::Null,
+    }
+}
+
+fn char_to_byte(s: &str, char_idx: usize) -> Option<usize> {
+    if char_idx == 0 {
+        return Some(0);
+    }
+    let mut count = 0;
+    for (b, _) in s.char_indices() {
+        if count == char_idx {
+            return Some(b);
+        }
+        count += 1;
+    }
+    if count == char_idx { Some(s.len()) } else { None }
+}
+
+pub fn exec_stateful(re: &Rc<regex::Regex>, flags: &str, last_index: &Rc<std::cell::RefCell<usize>>, s: &str) -> Value {
+    let stateful = flags.contains('g') || flags.contains('y');
+    let has_indices = flags.contains('d');
+    if !stateful {
+        return match re.captures(s) {
+            Some(caps) => build_match_object(&caps, s, re, has_indices),
+            None => Value::Null,
+        };
+    }
+    let li = *last_index.borrow();
+    let byte_pos = match char_to_byte(s, li) {
+        Some(b) => b,
+        None => {
+            *last_index.borrow_mut() = 0;
+            return Value::Null;
+        }
+    };
+    let caps_opt = re.captures_at(s, byte_pos);
+    match caps_opt {
+        Some(caps) => {
+            let whole = caps.get(0).expect("match group 0");
+            if flags.contains('y') && whole.start() != byte_pos {
+                *last_index.borrow_mut() = 0;
+                return Value::Null;
+            }
+            let new_li = s[..whole.end()].chars().count();
+            *last_index.borrow_mut() = new_li;
+            build_match_object(&caps, s, re, has_indices)
+        }
+        None => {
+            *last_index.borrow_mut() = 0;
+            Value::Null
+        }
     }
 }
 
@@ -184,7 +255,7 @@ pub fn match_all_global(re: &Rc<regex::Regex>, s: &str) -> Vec<Value> {
 }
 
 pub fn match_all_detailed(re: &Rc<regex::Regex>, s: &str) -> Vec<Value> {
-    re.captures_iter(s).map(|caps| build_match_object(&caps, s, re)).collect()
+    re.captures_iter(s).map(|caps| build_match_object(&caps, s, re, false)).collect()
 }
 
 pub fn split_string(re: &Rc<regex::Regex>, s: &str) -> Vec<String> {
@@ -356,8 +427,10 @@ pub fn call(
     args: Vec<Value>,
     span: Span,
 ) -> Result<(Value, Option<Value>), RuntimeError> {
-    let (pattern, flags, compiled) = match &receiver {
-        Value::RegExp { pattern, flags, compiled } => (pattern.clone(), flags.clone(), Rc::clone(compiled)),
+    let (pattern, flags, compiled, last_index) = match &receiver {
+        Value::RegExp { pattern, flags, compiled, last_index } => {
+            (pattern.clone(), flags.clone(), Rc::clone(compiled), Rc::clone(last_index))
+        }
         _ => return Err(RuntimeError::new("Ожидался regex", span)),
     };
 
@@ -369,11 +442,8 @@ pub fn call(
         }
         "найти" | "exec" => {
             require_args(&args, 1, span, "regex.найти")?;
-            if flags.contains('g') {
-                return Err(RuntimeError::new("флаг g не поддержан в exec, используй match/matchAll", span));
-            }
             let s = as_string(&args[0], span, "regex.найти")?;
-            match_first(&compiled, s)
+            exec_stateful(&compiled, &flags, &last_index, s)
         }
         "вСтроку" | "toString" => Value::String(format!("/{pattern}/{flags}")),
         "источник" | "source" => Value::String(pattern.clone()),
@@ -386,8 +456,8 @@ pub fn call(
 }
 
 pub fn member(receiver: &Value, property: &str) -> Option<Value> {
-    let (pattern, flags) = match receiver {
-        Value::RegExp { pattern, flags, .. } => (pattern, flags),
+    let (pattern, flags, last_index) = match receiver {
+        Value::RegExp { pattern, flags, last_index, .. } => (pattern, flags, last_index),
         _ => return None,
     };
     match property {
@@ -396,6 +466,9 @@ pub fn member(receiver: &Value, property: &str) -> Option<Value> {
         "global" | "глобальный" => Some(Value::Boolean(flags.contains('g'))),
         "ignoreCase" | "игнорРегистр" => Some(Value::Boolean(flags.contains('i'))),
         "multiline" | "многострочный" => Some(Value::Boolean(flags.contains('m'))),
+        "sticky" | "липкий" => Some(Value::Boolean(flags.contains('y'))),
+        "hasIndices" | "имеетИндексы" => Some(Value::Boolean(flags.contains('d'))),
+        "lastIndex" | "последнийИндекс" => Some(Value::Number(*last_index.borrow() as f64)),
         _ => None,
     }
 }
