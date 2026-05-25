@@ -853,10 +853,14 @@ impl<'a> Parser<'a> {
         let mut stmts = Vec::new();
 
         while !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) && !self.is_at_end() {
+            let before = self.position;
             match self.parse_statement() {
                 Ok(stmt) => stmts.push(stmt),
                 Err(()) => {
                     self.synchronize();
+                    if self.position == before && !self.is_at_end() {
+                        self.advance();
+                    }
                 }
             }
         }
@@ -1967,7 +1971,13 @@ impl<'a> Parser<'a> {
             }
 
             match &self.current().kind {
-                TokenKind::Keyword(_) | TokenKind::Punctuation(yps_lexer::PunctuationKind::LBrace) => return,
+                TokenKind::Keyword(_)
+                | TokenKind::Punctuation(
+                    yps_lexer::PunctuationKind::LBrace
+                    | yps_lexer::PunctuationKind::RBrace
+                    | yps_lexer::PunctuationKind::RParen
+                    | yps_lexer::PunctuationKind::RBracket,
+                ) => return,
                 _ => {
                     self.advance();
                 }
@@ -3986,5 +3996,11 @@ mod tests {
             "expected decorator-on-non-class diagnostic, got: {:?}",
             diag_messages(&diags)
         );
+    }
+
+    #[test]
+    fn synchronize_does_not_hang_on_missing_semi_in_arrow_block() {
+        let (_, diags) = parse_program_from_source("ф(() => { z = 1 });\n");
+        assert!(!diags.is_empty(), "ожидалась диагностика на пропущенную ';' в теле стрелки");
     }
 }
