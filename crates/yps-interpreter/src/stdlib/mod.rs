@@ -1,3 +1,4 @@
+pub mod abort;
 pub mod array;
 pub mod error;
 pub mod iterator;
@@ -37,6 +38,7 @@ pub fn call_method(
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
         Value::RegExp { .. } => regexp::call(interp, receiver, method, args, span),
+        Value::AbortController { .. } | Value::AbortSignal { .. } => abort::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -77,6 +79,24 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("Косяк.") {
         return Some(error::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("СигналОтмены.") {
+        if stripped == "любой" {
+            let sigs = match args.into_iter().next().unwrap_or(Value::Undefined) {
+                Value::Array(a) => a,
+                other => {
+                    return Some(Err(RuntimeError::new(
+                        format!("'СигналОтмены.любой' ожидает массив, получено '{}'", other.type_name()),
+                        span,
+                    )));
+                }
+            };
+            return Some(abort::signal_any(interp, sigs, span));
+        }
+        return Some(Err(RuntimeError::new(format!("У 'СигналОтмены' нет статического метода '{stripped}'"), span)));
+    }
+    if namespaced == "КонтроллёрОтмены" {
+        return Some(Ok(abort::make_controller()));
+    }
     if namespaced == "Карта" {
         return Some(map::construct(args, span));
     }
@@ -104,6 +124,8 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
         ("СловоПацана".to_string(), Value::BuiltinFunction("СловоПацана".to_string())),
         ("Итератор".to_string(), iterator::build_object()),
+        ("КонтроллёрОтмены".to_string(), Value::BuiltinFunction("КонтроллёрОтмены".to_string())),
+        ("СигналОтмены".to_string(), Value::BuiltinFunction("СигналОтмены".to_string())),
     ]
 }
 
