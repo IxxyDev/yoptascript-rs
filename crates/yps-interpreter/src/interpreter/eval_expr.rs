@@ -398,7 +398,12 @@ impl Interpreter {
             }
             Literal::RegExp { pattern, flags, span } => {
                 let compiled = crate::stdlib::regexp::compile(pattern, flags, *span)?;
-                Ok(Value::RegExp { pattern: pattern.clone(), flags: flags.clone(), compiled })
+                Ok(Value::RegExp {
+                    pattern: pattern.clone(),
+                    flags: flags.clone(),
+                    compiled,
+                    last_index: std::rc::Rc::new(std::cell::RefCell::new(0)),
+                })
             }
         }
     }

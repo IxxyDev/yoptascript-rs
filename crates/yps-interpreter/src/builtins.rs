@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use yps_lexer::Span;
@@ -143,13 +144,23 @@ fn construct_regexp(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError>
         Value::String(pattern) => {
             let flags = flags_override.unwrap_or_default();
             let compiled = regexp::compile(&pattern, &flags, span)?;
-            Ok(Value::RegExp { pattern, flags, compiled })
+            Ok(Value::RegExp { pattern, flags, compiled, last_index: Rc::new(RefCell::new(0)) })
         }
-        Value::RegExp { pattern, flags, compiled } => match flags_override {
-            None => Ok(Value::RegExp { pattern, flags, compiled: Rc::clone(&compiled) }),
+        Value::RegExp { pattern, flags, compiled, .. } => match flags_override {
+            None => Ok(Value::RegExp {
+                pattern,
+                flags,
+                compiled: Rc::clone(&compiled),
+                last_index: Rc::new(RefCell::new(0)),
+            }),
             Some(new_flags) => {
                 let recompiled = regexp::compile(&pattern, &new_flags, span)?;
-                Ok(Value::RegExp { pattern, flags: new_flags, compiled: recompiled })
+                Ok(Value::RegExp {
+                    pattern,
+                    flags: new_flags,
+                    compiled: recompiled,
+                    last_index: Rc::new(RefCell::new(0)),
+                })
             }
         },
         other => Err(RuntimeError::new(

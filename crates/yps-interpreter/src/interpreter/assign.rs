@@ -48,6 +48,23 @@ impl Interpreter {
                 if let Some(result) = self.try_call_setter(object, &property.name, value.clone(), span)? {
                     return Ok(result);
                 }
+                if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex") {
+                    let obj_val = self.eval_expr(object)?;
+                    if let Value::RegExp { last_index, .. } = &obj_val {
+                        let n = match &value {
+                            Value::Number(n) => *n,
+                            other => {
+                                return Err(RuntimeError::new(
+                                    format!("lastIndex требует число, получено '{}'", other.type_name()),
+                                    span,
+                                ));
+                            }
+                        };
+                        let idx = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
+                        *last_index.borrow_mut() = idx;
+                        return Ok(value);
+                    }
+                }
                 if property.name.starts_with('#') {
                     self.check_private_access_for_set(object, &property.name, span)?;
                 }

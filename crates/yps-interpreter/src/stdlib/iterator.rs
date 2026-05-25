@@ -358,7 +358,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
                 Some(caps) => {
                     let whole = caps.get(0).expect("match group 0");
                     let new_pos = if whole.end() == whole.start() { whole.end() + 1 } else { whole.end() };
-                    let obj = crate::stdlib::regexp::build_match_object(&caps, input, &re);
+                    let obj = crate::stdlib::regexp::build_match_object(&caps, input, &re, false);
                     *byte_pos = new_pos;
                     Ok(Some(obj))
                 }

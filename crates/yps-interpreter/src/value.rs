@@ -232,6 +232,7 @@ pub enum Value {
         pattern: String,
         flags: String,
         compiled: Rc<regex::Regex>,
+        last_index: Rc<RefCell<usize>>,
     },
     AbortController {
         state: Rc<RefCell<AbortState>>,
@@ -490,6 +491,9 @@ impl PartialEq for Value {
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),
+            (Value::RegExp { pattern: pa, flags: fa, .. }, Value::RegExp { pattern: pb, flags: fb, .. }) => {
+                pa == pb && fa == fb
+            }
             (Value::AbortController { state: a }, Value::AbortController { state: b }) => Rc::ptr_eq(a, b),
             (Value::AbortSignal { state: a }, Value::AbortSignal { state: b }) => Rc::ptr_eq(a, b),
             (Value::AbortListener { target: a }, Value::AbortListener { target: b }) => Rc::ptr_eq(a, b),
