@@ -140,6 +140,12 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
+            Value::AbortController { .. } | Value::AbortSignal { .. } => {
+                if let Some(val) = crate::stdlib::abort::get_property(&obj, property) {
+                    return Ok(val);
+                }
+                Ok(Value::Undefined)
+            }
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }

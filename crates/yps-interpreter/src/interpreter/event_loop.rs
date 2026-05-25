@@ -4,8 +4,11 @@ use std::time::{Duration, Instant};
 
 use yps_lexer::Span;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::error::RuntimeError;
-use crate::value::Value;
+use crate::value::{AbortState, Value};
 
 use super::Interpreter;
 
@@ -142,6 +145,28 @@ fn parse_delay_ms(value: Option<Value>, fn_name: &str, span: Span) -> Result<u64
     }
 }
 
+fn take_signal_from_opts(
+    value: Option<Value>,
+    fn_name: &str,
+    span: Span,
+) -> Result<Option<Rc<RefCell<AbortState>>>, RuntimeError> {
+    match value {
+        None | Some(Value::Undefined) | Some(Value::Null) => Ok(None),
+        Some(Value::Object(map)) => match map.get("сигнал") {
+            None | Some(Value::Undefined) | Some(Value::Null) => Ok(None),
+            Some(Value::AbortSignal { state }) => Ok(Some(Rc::clone(state))),
+            Some(other) => Err(RuntimeError::new(
+                format!("'{fn_name}': ожидался 'СигналОтмены' в опциях, получено '{}'", other.type_name()),
+                span,
+            )),
+        },
+        Some(other) => Err(RuntimeError::new(
+            format!("'{fn_name}': третий аргумент должен быть объектом опций, получено '{}'", other.type_name()),
+            span,
+        )),
+    }
+}
+
 impl Interpreter {
     pub(crate) fn schedule_macrotask(&mut self, delay: Duration, task: Macrotask) -> u64 {
         self.macrotasks.schedule(delay, task)
@@ -179,6 +204,12 @@ impl Interpreter {
         let mut it = args.into_iter();
         let cb = take_callback(it.next(), "чутка", span)?;
         let ms = parse_delay_ms(it.next(), "чутка", span)?;
+        let signal_state = take_signal_from_opts(it.next(), "чутка", span)?;
+        if let Some(state) = &signal_state
+            && state.borrow().aborted
+        {
+            return Ok(Value::Number(0.0));
+        }
         let id = self.schedule_macrotask(
             Duration::from_millis(ms),
             Box::new(move |interp, sp| {
@@ -188,6 +219,9 @@ impl Interpreter {
                 Ok(())
             }),
         );
+        if let Some(state) = signal_state {
+            crate::stdlib::abort::subscribe_timer_cancel(&state, id);
+        }
         Ok(Value::Number(id as f64))
     }
 
@@ -210,8 +244,17 @@ impl Interpreter {
         let mut it = args.into_iter();
         let cb = take_callback(it.next(), "интервал", span)?;
         let ms = parse_delay_ms(it.next(), "интервал", span)?;
+        let signal_state = take_signal_from_opts(it.next(), "интервал", span)?;
+        if let Some(state) = &signal_state
+            && state.borrow().aborted
+        {
+            return Ok(Value::Number(0.0));
+        }
         let id = self.allocate_macrotask_id();
         self.schedule_interval_tick(id, ms, cb);
+        if let Some(state) = signal_state {
+            crate::stdlib::abort::subscribe_timer_cancel(&state, id);
+        }
         Ok(Value::Number(id as f64))
     }
 
