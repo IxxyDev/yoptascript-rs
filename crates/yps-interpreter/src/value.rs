@@ -134,6 +134,29 @@ pub enum CapKind {
     Reject,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AggregateKind {
+    All,
+    AllSettled,
+    Any,
+    Race,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AggregateRole {
+    Fulfill,
+    Reject,
+}
+
+pub struct AggregateState {
+    pub kind: AggregateKind,
+    pub remaining: usize,
+    pub results: Vec<Value>,
+    pub resolve: Value,
+    pub reject: Value,
+    pub settled: bool,
+}
+
 #[derive(Clone)]
 pub struct ClassDef {
     pub name: String,
@@ -191,6 +214,11 @@ pub enum Value {
         cb: Box<Value>,
         cap: Box<Value>,
     },
+    PromiseAggregateHandler {
+        state: Rc<RefCell<AggregateState>>,
+        index: usize,
+        role: AggregateRole,
+    },
     Iterator(Rc<RefCell<IteratorState>>),
     RegExp {
         pattern: String,
@@ -226,7 +254,8 @@ impl Value {
             | Value::BuiltinFunction(_)
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler { .. }
-            | Value::PromiseFinallyHandler { .. } => "функция",
+            | Value::PromiseFinallyHandler { .. }
+            | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Array(_)
             | Value::Object(_)
             | Value::Class(_)
@@ -253,7 +282,8 @@ impl Value {
             | Value::BuiltinFunction(_)
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler { .. }
-            | Value::PromiseFinallyHandler { .. } => "функция",
+            | Value::PromiseFinallyHandler { .. }
+            | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Class(_) => "класс",
             Value::Symbol { .. } => "символ",
             Value::Promise { .. } => "обещание",
@@ -294,6 +324,7 @@ impl fmt::Debug for Value {
             },
             Value::PromiseThenHandler { .. } => write!(f, "PromiseThenHandler"),
             Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
+            Value::PromiseAggregateHandler { .. } => write!(f, "PromiseAggregateHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
             Value::RegExp { pattern, flags, .. } => write!(f, "RegExp(/{pattern}/{flags})"),
             Value::Undefined => write!(f, "Undefined"),
@@ -374,6 +405,7 @@ impl fmt::Display for Value {
             },
             Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
+            Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
             Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
         }
