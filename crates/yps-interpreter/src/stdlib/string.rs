@@ -2,7 +2,7 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
-use crate::stdlib::{as_number, as_string, require_args};
+use crate::stdlib::{as_number, as_string, regexp, require_args};
 use crate::value::Value;
 
 pub fn call(
@@ -77,6 +77,10 @@ pub fn call(
             if args.is_empty() {
                 return Ok((Value::Array(vec![Value::String(s)]), None));
             }
+            if let Value::RegExp { compiled, .. } = &args[0] {
+                let parts: Vec<Value> = regexp::split_string(compiled, &s).into_iter().map(Value::String).collect();
+                return Ok((Value::Array(parts), None));
+            }
             let sep = as_string(&args[0], span, "split")?;
             let parts: Vec<Value> = if sep.is_empty() {
                 s.chars().map(|c| Value::String(c.to_string())).collect()
@@ -87,15 +91,89 @@ pub fn call(
         }
         "replace" | "заменить" => {
             require_args(&args, 2, span, "replace")?;
+            if let Value::RegExp { compiled, flags, .. } = &args[0] {
+                let replacement = match &args[1] {
+                    Value::String(s) => s.clone(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("'replace' с regex ожидает строку-замену, получено '{}'", other.type_name()),
+                            span,
+                        ));
+                    }
+                };
+                let global = flags.contains('g');
+                return Ok((Value::String(regexp::replace_string(compiled, &s, &replacement, global)), None));
+            }
             let from = as_string(&args[0], span, "replace")?;
             let to = as_string(&args[1], span, "replace")?;
             Ok((Value::String(s.replacen(from, to, 1)), None))
         }
         "replaceAll" | "заменитьВсе" => {
             require_args(&args, 2, span, "replaceAll")?;
+            if let Value::RegExp { compiled, flags, .. } = &args[0] {
+                if !flags.contains('g') {
+                    return Err(RuntimeError::new("replaceAll с regex требует флаг 'g'", span));
+                }
+                let replacement = match &args[1] {
+                    Value::String(s) => s.clone(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("'replaceAll' с regex ожидает строку-замену, получено '{}'", other.type_name()),
+                            span,
+                        ));
+                    }
+                };
+                return Ok((Value::String(regexp::replace_string(compiled, &s, &replacement, true)), None));
+            }
             let from = as_string(&args[0], span, "replaceAll")?;
             let to = as_string(&args[1], span, "replaceAll")?;
             Ok((Value::String(s.replace(from, to)), None))
+        }
+        "match" | "совпадает" => {
+            require_args(&args, 1, span, "match")?;
+            let (compiled, flags) = match &args[0] {
+                Value::RegExp { compiled, flags, .. } => (compiled, flags),
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("'match' ожидает regex, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            };
+            if flags.contains('g') {
+                Ok((Value::Array(regexp::match_all_global(compiled, &s)), None))
+            } else {
+                Ok((regexp::match_first(compiled, &s), None))
+            }
+        }
+        "matchAll" | "найтиВсе" => {
+            require_args(&args, 1, span, "matchAll")?;
+            let (compiled, flags) = match &args[0] {
+                Value::RegExp { compiled, flags, .. } => (compiled, flags),
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("'matchAll' ожидает regex, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            };
+            if !flags.contains('g') {
+                return Err(RuntimeError::new("matchAll требует флаг 'g'", span));
+            }
+            Ok((Value::Array(regexp::match_all_detailed(compiled, &s)), None))
+        }
+        "search" | "найтиИндекс" => {
+            require_args(&args, 1, span, "search")?;
+            let compiled = match &args[0] {
+                Value::RegExp { compiled, .. } => compiled,
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("'search' ожидает regex, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            };
+            Ok((Value::Number(regexp::search_index(compiled, &s) as f64), None))
         }
         "startsWith" | "начинаетсяС" => {
             require_args(&args, 1, span, "startsWith")?;
