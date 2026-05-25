@@ -24,6 +24,7 @@ pub enum IteratorState {
     Take { inner: Box<IteratorState>, remaining: usize },
     Drop { inner: Box<IteratorState>, count: usize, dropped: bool },
     Concat { iters: VecDeque<IteratorState> },
+    RegexMatches { re: Rc<regex::Regex>, input: String, byte_pos: usize },
     Generator(Box<GenState>),
     Done,
 }
