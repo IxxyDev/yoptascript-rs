@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use yps_lexer::Span;
 
@@ -112,6 +113,55 @@ impl Interpreter {
                 interp.call_function(cb, vec![val_cloned], span).map(|_| ())
             }));
         }
+    }
+
+    pub(crate) fn make_timer_promise(&mut self, delay_ms: u64, signal: Option<Value>, _span: Span) -> Value {
+        let (promise, resolve_cap, reject_cap) = Self::make_pending_promise();
+
+        let signal_state = match &signal {
+            Some(Value::AbortSignal { state }) => Some(Rc::clone(state)),
+            _ => None,
+        };
+
+        if let Some(state) = &signal_state
+            && state.borrow().aborted
+        {
+            let reason = state.borrow().reason.clone();
+            let reject_for_task = reject_cap.clone();
+            self.enqueue_microtask(Box::new(move |interp, sp| {
+                if let Value::PromiseCapability { state, kind: CapKind::Reject } = reject_for_task {
+                    let _ = Interpreter::settle_promise(&state, CapKind::Reject, reason, interp, sp);
+                }
+                Ok(())
+            }));
+            return promise;
+        }
+
+        let id = self.macrotasks.allocate_id();
+        let resolve_for_task = resolve_cap.clone();
+        self.macrotasks.schedule_with_id(
+            id,
+            Duration::from_millis(delay_ms),
+            Box::new(move |interp, sp| {
+                if let Value::PromiseCapability { state, kind: CapKind::Resolve } = resolve_for_task {
+                    let _ = Interpreter::settle_promise(&state, CapKind::Resolve, Value::Undefined, interp, sp);
+                }
+                Ok(())
+            }),
+        );
+
+        if let Some(state) = signal_state {
+            let mut st = state.borrow_mut();
+            let tok = st.next_token;
+            st.next_token += 1;
+            st.listeners
+                .push((tok, Value::AbortRejectPromise { reject_cap: Box::new(reject_cap), reason_from_signal: true }));
+            let tok2 = st.next_token;
+            st.next_token += 1;
+            st.listeners.push((tok2, Value::AbortCancelTimer { timer_id: id }));
+        }
+
+        promise
     }
 
     pub(crate) fn do_await(&mut self, value: Value, span: Span) -> Result<Value, RuntimeError> {

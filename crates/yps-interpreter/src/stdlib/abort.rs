@@ -6,7 +6,7 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
-use crate::value::{AbortState, Value};
+use crate::value::{AbortState, CapKind, Value};
 
 pub fn make_controller() -> Value {
     let state = Rc::new(RefCell::new(AbortState {
@@ -14,8 +14,16 @@ pub fn make_controller() -> Value {
         reason: Value::Undefined,
         next_token: 0,
         listeners: Vec::new(),
+        promise: RefCell::new(None),
     }));
     Value::AbortController { state }
+}
+
+pub(crate) fn make_abort_error(message: &str) -> Value {
+    let mut map = std::collections::HashMap::new();
+    map.insert("name".to_string(), Value::String("ОшибкаОтмены".to_string()));
+    map.insert("message".to_string(), Value::String(message.to_string()));
+    Value::Object(map)
 }
 
 pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
@@ -24,6 +32,7 @@ pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Res
         reason: Value::Undefined,
         next_token: 0,
         listeners: Vec::new(),
+        promise: RefCell::new(None),
     }));
     let result_signal = Value::AbortSignal { state: Rc::clone(&ctrl_state) };
 
@@ -96,6 +105,18 @@ fn fire_listener(
         Value::AbortCancelTimer { timer_id } => {
             interp.cancel_macrotask(timer_id);
         }
+        Value::AbortRejectPromise { reject_cap, reason_from_signal } => {
+            let reason = if reason_from_signal {
+                source.borrow().reason.clone()
+            } else {
+                make_abort_error("Операция отменена")
+            };
+            if let Value::PromiseCapability { state, kind: CapKind::Reject } = *reject_cap
+                && let Err(e) = Interpreter::settle_promise(&state, CapKind::Reject, reason, interp, span)
+            {
+                eprintln!("необработанное исключение в 'отмена': {}", e.message);
+            }
+        }
         other => {
             if let Err(e) = interp.call_function(other, vec![], span) {
                 eprintln!("необработанное исключение в 'отмена': {}", e.message);
@@ -103,6 +124,55 @@ fn fire_listener(
         }
     }
     Ok(())
+}
+
+fn get_or_init_signal_promise(state: &Rc<RefCell<AbortState>>) -> Value {
+    {
+        let st = state.borrow();
+        if let Some(v) = st.promise.borrow().as_ref() {
+            return v.clone();
+        }
+    }
+    let aborted_now = state.borrow().aborted;
+    if aborted_now {
+        let reason = state.borrow().reason.clone();
+        let prom = Interpreter::make_rejected_promise(reason);
+        *state.borrow().promise.borrow_mut() = Some(prom.clone());
+        return prom;
+    }
+    let (promise_value, _resolve_cap, reject_cap) = Interpreter::make_pending_promise();
+    let listener = Value::AbortRejectPromise { reject_cap: Box::new(reject_cap), reason_from_signal: true };
+    {
+        let mut st = state.borrow_mut();
+        let id = st.next_token;
+        st.next_token += 1;
+        st.listeners.push((id, listener));
+    }
+    *state.borrow().promise.borrow_mut() = Some(promise_value.clone());
+    promise_value
+}
+
+pub fn make_timeout_signal(interp: &mut Interpreter, ms: u64) -> Value {
+    let state = Rc::new(RefCell::new(AbortState {
+        aborted: false,
+        reason: Value::Undefined,
+        next_token: 0,
+        listeners: Vec::new(),
+        promise: RefCell::new(None),
+    }));
+    let signal = Value::AbortSignal { state: Rc::clone(&state) };
+    let state_for_task = Rc::clone(&state);
+    interp.schedule_macrotask(
+        std::time::Duration::from_millis(ms),
+        Box::new(move |interp, sp| {
+            let reason = make_abort_error("Тайм-аут");
+            if let Err(e) = abort_state(&state_for_task, reason, interp, sp) {
+                eprintln!("необработанное исключение в 'отВремени': {}", e.message);
+            }
+            Ok(())
+        }),
+    );
+    signal
 }
 
 pub fn subscribe_timer_cancel(state: &Rc<RefCell<AbortState>>, timer_id: u64) {
@@ -187,6 +257,7 @@ pub fn get_property(receiver: &Value, prop: &str) -> Option<Value> {
         Value::AbortSignal { state } => match prop {
             "отменён" => Some(Value::Boolean(state.borrow().aborted)),
             "причина" => Some(state.borrow().reason.clone()),
+            "обещание" => Some(get_or_init_signal_promise(state)),
             _ => None,
         },
         _ => None,

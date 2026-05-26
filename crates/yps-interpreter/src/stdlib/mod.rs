@@ -92,6 +92,21 @@ pub fn call_static_namespaced(
             };
             return Some(abort::signal_any(interp, sigs, span));
         }
+        if stripped == "отВремени" {
+            let ms = match args.into_iter().next().unwrap_or(Value::Undefined) {
+                Value::Number(n) if n.is_finite() && n >= 0.0 => n as u64,
+                other => {
+                    return Some(Err(RuntimeError::new(
+                        format!(
+                            "'СигналОтмены.отВремени' ожидает миллисекунды числом, получено '{}'",
+                            other.type_name()
+                        ),
+                        span,
+                    )));
+                }
+            };
+            return Some(Ok(abort::make_timeout_signal(interp, ms)));
+        }
         return Some(Err(RuntimeError::new(format!("У 'СигналОтмены' нет статического метода '{stripped}'"), span)));
     }
     if namespaced == "КонтроллёрОтмены" {
