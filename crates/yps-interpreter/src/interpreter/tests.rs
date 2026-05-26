@@ -6353,3 +6353,115 @@ fn promise_race_with_rejection_first_propagates() {
     );
     assert_eq!(interp.get("пойман"), Some(Value::String("рано".into())));
 }
+
+#[test]
+fn test_await_podozhdat_blocks_min_50ms() {
+    let start = std::time::Instant::now();
+    let interp = run_code(
+        r#"
+        гыы готово = лож;
+        ассо йопта главное() {
+            сидетьНахуй подождать(50);
+            готово = правда;
+        }
+        главное();
+        "#,
+    );
+    let elapsed = start.elapsed();
+    assert_eq!(interp.get("готово"), Some(Value::Boolean(true)));
+    assert!(elapsed.as_millis() >= 40, "ожидалось >=40мс, было {}мс", elapsed.as_millis());
+    assert!(elapsed.as_millis() < 500, "ожидалось <500мс, было {}мс", elapsed.as_millis());
+}
+
+#[test]
+fn test_await_podozhdat_aborts_via_signal() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        ассо йопта главное() {
+            гыы к = захуярить КонтроллёрОтмены();
+            чутка(() => к.отменить({ name: "ОшибкаОтмены", message: "сигнал" }), 5);
+            хапнуть {
+                сидетьНахуй подождать(500, { сигнал: к.сигнал });
+            } гоп (e) {
+                пойман = e.message;
+            }
+        }
+        главное();
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("сигнал".into())));
+}
+
+#[test]
+fn test_sochereit_runs_before_macrotask() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        чутка(() => { лог = втолкнуть(лог, "макро"); }, 0);
+        сОчередить(() => { лог = втолкнуть(лог, "микро"); });
+        "#,
+    );
+    assert_eq!(
+        interp.get("лог"),
+        Some(Value::Array(vec![Value::String("микро".into()), Value::String("макро".into())]))
+    );
+}
+
+#[test]
+fn test_promise_race_picks_shortest_timer() {
+    let interp = run_code(
+        r#"
+        гыы итог = ноль;
+        ассо йопта главное() {
+            итог = сидетьНахуй СловоПацана.гонка([подождать(50), подождать(5), подождать(100)]);
+        }
+        главное();
+        "#,
+    );
+    assert_eq!(interp.get("итог"), Some(Value::Undefined));
+}
+
+#[test]
+fn test_abort_signal_ot_vremeni_rejects() {
+    let interp = run_code(
+        r#"
+        гыы имя = ноль;
+        гыы сообщ = ноль;
+        ассо йопта главное() {
+            гыы с = СигналОтмены.отВремени(10);
+            хапнуть {
+                сидетьНахуй с.обещание;
+            } гоп (e) {
+                имя = e.name;
+                сообщ = e.message;
+            }
+        }
+        главное();
+        "#,
+    );
+    assert_eq!(interp.get("имя"), Some(Value::String("ОшибкаОтмены".into())));
+    assert_eq!(interp.get("сообщ"), Some(Value::String("Тайм-аут".into())));
+}
+
+#[test]
+fn test_signal_promise_cached_no_listener_leak() {
+    let interp = run_code(
+        r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        гыы сиг = к.сигнал;
+        гыы и = 0;
+        потрещим (и < 100) {
+            гыы _ = сиг.обещание;
+            и = и + 1;
+        }
+        "#,
+    );
+    let sig = interp.get("сиг").expect("сиг должен быть определён");
+    let state = match sig {
+        Value::AbortSignal { state } => state,
+        other => panic!("ожидался AbortSignal, получено {other:?}"),
+    };
+    let count = state.borrow().listeners.len();
+    assert!(count <= 2, "ожидалось <=2 слушателей, было {count}");
+}

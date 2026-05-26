@@ -8,6 +8,7 @@ pub struct AbortState {
     pub reason: Value,
     pub next_token: u64,
     pub listeners: Vec<(u64, Value)>,
+    pub promise: RefCell<Option<Value>>,
 }
 
 use yps_parser::ast::{Block, Expr, Param, Stmt};
@@ -250,6 +251,10 @@ pub enum Value {
     AbortCancelTimer {
         timer_id: u64,
     },
+    AbortRejectPromise {
+        reject_cap: Box<Value>,
+        reason_from_signal: bool,
+    },
     Undefined,
     Null,
 }
@@ -292,7 +297,10 @@ impl Value {
             Value::Symbol { .. } => "символ",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
-            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => "функция",
+            Value::AbortListener { .. }
+            | Value::AbortUnsubscribe { .. }
+            | Value::AbortCancelTimer { .. }
+            | Value::AbortRejectPromise { .. } => "функция",
         }
     }
 
@@ -319,7 +327,10 @@ impl Value {
             Value::RegExp { .. } => "регэксп",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
-            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => "функция",
+            Value::AbortListener { .. }
+            | Value::AbortUnsubscribe { .. }
+            | Value::AbortCancelTimer { .. }
+            | Value::AbortRejectPromise { .. } => "функция",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -375,6 +386,9 @@ impl fmt::Debug for Value {
             Value::AbortListener { .. } => write!(f, "AbortListener"),
             Value::AbortUnsubscribe { token, .. } => write!(f, "AbortUnsubscribe(token={token})"),
             Value::AbortCancelTimer { timer_id } => write!(f, "AbortCancelTimer(timer_id={timer_id})"),
+            Value::AbortRejectPromise { reason_from_signal, .. } => {
+                write!(f, "AbortRejectPromise(from_signal={reason_from_signal})")
+            }
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -470,9 +484,10 @@ impl fmt::Display for Value {
                     write!(f, "[сигналОтмены активен]")
                 }
             }
-            Value::AbortListener { .. } | Value::AbortUnsubscribe { .. } | Value::AbortCancelTimer { .. } => {
-                write!(f, "[отписка]")
-            }
+            Value::AbortListener { .. }
+            | Value::AbortUnsubscribe { .. }
+            | Value::AbortCancelTimer { .. }
+            | Value::AbortRejectPromise { .. } => write!(f, "[отписка]"),
         }
     }
 }

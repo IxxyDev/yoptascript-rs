@@ -137,7 +137,8 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
         | Value::AbortSignal { .. }
         | Value::AbortListener { .. }
         | Value::AbortUnsubscribe { .. }
-        | Value::AbortCancelTimer { .. } => {
+        | Value::AbortCancelTimer { .. }
+        | Value::AbortRejectPromise { .. } => {
             return Err(RuntimeError::new("КонтроллёрОтмены/СигналОтмены нельзя сериализовать в JSON", span));
         }
     }

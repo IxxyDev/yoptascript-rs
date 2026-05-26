@@ -196,8 +196,49 @@ impl Interpreter {
             "интервал" => Some(self.builtin_schedule_interval(args, span)),
             "сразу" => Some(self.builtin_queue_microtask(args, span, false)),
             "наСледующемТике" => Some(self.builtin_queue_microtask(args, span, true)),
+            "подождать" => Some(self.builtin_wait_promise(args, span)),
+            "сОчередить" => Some(self.builtin_queue_microtask_promise(args, span)),
             _ => None,
         }
+    }
+
+    fn builtin_wait_promise(&mut self, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+        let mut it = args.into_iter();
+        let ms = parse_delay_ms(it.next(), "подождать", span)?;
+        let signal = match it.next() {
+            None | Some(Value::Undefined) | Some(Value::Null) => None,
+            Some(Value::Object(map)) => match map.get("сигнал") {
+                None | Some(Value::Undefined) | Some(Value::Null) => None,
+                Some(Value::AbortSignal { state }) => Some(Value::AbortSignal { state: Rc::clone(state) }),
+                Some(other) => {
+                    return Err(RuntimeError::new(
+                        format!("'подождать': ожидался 'СигналОтмены' в опциях, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            },
+            Some(other) => {
+                return Err(RuntimeError::new(
+                    format!(
+                        "'подождать': второй аргумент должен быть объектом опций, получено '{}'",
+                        other.type_name()
+                    ),
+                    span,
+                ));
+            }
+        };
+        Ok(self.make_timer_promise(ms, signal, span))
+    }
+
+    fn builtin_queue_microtask_promise(&mut self, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+        let cb = take_callback(args.into_iter().next(), "сОчередить", span)?;
+        self.enqueue_microtask(Box::new(move |interp, sp| {
+            if let Err(e) = interp.call_function(cb, vec![], sp) {
+                report_async_error("сОчередить", &e);
+            }
+            Ok(())
+        }));
+        Ok(Value::Undefined)
     }
 
     fn builtin_schedule_timeout(&mut self, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
