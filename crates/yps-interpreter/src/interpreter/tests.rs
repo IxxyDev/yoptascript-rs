@@ -6465,3 +6465,185 @@ fn test_signal_promise_cached_no_listener_leak() {
     let count = state.borrow().listeners.len();
     assert!(count <= 2, "ожидалось <=2 слушателей, было {count}");
 }
+
+#[test]
+fn generator_return_method_basic() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            поебалу 1;
+            поебалу 2;
+            поебалу 3;
+        }
+        гыы г = ген();
+        гыы а = г.следующий().значение;
+        гыы р = г.вернуть(42);
+        гыы знач = р.значение;
+        гыы готово = р.готово;
+        гыы посл = г.следующий().готово;
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("знач"), Some(Value::Number(42.0)));
+    assert_eq!(i.get("готово"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("посл"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_return_runs_finally_side_effect() {
+    let i = run_code(
+        r#"
+        гыы счёт = 0;
+        пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+                поебалу 2;
+            } тюряжка {
+                счёт = счёт + 1;
+            }
+        }
+        гыы г = ген();
+        г.следующий();
+        гыы р = г.вернуть(7);
+        гыы знач = р.значение;
+        гыы готово = р.готово;
+        "#,
+    );
+    assert_eq!(i.get("счёт"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("знач"), Some(Value::Number(7.0)));
+    assert_eq!(i.get("готово"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_return_with_yielding_finally() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+                поебалу 2;
+            } тюряжка {
+                поебалу 100;
+            }
+        }
+        гыы г = ген();
+        г.следующий();
+        гыы р1 = г.вернуть(7);
+        гыы зн1 = р1.значение;
+        гыы гт1 = р1.готово;
+        гыы р2 = г.следующий();
+        гыы зн2 = р2.значение;
+        гыы гт2 = р2.готово;
+        "#,
+    );
+    assert_eq!(i.get("зн1"), Some(Value::Number(100.0)));
+    assert_eq!(i.get("гт1"), Some(Value::Boolean(false)));
+    assert_eq!(i.get("зн2"), Some(Value::Number(7.0)));
+    assert_eq!(i.get("гт2"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_throw_caught_by_inner_try() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+            } гоп (е) {
+                поебалу е;
+            }
+        }
+        гыы г = ген();
+        г.следующий();
+        гыы р = г.кинуть("упс");
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        "#,
+    );
+    assert_eq!(i.get("зн"), Some(Value::String("упс".to_string())));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn generator_throw_uncaught_propagates() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            поебалу 1;
+        }
+        гыы г = ген();
+        г.следующий();
+        г.кинуть("бах");
+        "#,
+    );
+    assert_eq!(err.thrown, Some(Value::String("бах".to_string())));
+}
+
+#[test]
+fn generator_return_on_completed() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            поебалу 1;
+        }
+        гыы г = ген();
+        г.следующий();
+        г.следующий();
+        гыы р = г.вернуть(99);
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        "#,
+    );
+    assert_eq!(i.get("зн"), Some(Value::Number(99.0)));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_throw_on_completed() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            поебалу 1;
+        }
+        гыы г = ген();
+        г.следующий();
+        г.следующий();
+        г.кинуть("после конца");
+        "#,
+    );
+    assert_eq!(err.thrown, Some(Value::String("после конца".to_string())));
+}
+
+#[test]
+fn generator_return_before_first_next() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            поебалу 1;
+            поебалу 2;
+        }
+        гыы г = ген();
+        гыы р = г.вернуть(11);
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        гыы посл = г.следующий().готово;
+        "#,
+    );
+    assert_eq!(i.get("зн"), Some(Value::Number(11.0)));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("посл"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_yield_delegate_non_iterable_errors() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            поебалуна 42;
+        }
+        гыы г = ген();
+        г.следующий();
+        "#,
+    );
+    assert!(err.message.contains("итерировать") || err.message.contains("итер"));
+}

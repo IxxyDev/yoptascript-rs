@@ -12,8 +12,19 @@ use super::{ControlFlow, Interpreter};
 
 pub(super) enum GenStep {
     Yielded(Value),
-    Done,
+    Done(Value),
     Threw(Value),
+}
+
+pub(crate) enum GenInput {
+    Send(Value),
+    Return(Value),
+    Throw(Value),
+}
+
+pub(crate) enum StepOutcome {
+    Yielded(Value),
+    Done(Value),
 }
 
 enum Unwind {
@@ -31,31 +42,59 @@ pub(crate) fn build_generator(env: Environment, body: &Rc<Block>) -> GenState {
 pub(crate) fn step_generator(
     interp: &mut Interpreter,
     g: &mut GenState,
-    sent: Value,
+    input: GenInput,
     span: Span,
-) -> Result<Option<Value>, RuntimeError> {
+) -> Result<StepOutcome, RuntimeError> {
     if g.completed {
-        return Ok(None);
-    }
-    if let Some(bind) = g.pending_bind.take() {
-        apply_bind(&mut g.env, bind, sent);
+        return match input {
+            GenInput::Throw(v) => Err(RuntimeError::thrown(v, span)),
+            GenInput::Return(v) => Ok(StepOutcome::Done(v)),
+            GenInput::Send(_) => Ok(StepOutcome::Done(Value::Undefined)),
+        };
     }
 
     let saved_env = std::mem::replace(&mut interp.env, g.env.clone());
-    let result = pump(interp, g, span);
+    let result = match input {
+        GenInput::Send(v) => {
+            if let Some(bind) = g.pending_bind.take() {
+                apply_bind(&mut g.env, bind, v);
+            }
+            pump(interp, g, span)
+        }
+        GenInput::Return(v) => {
+            g.pending_bind = None;
+            pump_with_unwind(interp, g, Unwind::Return(v), span)
+        }
+        GenInput::Throw(v) => {
+            g.pending_bind = None;
+            pump_with_unwind(interp, g, Unwind::Throw(v), span)
+        }
+    };
     g.env = std::mem::replace(&mut interp.env, saved_env);
 
     match result? {
-        GenStep::Yielded(v) => Ok(Some(v)),
-        GenStep::Done => {
+        GenStep::Yielded(v) => Ok(StepOutcome::Yielded(v)),
+        GenStep::Done(v) => {
             g.completed = true;
-            Ok(None)
+            Ok(StepOutcome::Done(v))
         }
         GenStep::Threw(v) => {
             g.completed = true;
-            Err(RuntimeError::new(format!("Необработанное исключение из генератора: {v}"), span))
+            Err(RuntimeError::thrown(v, span))
         }
     }
+}
+
+fn pump_with_unwind(
+    interp: &mut Interpreter,
+    g: &mut GenState,
+    u: Unwind,
+    span: Span,
+) -> Result<GenStep, RuntimeError> {
+    if let Some(step) = unwind(interp, g, u, span)? {
+        return Ok(step);
+    }
+    pump(interp, g, span)
 }
 
 fn apply_bind(env: &mut Environment, target: BindTarget, sent: Value) {
@@ -70,7 +109,7 @@ fn apply_bind(env: &mut Environment, target: BindTarget, sent: Value) {
 fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenStep, RuntimeError> {
     loop {
         let Some(frame) = g.frames.last_mut() else {
-            return Ok(GenStep::Done);
+            return Ok(GenStep::Done(Value::Undefined));
         };
 
         match frame {
@@ -207,9 +246,9 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                             return Ok(step);
                         }
                     }
-                    TryState::FinallyAfterReturn(_) => {
+                    TryState::FinallyAfterReturn(v) => {
                         g.frames.clear();
-                        return Ok(GenStep::Done);
+                        return Ok(GenStep::Done(v));
                     }
                     TryState::FinallyAfterBreak => {
                         g.frames.pop();
@@ -477,7 +516,7 @@ fn unwind(
         let Some(top) = g.frames.last_mut() else {
             return match kind {
                 Unwind::Throw(v) => Ok(Some(GenStep::Threw(v))),
-                Unwind::Return(_) => Ok(Some(GenStep::Done)),
+                Unwind::Return(v) => Ok(Some(GenStep::Done(v))),
                 Unwind::Break => Err(RuntimeError::new("'харэ' вне цикла", span)),
                 Unwind::Continue => Err(RuntimeError::new("'двигай' вне цикла", span)),
             };

@@ -61,10 +61,69 @@ pub fn call(
 
     match method {
         "следующий" | "next" => {
-            let mut state = rc.borrow_mut();
-            match next(interp, &mut state, span)? {
-                Some(value) => Ok((make_result(value, false), None)),
-                None => Ok((make_result(Value::Undefined, true), None)),
+            let mut state_borrow = rc.borrow_mut();
+            if let IteratorState::Generator(gen_state) = &mut *state_borrow {
+                let outcome = crate::interpreter::generator::step_generator(
+                    interp,
+                    gen_state,
+                    crate::interpreter::generator::GenInput::Send(Value::Undefined),
+                    span,
+                )?;
+                match outcome {
+                    crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                    crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                }
+            } else {
+                match next(interp, &mut state_borrow, span)? {
+                    Some(value) => Ok((make_result(value, false), None)),
+                    None => Ok((make_result(Value::Undefined, true), None)),
+                }
+            }
+        }
+        "вернуть" | "return" => {
+            let arg = args.into_iter().next().unwrap_or(Value::Undefined);
+            let mut state_borrow = rc.borrow_mut();
+            match &mut *state_borrow {
+                IteratorState::Generator(gen_state) => {
+                    if gen_state.completed {
+                        return Ok((make_result(arg, true), None));
+                    }
+                    let outcome = crate::interpreter::generator::step_generator(
+                        interp,
+                        gen_state,
+                        crate::interpreter::generator::GenInput::Return(arg),
+                        span,
+                    )?;
+                    match outcome {
+                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                    }
+                }
+                IteratorState::Done => Ok((make_result(arg, true), None)),
+                _ => Err(RuntimeError::new("Метод 'вернуть' доступен только для генераторов", span)),
+            }
+        }
+        "кинуть" | "throw" => {
+            let arg = args.into_iter().next().unwrap_or(Value::Undefined);
+            let mut state_borrow = rc.borrow_mut();
+            match &mut *state_borrow {
+                IteratorState::Generator(gen_state) => {
+                    if gen_state.completed {
+                        return Err(RuntimeError::thrown(arg, span));
+                    }
+                    let outcome = crate::interpreter::generator::step_generator(
+                        interp,
+                        gen_state,
+                        crate::interpreter::generator::GenInput::Throw(arg),
+                        span,
+                    )?;
+                    match outcome {
+                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                    }
+                }
+                IteratorState::Done => Err(RuntimeError::thrown(arg, span)),
+                _ => Err(RuntimeError::new("Метод 'кинуть' доступен только для генераторов", span)),
             }
         }
         "map" | "преобразовать" => {
@@ -365,13 +424,15 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             }
         }
         IteratorState::Generator(gen_state) => {
-            let result = crate::interpreter::generator::step_generator(interp, gen_state, Value::Undefined, span)?;
+            let result = crate::interpreter::generator::step_generator(
+                interp,
+                gen_state,
+                crate::interpreter::generator::GenInput::Send(Value::Undefined),
+                span,
+            )?;
             match result {
-                Some(v) => Ok(Some(v)),
-                None => {
-                    *state = IteratorState::Done;
-                    Ok(None)
-                }
+                crate::interpreter::generator::StepOutcome::Yielded(v) => Ok(Some(v)),
+                crate::interpreter::generator::StepOutcome::Done(_) => Ok(None),
             }
         }
     }
