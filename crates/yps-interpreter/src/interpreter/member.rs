@@ -112,10 +112,10 @@ impl Interpreter {
                     }
                 }
                 if let Some(proto) = map.get(symbols::PROTO).cloned() {
-                    if matches!(proto, Value::Class(_)) {
-                        return Ok(Value::Undefined);
+                    match proto {
+                        Value::Class(_) | Value::Null => return Ok(Value::Undefined),
+                        _ => return self.eval_member(proto, property, span),
                     }
-                    return self.eval_member(proto, property, span);
                 }
                 Ok(Value::Undefined)
             }
@@ -155,22 +155,21 @@ impl Interpreter {
         map: &std::collections::HashMap<String, Value>,
         env: &crate::environment::Environment,
     ) -> Option<std::rc::Rc<crate::value::ClassDef>> {
-        if let Some(Value::Class(cls)) = map.get(symbols::PROTO) {
-            return Some(std::rc::Rc::clone(cls));
+        match map.get(symbols::PROTO) {
+            Some(Value::Class(cls)) => Some(std::rc::Rc::clone(cls)),
+            Some(_) => None,
+            None => {
+                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
+                    && let Some(Value::Class(cls)) = env.get(class_name)
+                {
+                    return Some(cls);
+                }
+                None
+            }
         }
-        if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-            && let Some(Value::Class(cls)) = env.get(class_name)
-        {
-            return Some(cls);
-        }
-        None
     }
 
-    pub(crate) fn class_prototype_object_pub(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
-        Self::class_prototype_object(cls)
-    }
-
-    fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
+    pub(crate) fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
         let mut map = std::collections::HashMap::new();
         let mut current: Option<&crate::value::ClassDef> = Some(cls);
         while let Some(c) = current {

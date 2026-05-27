@@ -183,7 +183,7 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.прототип")?;
             match &args[0] {
                 Value::Object(map) => match map.get(symbols::PROTO) {
-                    Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object_pub(cls)),
+                    Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object(cls)),
                     Some(other) => Ok(other.clone()),
                     None => Ok(Value::Null),
                 },
@@ -205,11 +205,7 @@ pub fn call_static(
                 Value::Object(m) => m,
                 _ => unreachable!(),
             };
-            if matches!(proto, Value::Null) {
-                map.remove(symbols::PROTO);
-            } else {
-                map.insert(symbols::PROTO.to_string(), proto);
-            }
+            map.insert(symbols::PROTO.to_string(), proto);
             Ok(Value::Object(map))
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
