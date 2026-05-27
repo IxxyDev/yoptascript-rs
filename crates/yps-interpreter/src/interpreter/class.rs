@@ -306,6 +306,7 @@ impl Interpreter {
 
         let mut instance = HashMap::new();
         instance.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
+        instance.insert(symbols::PROTO.to_string(), Value::Class(Rc::clone(&class_def)));
 
         self.init_fields(&class_def, &mut instance, span)?;
 
@@ -494,6 +495,30 @@ impl Interpreter {
             instance.insert(name.clone(), val);
         }
         Ok(())
+    }
+
+    pub(crate) fn instance_of_check(&self, value: &Value, target: &Rc<ClassDef>) -> bool {
+        let mut current = value.clone();
+        for _ in 0..256 {
+            let map = match &current {
+                Value::Object(m) => m,
+                _ => return false,
+            };
+            if let Some(cls) = Self::resolve_class_for_object(map, &self.env) {
+                let mut walker: Option<&ClassDef> = Some(&cls);
+                while let Some(c) = walker {
+                    if Rc::ptr_eq(&Rc::clone(&cls), target) || c.name == target.name {
+                        return true;
+                    }
+                    walker = c.parent.as_deref();
+                }
+            }
+            match map.get(symbols::PROTO).cloned() {
+                Some(Value::Object(_)) => current = map.get(symbols::PROTO).cloned().unwrap(),
+                _ => return false,
+            }
+        }
+        false
     }
 
     pub(super) fn find_method_in_class<'a>(

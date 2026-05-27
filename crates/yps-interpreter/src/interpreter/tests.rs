@@ -6647,3 +6647,109 @@ fn generator_yield_delegate_non_iterable_errors() {
     );
     assert!(err.message.contains("итерировать") || err.message.contains("итер"));
 }
+
+#[test]
+fn proto_instance_carries_class_proto() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            привет() { отвечаю "хай"; }
+        }
+        гыы x = захуярить К();
+        гыы p = Кент.прототип(x);
+        гыы t = чезажижан p.привет;
+        "#,
+    );
+    assert_eq!(interp.get("t"), Some(Value::String("функция".to_string())));
+}
+
+#[test]
+fn proto_constructor_accessor_on_instance() {
+    let interp = run_code(
+        r#"
+        клёво К { }
+        гыы x = захуярить К();
+        гыы c = x.конструктор;
+        гыы тот = c === К;
+        "#,
+    );
+    assert_eq!(interp.get("тот"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn proto_instanceof_via_object_create_class_proto() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            метод() { отвечаю 1; }
+        }
+        гыы x = Кент.создать(К.прототип);
+        гыы есть = x шкура К;
+        "#,
+    );
+    assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn proto_method_dispatch_works_after_class_rebinding() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            f() { отвечаю 7; }
+        }
+        гыы x = захуярить К();
+        гыы К = 0;
+        гыы рез = x.f();
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn proto_has_own_filters_internal_keys() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            поле = 1;
+        }
+        гыы x = захуярить К();
+        гыы a = Кент.имеетСвоё(x, "поле");
+        гыы b = Кент.имеетСвоё(x, "__class__");
+        гыы c = Кент.имеетСвоё(x, "__proto__");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("c"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn proto_instanceof_through_object_create_chain() {
+    let interp = run_code(
+        r#"
+        клёво Животное { }
+        клёво Собака батя Животное { }
+        гыы o = захуярить Собака();
+        гыы p = Кент.создать(o);
+        гыы есть_собака = p шкура Собака;
+        гыы есть_животное = p шкура Животное;
+        "#,
+    );
+    assert_eq!(interp.get("есть_собака"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("есть_животное"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn proto_keys_does_not_expose_internals() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            поле = 5;
+        }
+        гыы x = захуярить К();
+        гыы ks = Кент.ключи(x);
+        гыы дл = ks.длина;
+        "#,
+    );
+    assert_eq!(interp.get("дл"), Some(Value::Number(1.0)));
+}
