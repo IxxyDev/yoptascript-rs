@@ -91,7 +91,10 @@ pub fn call_static(
             require_args(&args, 2, span, "Кент.имеетСвоё")?;
             let key = args[1].to_string();
             match &args[0] {
-                Value::Object(map) => Ok(Value::Boolean(map.contains_key(&key))),
+                Value::Object(map) => {
+                    let has = !symbols::is_internal_key(&key) && map.contains_key(&key);
+                    Ok(Value::Boolean(has))
+                }
                 _ => Err(RuntimeError::new("Кент.имеетСвоё ожидает объект", span)),
             }
         }
@@ -179,7 +182,11 @@ pub fn call_static(
         "прототип" => {
             require_args(&args, 1, span, "Кент.прототип")?;
             match &args[0] {
-                Value::Object(map) => Ok(map.get(symbols::PROTO).cloned().unwrap_or(Value::Null)),
+                Value::Object(map) => match map.get(symbols::PROTO) {
+                    Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object_pub(cls)),
+                    Some(other) => Ok(other.clone()),
+                    None => Ok(Value::Null),
+                },
                 _ => Ok(Value::Null),
             }
         }
