@@ -6740,6 +6740,36 @@ fn proto_instanceof_through_object_create_chain() {
 }
 
 #[test]
+fn proto_set_proto_on_instance_changes_dispatch() {
+    let interp = run_code(
+        r#"
+        клёво К {
+            f() { отвечаю "из_К"; }
+        }
+        гыы x = захуярить К();
+        x = Кент.назначитьПрототип(x, { f: () => "из_прото" });
+        гыы рез = x.f();
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("из_прото".to_string())));
+}
+
+#[test]
+fn proto_set_proto_to_null_breaks_dispatch() {
+    let err = run_code_err(
+        r#"
+        клёво К {
+            f() { отвечаю 1; }
+        }
+        гыы x = захуярить К();
+        x = Кент.назначитьПрототип(x, ноль);
+        x.f();
+        "#,
+    );
+    assert!(err.message.contains("функц") || err.message.contains("undefined") || err.message.contains("определ"));
+}
+
+#[test]
 fn proto_keys_does_not_expose_internals() {
     let interp = run_code(
         r#"

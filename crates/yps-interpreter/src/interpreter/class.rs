@@ -500,21 +500,21 @@ impl Interpreter {
     pub(crate) fn instance_of_check(&self, value: &Value, target: &Rc<ClassDef>) -> bool {
         let mut current = value.clone();
         for _ in 0..256 {
-            let map = match &current {
-                Value::Object(m) => m,
-                _ => return false,
+            let Value::Object(map) = &current else {
+                return false;
             };
             if let Some(cls) = Self::resolve_class_for_object(map, &self.env) {
                 let mut walker: Option<&ClassDef> = Some(&cls);
                 while let Some(c) = walker {
-                    if Rc::ptr_eq(&Rc::clone(&cls), target) || c.name == target.name {
+                    if Rc::ptr_eq(&cls, target) || c.name == target.name {
                         return true;
                     }
                     walker = c.parent.as_deref();
                 }
             }
-            match map.get(symbols::PROTO).cloned() {
-                Some(Value::Object(_)) => current = map.get(symbols::PROTO).cloned().unwrap(),
+            let next = map.get(symbols::PROTO).cloned();
+            match next {
+                Some(proto @ Value::Object(_)) => current = proto,
                 _ => return false,
             }
         }
