@@ -120,9 +120,8 @@ impl Interpreter {
                     self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
-                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-                    && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
-                    && let Some((params, body, env)) = Self::find_setter_in_class(cls, property)
+                if let Some(cls) = Self::resolve_class_for_object(map, &self.env)
+                    && let Some((params, body, env)) = Self::find_setter_in_class(&cls, property)
                 {
                     let params = params.clone();
                     let body = Rc::clone(body);

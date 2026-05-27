@@ -87,15 +87,13 @@ impl Interpreter {
                 if let Some(val) = map.get(property) {
                     return Ok(val.clone());
                 }
+                let effective_class = Self::resolve_class_for_object(map, &self.env);
                 if (property == "конструктор" || property == "constructor")
-                    && let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-                    && let Some(cls_val @ Value::Class(_)) = self.env.get(class_name)
+                    && let Some(cls) = &effective_class
                 {
-                    return Ok(cls_val);
+                    return Ok(Value::Class(std::rc::Rc::clone(cls)));
                 }
-                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-                    && let Some(Value::Class(cls)) = self.env.get(class_name).as_ref()
-                {
+                if let Some(cls) = &effective_class {
                     if let Some((params, body, env)) = Self::find_getter_in_class(cls, property) {
                         let params = params.clone();
                         let body = Rc::clone(body);
@@ -114,6 +112,9 @@ impl Interpreter {
                     }
                 }
                 if let Some(proto) = map.get(symbols::PROTO).cloned() {
+                    if matches!(proto, Value::Class(_)) {
+                        return Ok(Value::Undefined);
+                    }
                     return self.eval_member(proto, property, span);
                 }
                 Ok(Value::Undefined)
@@ -150,6 +151,25 @@ impl Interpreter {
         }
     }
 
+    pub(crate) fn resolve_class_for_object(
+        map: &std::collections::HashMap<String, Value>,
+        env: &crate::environment::Environment,
+    ) -> Option<std::rc::Rc<crate::value::ClassDef>> {
+        if let Some(Value::Class(cls)) = map.get(symbols::PROTO) {
+            return Some(std::rc::Rc::clone(cls));
+        }
+        if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
+            && let Some(Value::Class(cls)) = env.get(class_name)
+        {
+            return Some(cls);
+        }
+        None
+    }
+
+    pub(crate) fn class_prototype_object_pub(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
+        Self::class_prototype_object(cls)
+    }
+
     fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
         let mut map = std::collections::HashMap::new();
         let mut current: Option<&crate::value::ClassDef> = Some(cls);
@@ -167,6 +187,7 @@ impl Interpreter {
             current = c.parent.as_deref();
         }
         map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
+        map.insert(symbols::PROTO.to_string(), Value::Class(std::rc::Rc::clone(cls)));
         Value::Object(map)
     }
 }

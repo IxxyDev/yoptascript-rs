@@ -6,7 +6,7 @@ use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, Temp
 
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, Value};
+use crate::value::Value;
 
 use super::Interpreter;
 
@@ -500,25 +500,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                let left_class_name = match &left {
-                    Value::Object(map) => match map.get(symbols::CLASS_TAG) {
-                        Some(Value::String(name)) => name.clone(),
-                        _ => return Ok(Value::Boolean(false)),
-                    },
-                    _ => return Ok(Value::Boolean(false)),
-                };
-                let left_cls = match self.env.get(&left_class_name) {
-                    Some(Value::Class(c)) => c,
-                    _ => return Ok(Value::Boolean(false)),
-                };
-                let mut current: Option<&ClassDef> = Some(&left_cls);
-                while let Some(c) = current {
-                    if c.name == right_class.name {
-                        return Ok(Value::Boolean(true));
-                    }
-                    current = c.parent.as_deref();
-                }
-                Ok(Value::Boolean(false))
+                Ok(Value::Boolean(self.instance_of_check(&left, &right_class)))
             }
             BinaryOp::In => match right {
                 Value::Object(map) => {
