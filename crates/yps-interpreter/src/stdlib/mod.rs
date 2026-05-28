@@ -1,15 +1,20 @@
 pub mod abort;
 pub mod array;
+pub mod console;
 pub mod error;
+pub mod fs;
 pub mod iterator;
 pub mod json;
 pub mod map;
 pub mod math;
+pub mod network;
 pub mod number;
 pub mod object;
+pub mod process;
 pub mod promise;
 pub mod regexp;
 pub mod set;
+pub mod stdio;
 pub mod string;
 pub mod symbol;
 
@@ -79,6 +84,15 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("Косяк.") {
         return Some(error::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("ФС.") {
+        return Some(fs::call_static(interp, stripped, args, span));
+    }
+    if let Some(stripped) = namespaced.strip_prefix("Процесс.") {
+        return Some(process::call_static(interp, stripped, args, span));
+    }
+    if let Some(stripped) = namespaced.strip_prefix("Сеть.") {
+        return Some(network::call_static(interp, stripped, args, span));
+    }
     if let Some(stripped) = namespaced.strip_prefix("СигналОтмены.") {
         if stripped == "любой" {
             let sigs = match args.into_iter().next().unwrap_or(Value::Undefined) {
@@ -141,6 +155,9 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Итератор".to_string(), iterator::build_object()),
         ("КонтроллёрОтмены".to_string(), Value::BuiltinFunction("КонтроллёрОтмены".to_string())),
         ("СигналОтмены".to_string(), Value::BuiltinFunction("СигналОтмены".to_string())),
+        ("ФС".to_string(), fs::build_object()),
+        ("Процесс".to_string(), process::build_object()),
+        ("Сеть".to_string(), network::build_object()),
     ]
 }
 

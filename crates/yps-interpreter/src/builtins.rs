@@ -10,6 +10,9 @@ use crate::symbols;
 use crate::value::Value;
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    if let Some(method) = name.strip_prefix("сказать.") {
+        return stdlib::console::dispatch(method, args, span);
+    }
     match name {
         s if s == symbols::ERROR_NAME => stdlib::error::construct(args, span),
         "этоКосяк" => is_kosyak(args, span),
@@ -19,6 +22,8 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             println!("{}", parts.join(" "));
             Ok(Value::Undefined)
         }
+        "прочестьСтроку" => stdlib::stdio::read_line(span),
+        "прочестьВсё" => stdlib::stdio::read_all(span),
         "длина" => {
             if args.len() != 1 {
                 return Err(RuntimeError::new("'длина' принимает 1 аргумент", span));
@@ -120,6 +125,15 @@ pub fn builtin_names() -> &'static [&'static str] {
         "наСледующемТике",
         "подождать",
         "сОчередить",
+        "прочестьСтроку",
+        "прочестьВсё",
+        "сказать.ошибка",
+        "сказать.предупреждение",
+        "сказать.инфо",
+        "сказать.отладка",
+        "сказать.таблица",
+        "сказать.время",
+        "сказать.времяСтоп",
     ]
 }
 
