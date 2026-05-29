@@ -28,7 +28,7 @@ mod types;
 
 use event_loop::MacrotaskQueue;
 
-pub(super) use types::{AccessSegment, ControlFlow};
+pub(super) use types::{AccessSegment, ControlFlow, LoopOp};
 
 pub struct Interpreter {
     pub(super) env: Environment,
@@ -39,6 +39,7 @@ pub struct Interpreter {
     pub(super) microtasks: VecDeque<Microtask>,
     pub(super) macrotasks: MacrotaskQueue,
     pub(super) await_depth: usize,
+    pub(super) pending_label: Option<String>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -68,6 +69,7 @@ impl Interpreter {
             microtasks: VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
             await_depth: 0,
+            pending_label: None,
         }
     }
 
@@ -80,17 +82,27 @@ impl Interpreter {
     }
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
+        self.hoist_functions(&program.items);
         for stmt in &program.items {
             let cf_opt = self.exec_stmt(stmt)?;
             self.drain_microtasks(Span { start: 0, end: 0 })?;
             if let Some(cf) = cf_opt {
                 match cf {
                     ControlFlow::Return(_) => return Ok(()),
-                    ControlFlow::Break => {
-                        return Err(RuntimeError::new("'харэ' вне цикла", Span { start: 0, end: 0 }));
+                    ControlFlow::Break(label) => {
+                        return Err(RuntimeError::new(
+                            label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                            Span { start: 0, end: 0 },
+                        ));
                     }
-                    ControlFlow::Continue => {
-                        return Err(RuntimeError::new("'двигай' вне цикла", Span { start: 0, end: 0 }));
+                    ControlFlow::Continue(label) => {
+                        return Err(RuntimeError::new(
+                            label.map_or_else(
+                                || "'двигай' вне цикла".to_string(),
+                                |l| format!("Метка '{l}' не найдена"),
+                            ),
+                            Span { start: 0, end: 0 },
+                        ));
                     }
                     ControlFlow::Throw(val) => {
                         return Err(RuntimeError::thrown(val, Span { start: 0, end: 0 }));

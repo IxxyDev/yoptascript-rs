@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::ast::{
     BinaryOp, Block, ClassMember, Expr, Identifier, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, PostfixOp,
-    Program, PropKey, Stmt, SwitchCase, TemplatePart, UnaryOp,
+    Program, PropKey, Stmt, SwitchCase, TemplatePart, TemplateQuasi, UnaryOp,
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
@@ -242,6 +242,59 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Expr::TemplateLiteral { parts, span: Span { start, end } })
+    }
+
+    fn parse_tagged_template(&mut self, tag: Expr) -> Result<Expr, ()> {
+        let start = tag.span().start;
+        let mut quasis: Vec<TemplateQuasi> = Vec::new();
+        let mut expressions: Vec<Expr> = Vec::new();
+        let end;
+
+        if matches!(self.current().kind, TokenKind::TemplateNoSub) {
+            let span = self.current().span;
+            let raw_slice = self.source.slice(span);
+            let raw = raw_slice[1..raw_slice.len() - 1].to_string();
+            quasis.push(TemplateQuasi { cooked: Self::unescape_string(&raw), raw });
+            end = span.end;
+            self.advance();
+        } else {
+            let head_span = self.current().span;
+            let head_raw = self.source.slice(head_span);
+            let head_text = head_raw[1..head_raw.len() - 2].to_string();
+            quasis.push(TemplateQuasi { cooked: Self::unescape_string(&head_text), raw: head_text });
+            self.advance();
+
+            loop {
+                let expr = self.parse_expr()?;
+                expressions.push(expr);
+
+                match &self.current().kind {
+                    TokenKind::TemplateMiddle => {
+                        let span = self.current().span;
+                        let raw_slice = self.source.slice(span);
+                        let text = raw_slice[1..raw_slice.len() - 2].to_string();
+                        quasis.push(TemplateQuasi { cooked: Self::unescape_string(&text), raw: text });
+                        self.advance();
+                    }
+                    TokenKind::TemplateTail => {
+                        let span = self.current().span;
+                        let raw_slice = self.source.slice(span);
+                        let text = raw_slice[1..raw_slice.len() - 1].to_string();
+                        quasis.push(TemplateQuasi { cooked: Self::unescape_string(&text), raw: text });
+                        end = span.end;
+                        self.advance();
+                        break;
+                    }
+                    _ => {
+                        let span = self.current().span;
+                        self.push_error(span, "Ожидалось продолжение шаблонной строки");
+                        return Err(());
+                    }
+                }
+            }
+        }
+
+        Ok(Expr::TaggedTemplate { tag: Box::new(tag), quasis, expressions, span: Span { start, end } })
     }
 
     fn parse_identifier(&mut self) -> Result<Identifier, ()> {
@@ -623,6 +676,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ()> {
+        if matches!(self.current().kind, TokenKind::Identifier)
+            && matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::Colon))
+        {
+            return self.parse_labeled_stmt();
+        }
+
         match &self.current().kind {
             TokenKind::Keyword(KeywordKind::Gyy | KeywordKind::Uchastkoviy | KeywordKind::YasenHuy) => {
                 self.parse_var_decl()
@@ -727,6 +786,17 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Using { name, init, span: Span { start, end } })
     }
 
+    fn parse_pattern_with_default(&mut self) -> Result<Pattern, ()> {
+        let pattern = self.parse_pattern()?;
+        if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+            self.advance();
+            let default = self.parse_expr()?;
+            let span = Span { start: pattern.span().start, end: default.span().end };
+            return Ok(Pattern::Default { pattern: Box::new(pattern), default: Box::new(default), span });
+        }
+        Ok(pattern)
+    }
+
     fn parse_pattern(&mut self) -> Result<Pattern, ()> {
         match &self.current().kind {
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array_pattern(),
@@ -762,7 +832,7 @@ impl<'a> Parser<'a> {
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                     elements.push(None);
                 } else {
-                    elements.push(Some(self.parse_pattern()?));
+                    elements.push(Some(self.parse_pattern_with_default()?));
                 }
 
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
@@ -805,19 +875,21 @@ impl<'a> Parser<'a> {
 
                 let value = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
                     self.advance();
-                    Some(self.parse_pattern()?)
+                    Some(self.parse_pattern_with_default()?)
+                } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                    self.advance();
+                    let default = self.parse_expr()?;
+                    let span = Span { start: key.span.start, end: default.span().end };
+                    Some(Pattern::Default {
+                        pattern: Box::new(Pattern::Identifier(key.clone())),
+                        default: Box::new(default),
+                        span,
+                    })
                 } else {
                     None
                 };
 
-                let prop_end = if let Some(ref v) = value {
-                    match v {
-                        Pattern::Identifier(id) => id.span.end,
-                        Pattern::Array { span, .. } | Pattern::Object { span, .. } => span.end,
-                    }
-                } else {
-                    key.span.end
-                };
+                let prop_end = value.as_ref().map_or(key.span.end, |p| p.span().end);
 
                 properties.push(ObjectPatternProp { key, value, span: Span { start: prop_start, end: prop_end } });
 
@@ -921,58 +993,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let end = else_branch.as_ref().map_or_else(
-            || match then_branch.as_ref() {
-                Stmt::VarDecl { span, .. }
-                | Stmt::Expr { span, .. }
-                | Stmt::Block(Block { span, .. })
-                | Stmt::If { span, .. }
-                | Stmt::While { span, .. }
-                | Stmt::For { span, .. }
-                | Stmt::Break { span }
-                | Stmt::Continue { span }
-                | Stmt::FunctionDecl { span, .. }
-                | Stmt::Return { span, .. }
-                | Stmt::TryCatch { span, .. }
-                | Stmt::Throw { span, .. }
-                | Stmt::Switch { span, .. }
-                | Stmt::DoWhile { span, .. }
-                | Stmt::ForIn { span, .. }
-                | Stmt::ForOf { span, .. }
-                | Stmt::ForAwaitOf { span, .. }
-                | Stmt::Empty { span }
-                | Stmt::ClassDecl { span, .. }
-                | Stmt::Import { span, .. }
-                | Stmt::Export { span, .. }
-                | Stmt::Using { span, .. }
-                | Stmt::Debugger { span, .. } => span.end,
-            },
-            |else_stmt| match else_stmt.as_ref() {
-                Stmt::VarDecl { span, .. }
-                | Stmt::Expr { span, .. }
-                | Stmt::Block(Block { span, .. })
-                | Stmt::If { span, .. }
-                | Stmt::While { span, .. }
-                | Stmt::For { span, .. }
-                | Stmt::Break { span }
-                | Stmt::Continue { span }
-                | Stmt::FunctionDecl { span, .. }
-                | Stmt::Return { span, .. }
-                | Stmt::TryCatch { span, .. }
-                | Stmt::Throw { span, .. }
-                | Stmt::Switch { span, .. }
-                | Stmt::DoWhile { span, .. }
-                | Stmt::ForIn { span, .. }
-                | Stmt::ForOf { span, .. }
-                | Stmt::ForAwaitOf { span, .. }
-                | Stmt::Empty { span }
-                | Stmt::ClassDecl { span, .. }
-                | Stmt::Import { span, .. }
-                | Stmt::Export { span, .. }
-                | Stmt::Using { span, .. }
-                | Stmt::Debugger { span, .. } => span.end,
-            },
-        );
+        let end = else_branch.as_ref().map_or_else(|| then_branch.span().end, |else_stmt| else_stmt.span().end);
 
         Ok(Stmt::If { condition, then_branch, else_branch, span: Span { start, end } })
     }
@@ -999,31 +1020,7 @@ impl<'a> Parser<'a> {
 
         let body = Box::new(self.parse_statement()?);
 
-        let end = match body.as_ref() {
-            Stmt::VarDecl { span, .. }
-            | Stmt::Expr { span, .. }
-            | Stmt::Block(Block { span, .. })
-            | Stmt::If { span, .. }
-            | Stmt::While { span, .. }
-            | Stmt::For { span, .. }
-            | Stmt::Break { span }
-            | Stmt::Continue { span }
-            | Stmt::FunctionDecl { span, .. }
-            | Stmt::Return { span, .. }
-            | Stmt::TryCatch { span, .. }
-            | Stmt::Throw { span, .. }
-            | Stmt::Switch { span, .. }
-            | Stmt::DoWhile { span, .. }
-            | Stmt::ForIn { span, .. }
-            | Stmt::ForOf { span, .. }
-            | Stmt::ForAwaitOf { span, .. }
-            | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. }
-            | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
-        };
+        let end = body.span().end;
 
         Ok(Stmt::While { condition, body, span: Span { start, end } })
     }
@@ -1134,31 +1131,7 @@ impl<'a> Parser<'a> {
 
         let body = Box::new(self.parse_statement()?);
 
-        let end = match body.as_ref() {
-            Stmt::VarDecl { span, .. }
-            | Stmt::Expr { span, .. }
-            | Stmt::Block(Block { span, .. })
-            | Stmt::If { span, .. }
-            | Stmt::While { span, .. }
-            | Stmt::For { span, .. }
-            | Stmt::Break { span }
-            | Stmt::Continue { span }
-            | Stmt::FunctionDecl { span, .. }
-            | Stmt::Return { span, .. }
-            | Stmt::TryCatch { span, .. }
-            | Stmt::Throw { span, .. }
-            | Stmt::Switch { span, .. }
-            | Stmt::DoWhile { span, .. }
-            | Stmt::ForIn { span, .. }
-            | Stmt::ForOf { span, .. }
-            | Stmt::ForAwaitOf { span, .. }
-            | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. }
-            | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
-        };
+        let end = body.span().end;
 
         Ok(Stmt::For { init, condition, update, body, span: Span { start, end } })
     }
@@ -1166,6 +1139,9 @@ impl<'a> Parser<'a> {
     fn parse_break_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
+
+        let label =
+            if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
 
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             let span = self.current().span;
@@ -1175,12 +1151,15 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::Break { span: Span { start, end } })
+        Ok(Stmt::Break { label, span: Span { start, end } })
     }
 
     fn parse_continue_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
         self.advance();
+
+        let label =
+            if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
 
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
             let span = self.current().span;
@@ -1190,7 +1169,15 @@ impl<'a> Parser<'a> {
         let end = self.current().span.end;
         self.advance();
 
-        Ok(Stmt::Continue { span: Span { start, end } })
+        Ok(Stmt::Continue { label, span: Span { start, end } })
+    }
+
+    fn parse_labeled_stmt(&mut self) -> Result<Stmt, ()> {
+        let label = self.parse_identifier()?;
+        self.advance();
+        let body = self.parse_statement()?;
+        let span = Span { start: label.span.start, end: body.span().end };
+        Ok(Stmt::Labeled { label, body: Box::new(body), span })
     }
 
     fn parse_function_params(&mut self) -> Result<Vec<Param>, ()> {
@@ -1693,31 +1680,7 @@ impl<'a> Parser<'a> {
 
         let body = Box::new(self.parse_statement()?);
 
-        let end = match body.as_ref() {
-            Stmt::VarDecl { span, .. }
-            | Stmt::Expr { span, .. }
-            | Stmt::Block(Block { span, .. })
-            | Stmt::If { span, .. }
-            | Stmt::While { span, .. }
-            | Stmt::For { span, .. }
-            | Stmt::Break { span }
-            | Stmt::Continue { span }
-            | Stmt::FunctionDecl { span, .. }
-            | Stmt::Return { span, .. }
-            | Stmt::TryCatch { span, .. }
-            | Stmt::Throw { span, .. }
-            | Stmt::Switch { span, .. }
-            | Stmt::DoWhile { span, .. }
-            | Stmt::ForIn { span, .. }
-            | Stmt::ForOf { span, .. }
-            | Stmt::ForAwaitOf { span, .. }
-            | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. }
-            | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
-        };
+        let end = body.span().end;
 
         Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
     }
@@ -1736,7 +1699,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let body = Box::new(self.parse_statement()?);
-        let end = Self::stmt_end(&body);
+        let end = body.span().end;
 
         Ok(Stmt::ForOf { variable, iterable, body, span: Span { start, end } })
     }
@@ -1755,7 +1718,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let body = Box::new(self.parse_statement()?);
-        let end = Self::stmt_end(&body);
+        let end = body.span().end;
 
         Ok(Stmt::ForAwaitOf { variable, iterable, body, span: Span { start, end } })
     }
@@ -1869,34 +1832,6 @@ impl<'a> Parser<'a> {
         self.advance();
 
         Ok(Stmt::Switch { expr, cases, default, span: Span { start, end } })
-    }
-
-    fn stmt_end(stmt: &Stmt) -> usize {
-        match stmt {
-            Stmt::VarDecl { span, .. }
-            | Stmt::Expr { span, .. }
-            | Stmt::Block(Block { span, .. })
-            | Stmt::If { span, .. }
-            | Stmt::While { span, .. }
-            | Stmt::For { span, .. }
-            | Stmt::Break { span }
-            | Stmt::Continue { span }
-            | Stmt::FunctionDecl { span, .. }
-            | Stmt::Return { span, .. }
-            | Stmt::TryCatch { span, .. }
-            | Stmt::Throw { span, .. }
-            | Stmt::Switch { span, .. }
-            | Stmt::DoWhile { span, .. }
-            | Stmt::ForIn { span, .. }
-            | Stmt::ForOf { span, .. }
-            | Stmt::ForAwaitOf { span, .. }
-            | Stmt::Empty { span }
-            | Stmt::ClassDecl { span, .. }
-            | Stmt::Import { span, .. }
-            | Stmt::Export { span, .. }
-            | Stmt::Using { span, .. }
-            | Stmt::Debugger { span, .. } => span.end,
-        }
     }
 
     fn current(&self) -> &Token {
@@ -2104,6 +2039,8 @@ impl<'a> Parser<'a> {
                 expr = self.parse_member(expr)?;
             } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::OptionalChain)) {
                 expr = self.parse_optional_chain(expr)?;
+            } else if matches!(self.current().kind, TokenKind::TemplateHead | TokenKind::TemplateNoSub) {
+                expr = self.parse_tagged_template(expr)?;
             } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Increment)) {
                 let start = expr.span().start;
                 let end = self.current().span.end;
@@ -2803,6 +2740,124 @@ mod tests {
                 assert!(matches!(init, Expr::Literal(Literal::Number { .. })));
             }
             _ => panic!("Expected VarDecl, got: {:?}", program.items[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_labeled_statement() {
+        let source =
+            SourceFile::new("test.yop".to_string(), "внешний: потрещим (правда) { харэ внешний; }".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+
+        match &program.items[0] {
+            Stmt::Labeled { label, body, .. } => {
+                assert_eq!(label.name, "внешний");
+                assert!(matches!(body.as_ref(), Stmt::While { .. }));
+            }
+            other => panic!("Expected Labeled, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_break_with_label() {
+        let source = SourceFile::new("test.yop".to_string(), "харэ метка;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+
+        match &program.items[0] {
+            Stmt::Break { label: Some(l), .. } => assert_eq!(l.name, "метка"),
+            other => panic!("Expected Break with label, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_break_without_label() {
+        let source = SourceFile::new("test.yop".to_string(), "харэ;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, _) = lexer.tokenize();
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+        assert!(matches!(program.items[0], Stmt::Break { label: None, .. }));
+    }
+
+    #[test]
+    fn test_parse_tagged_template() {
+        let expr = parse_expr_from_source("тег`привет ${имя}!`").unwrap();
+        match expr {
+            Expr::TaggedTemplate { tag, quasis, expressions, .. } => {
+                assert!(matches!(*tag, Expr::Identifier(_)));
+                assert_eq!(quasis.len(), 2);
+                assert_eq!(expressions.len(), 1);
+                assert_eq!(quasis[0].cooked, "привет ");
+                assert_eq!(quasis[1].cooked, "!");
+            }
+            other => panic!("Expected TaggedTemplate, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tagged_template_nosub() {
+        let expr = parse_expr_from_source("тег`без подстановок`").unwrap();
+        match expr {
+            Expr::TaggedTemplate { quasis, expressions, .. } => {
+                assert_eq!(quasis.len(), 1);
+                assert!(expressions.is_empty());
+                assert_eq!(quasis[0].cooked, "без подстановок");
+            }
+            other => panic!("Expected TaggedTemplate, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_object_pattern_default() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы { х = 5, а: б = 7 } = obj;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+
+        match &program.items[0] {
+            Stmt::VarDecl { pattern: Pattern::Object { properties, .. }, .. } => {
+                assert_eq!(properties.len(), 2);
+                assert!(matches!(properties[0].value, Some(Pattern::Default { .. })), "shorthand с default");
+                assert!(matches!(properties[1].value, Some(Pattern::Default { .. })), "rename с default");
+            }
+            other => panic!("Expected object pattern VarDecl, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_array_pattern_default() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы [а = 1, б] = arr;".to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, lex_diags) = lexer.tokenize();
+        assert!(lex_diags.is_empty());
+
+        let parser = Parser::new(&tokens, &source);
+        let (program, diags) = parser.parse_program();
+        assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+
+        match &program.items[0] {
+            Stmt::VarDecl { pattern: Pattern::Array { elements, .. }, .. } => {
+                assert!(matches!(elements[0], Some(Pattern::Default { .. })));
+                assert!(matches!(elements[1], Some(Pattern::Identifier(_))));
+            }
+            other => panic!("Expected array pattern VarDecl, got: {other:?}"),
         }
     }
 

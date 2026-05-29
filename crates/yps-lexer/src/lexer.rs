@@ -348,6 +348,25 @@ impl<'src> Lexer<'src> {
                         self.advance();
                     }
                     return self.next_token();
+                } else if self.current_char() == '*' {
+                    self.advance();
+                    loop {
+                        if self.is_at_end() {
+                            self.diagnostics.push(Diagnostic {
+                                severity: Severity::Error,
+                                message: "Незакрытый блочный комментарий".into(),
+                                span: Span { start, end: self.position },
+                            });
+                            break;
+                        }
+                        if self.current_char() == '*' && self.peek_char(1) == '/' {
+                            self.advance();
+                            self.advance();
+                            break;
+                        }
+                        self.advance();
+                    }
+                    return self.next_token();
                 } else if self.regex_context() {
                     return self.read_regex(start);
                 } else if self.current_char() == '=' {
@@ -670,5 +689,40 @@ mod tests {
         let source = SourceFile::new("test.yop".to_string(), "\"".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.iter().any(|d| d.message.contains("Незакрытая строка")));
+    }
+
+    #[test]
+    fn block_comment_is_skipped() {
+        let plain = SourceFile::new("test.yop".to_string(), "гыы х = 1;".to_string());
+        let (plain_tokens, plain_diags) = Lexer::new(&plain).tokenize();
+        assert!(plain_diags.is_empty(), "unexpected diags: {plain_diags:?}");
+
+        let commented = SourceFile::new("test.yop".to_string(), "гыы /* это\nмногострочный */ х = 1;".to_string());
+        let (commented_tokens, commented_diags) = Lexer::new(&commented).tokenize();
+        assert!(commented_diags.is_empty(), "unexpected diags: {commented_diags:?}");
+        let plain_kinds: Vec<_> = plain_tokens.iter().map(|t| &t.kind).collect();
+        let commented_kinds: Vec<_> = commented_tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(plain_kinds, commented_kinds, "блок-комментарий не должен порождать токены");
+    }
+
+    #[test]
+    fn block_comment_first_close_wins() {
+        let source = SourceFile::new("test.yop".to_string(), "/* а /* б */ х".to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "unexpected diags: {diags:?}");
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenKind::Identifier),
+            "ожидался идентификатор после закрытия комментария"
+        );
+    }
+
+    #[test]
+    fn diagnostic_unterminated_block_comment() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы х = 1; /* хвост".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("Незакрытый блочный комментарий")),
+            "expected unterminated-block-comment diagnostic, got: {diags:?}"
+        );
     }
 }

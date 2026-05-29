@@ -371,8 +371,14 @@ impl Interpreter {
             match result? {
                 Some(ControlFlow::Return(_)) | None => Ok(this_after),
                 Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
-                Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-                Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                    label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                    span,
+                )),
+                Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                    label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                    span,
+                )),
             }
         } else if let Some(ref parent) = class_def.parent {
             if let Some((ref params, ..)) = parent.constructor
@@ -462,8 +468,14 @@ impl Interpreter {
         match result? {
             Some(ControlFlow::Return(_)) | None => Ok(this_after),
             Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
-            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
+            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
         }
     }
 

@@ -56,8 +56,14 @@ impl Interpreter {
 
         match result? {
             Some(ControlFlow::Return(val)) => Ok((val, updated_this)),
-            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
+            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
             Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             None => Ok((Value::Undefined, updated_this)),
         }
@@ -176,11 +182,23 @@ impl Interpreter {
                             Ok(Some(ControlFlow::Return(val))) => (crate::value::CapKind::Resolve, val),
                             Ok(None) => (crate::value::CapKind::Resolve, Value::Undefined),
                             Ok(Some(ControlFlow::Throw(val))) => (crate::value::CapKind::Reject, val),
-                            Ok(Some(ControlFlow::Break)) => {
-                                return Err(RuntimeError::new("'харэ' вне цикла", sp));
+                            Ok(Some(ControlFlow::Break(label))) => {
+                                return Err(RuntimeError::new(
+                                    label.map_or_else(
+                                        || "'харэ' вне цикла".to_string(),
+                                        |l| format!("Метка '{l}' не найдена"),
+                                    ),
+                                    sp,
+                                ));
                             }
-                            Ok(Some(ControlFlow::Continue)) => {
-                                return Err(RuntimeError::new("'двигай' вне цикла", sp));
+                            Ok(Some(ControlFlow::Continue(label))) => {
+                                return Err(RuntimeError::new(
+                                    label.map_or_else(
+                                        || "'двигай' вне цикла".to_string(),
+                                        |l| format!("Метка '{l}' не найдена"),
+                                    ),
+                                    sp,
+                                ));
                             }
                             Err(e) => match e.thrown {
                                 Some(val) => (crate::value::CapKind::Reject, val),
@@ -195,8 +213,17 @@ impl Interpreter {
                     self.env = saved_env;
                     match result? {
                         Some(ControlFlow::Return(val)) => Ok(val),
-                        Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-                        Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                        Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                            label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                            span,
+                        )),
+                        Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                            label.map_or_else(
+                                || "'двигай' вне цикла".to_string(),
+                                |l| format!("Метка '{l}' не найдена"),
+                            ),
+                            span,
+                        )),
                         Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
                         None => Ok(Value::Undefined),
                     }
@@ -282,8 +309,14 @@ impl Interpreter {
 
         match result? {
             Some(ControlFlow::Return(val)) => Ok(val),
-            Some(ControlFlow::Break) => Err(RuntimeError::new("'харэ' вне цикла", span)),
-            Some(ControlFlow::Continue) => Err(RuntimeError::new("'двигай' вне цикла", span)),
+            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
+            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
             Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
             None => Ok(Value::Undefined),
         }
@@ -296,6 +329,9 @@ impl Interpreter {
                 Ok(arr.get(i).cloned().unwrap_or(Value::Undefined))
             }
             (Value::Object(map), Value::String(key)) => Ok(map.get(key).cloned().unwrap_or(Value::Undefined)),
+            (Value::Object(map), Value::Number(n)) => {
+                Ok(map.get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
+            }
             _ => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
                 span,
