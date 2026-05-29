@@ -239,6 +239,29 @@ impl Interpreter {
                 }
                 Ok(Value::String(result))
             }
+            Expr::TaggedTemplate { tag, quasis, expressions, span } => {
+                let mut strings_map = HashMap::new();
+                let mut raw_vec = Vec::with_capacity(quasis.len());
+                for (i, q) in quasis.iter().enumerate() {
+                    strings_map.insert(i.to_string(), Value::String(q.cooked.clone()));
+                    raw_vec.push(Value::String(q.raw.clone()));
+                }
+                let len = Value::Number(quasis.len() as f64);
+                strings_map.insert("длина".to_string(), len.clone());
+                strings_map.insert("length".to_string(), len);
+                let raw_arr = Value::Array(raw_vec);
+                strings_map.insert("сырьё".to_string(), raw_arr.clone());
+                strings_map.insert("raw".to_string(), raw_arr);
+
+                let mut args = Vec::with_capacity(expressions.len() + 1);
+                args.push(Value::Object(strings_map));
+                for e in expressions {
+                    args.push(self.eval_expr(e)?);
+                }
+
+                let func = self.eval_expr(tag)?;
+                self.call_function(func, args, *span)
+            }
             Expr::Spread { span, .. } => Err(RuntimeError::new(
                 "Оператор '...' допустим только в массивах, объектах или аргументах вызова",
                 *span,

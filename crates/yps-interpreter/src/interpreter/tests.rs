@@ -6783,3 +6783,299 @@ fn proto_keys_does_not_expose_internals() {
     );
     assert_eq!(interp.get("дл"), Some(Value::Number(1.0)));
 }
+
+#[test]
+fn tagged_template_basic() {
+    let interp = run_code(
+        r#"
+        йопта тег(строки, ...значения) {
+            гыы р = "";
+            го (гыы и = 0; и < строки.длина; и += 1) {
+                р += строки[и];
+                вилкойвглаз (и < значения.длина) {
+                    р += "<" + значения[и] + ">";
+                }
+            }
+            отвечаю р;
+        }
+        гыы имя = "Мир";
+        гыы возраст = 42;
+        гыы результат = тег`Привет, ${имя}! Тебе ${возраст}.`;
+        "#,
+    );
+    assert_eq!(interp.get("результат"), Some(Value::String("Привет, <Мир>! Тебе <42>.".to_string())));
+}
+
+#[test]
+fn tagged_template_no_substitutions() {
+    let interp = run_code(
+        r#"
+        йопта тег(строки) { отвечаю строки[0]; }
+        гыы р = тег`просто текст`;
+        "#,
+    );
+    assert_eq!(interp.get("р"), Some(Value::String("просто текст".to_string())));
+}
+
+#[test]
+fn tagged_template_raw_vs_cooked() {
+    let interp = run_code(
+        r#"
+        йопта сырой(строки) { отвечаю строки.сырьё[0]; }
+        йопта готовый(строки) { отвечаю строки[0]; }
+        гыы r = сырой`a\nb`;
+        гыы c = готовый`a\nb`;
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::String("a\\nb".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("a\nb".to_string())));
+}
+
+#[test]
+fn tagged_template_strings_length() {
+    let interp = run_code(
+        r#"
+        йопта тег(строки, ...значения) { отвечаю строки.длина; }
+        гыы н = тег`${1}${2}${3}`;
+        "#,
+    );
+    assert_eq!(interp.get("н"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn tagged_template_builtin_dlina_on_strings() {
+    let interp = run_code(
+        r#"
+        йопта тег(строки) { отвечаю длина(строки); }
+        гыы н = тег`a${1}b${2}c`;
+        "#,
+    );
+    assert_eq!(interp.get("н"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn break_to_unknown_label_errors() {
+    let err = run_code_err(
+        r#"
+        го (гыы и = 0; и < 3; и += 1) {
+            харэ чужая;
+        }
+        "#,
+    );
+    assert!(
+        err.message.contains("Метка 'чужая' не найдена"),
+        "ожидалась ошибка о ненайденной метке, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn hoisting_call_before_declaration() {
+    let interp = run_code(
+        r#"
+        гыы результат = удвоить(21);
+        йопта удвоить(х) { отвечаю х * 2; }
+        "#,
+    );
+    assert_eq!(interp.get("результат"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn hoisting_inside_function_body() {
+    let interp = run_code(
+        r#"
+        йопта внешняя() {
+            отвечаю помощник(10);
+            йопта помощник(х) { отвечаю х + 1; }
+        }
+        гыы результат = внешняя();
+        "#,
+    );
+    assert_eq!(interp.get("результат"), Some(Value::Number(11.0)));
+}
+
+#[test]
+fn hoisting_mutual_recursion_before_decls() {
+    let interp = run_code(
+        r#"
+        гыы результат = чёт(4);
+        йопта чёт(н) { вилкойвглаз (н == 0) { отвечаю правда; } отвечаю нечёт(н - 1); }
+        йопта нечёт(н) { вилкойвглаз (н == 0) { отвечаю лож; } отвечаю чёт(н - 1); }
+        "#,
+    );
+    assert_eq!(interp.get("результат"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn hoisting_in_block_scope() {
+    let interp = run_code(
+        r#"
+        гыы снаружи = 0;
+        {
+            снаружи = тройка();
+            йопта тройка() { отвечаю 3; }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("снаружи"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn labeled_break_exits_outer_loop() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        внешний: го (гыы и = 0; и < 5; и += 1) {
+            го (гыы ж = 0; ж < 5; ж += 1) {
+                счёт += 1;
+                вилкойвглаз (ж == 1) {
+                    харэ внешний;
+                }
+            }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn labeled_continue_continues_outer_loop() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        внешний: го (гыы и = 0; и < 3; и += 1) {
+            го (гыы ж = 0; ж < 5; ж += 1) {
+                счёт += 1;
+                двигай внешний;
+            }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn labeled_break_from_block() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        блок: {
+            счёт += 1;
+            харэ блок;
+            счёт += 100;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn unlabeled_break_still_breaks_inner_only() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        го (гыы и = 0; и < 3; и += 1) {
+            го (гыы ж = 0; ж < 5; ж += 1) {
+                вилкойвглаз (ж == 1) { харэ; }
+                счёт += 1;
+            }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn unlabeled_break_in_generator_still_works() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            го (гыы к = 0; к < 5; к += 1) {
+                вилкойвглаз (к == 2) { харэ; }
+                поебалу к;
+            }
+            поебалу 99;
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей ген()) {
+            рез.втолкнуть(х);
+        }
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(99.0)])));
+}
+
+#[test]
+fn labeled_break_in_generator_errors() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            метка: потрещим (правда) {
+                харэ метка;
+            }
+        }
+        гыы г = ген();
+        г.следующий();
+        "#,
+    );
+    assert!(
+        err.message.contains("Маркированный 'харэ'"),
+        "ожидалась ошибка о маркированном харэ в генераторе, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn destructure_object_default_applied() {
+    let interp = run_code(
+        r#"
+        гыы { х = 5, у = 10 } = { у: 20 };
+        "#,
+    );
+    assert_eq!(interp.get("х"), Some(Value::Number(5.0)));
+    assert_eq!(interp.get("у"), Some(Value::Number(20.0)));
+}
+
+#[test]
+fn destructure_object_default_with_rename() {
+    let interp = run_code(
+        r#"
+        гыы { а: б = 7 } = {};
+        "#,
+    );
+    assert_eq!(interp.get("б"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn destructure_array_default_applied() {
+    let interp = run_code(
+        r#"
+        гыы [а = 1, б = 2, в = 3] = [100, ноль];
+        "#,
+    );
+    assert_eq!(interp.get("а"), Some(Value::Number(100.0)));
+    assert_eq!(interp.get("б"), Some(Value::Null));
+    assert_eq!(interp.get("в"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn destructure_array_default_missing_element() {
+    let interp = run_code(
+        r#"
+        гыы [п, в = 42] = [1];
+        "#,
+    );
+    assert_eq!(interp.get("п"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("в"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn destructure_default_expression_references_value() {
+    let interp = run_code(
+        r#"
+        гыы { ширина = 3, площадь = ширина * ширина } = { ширина: 4 };
+        "#,
+    );
+    assert_eq!(interp.get("ширина"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("площадь"), Some(Value::Number(16.0)));
+}
