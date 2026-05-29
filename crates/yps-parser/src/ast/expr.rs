@@ -11,6 +11,12 @@ pub enum TemplatePart {
 }
 
 #[derive(Debug, Clone)]
+pub struct TemplateQuasi {
+    pub cooked: String,
+    pub raw: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expr {
     Identifier(Identifier),
     Literal(Literal),
@@ -42,6 +48,8 @@ pub enum Expr {
     ArrowFunction { params: Rc<[Param]>, body: Rc<Block>, is_async: bool, span: Span },
 
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
+
+    TaggedTemplate { tag: Box<Expr>, quasis: Vec<TemplateQuasi>, expressions: Vec<Expr>, span: Span },
 
     Spread { expr: Box<Expr>, span: Span },
 
@@ -88,6 +96,7 @@ impl Expr {
             | Self::Conditional { span, .. }
             | Self::ArrowFunction { span, .. }
             | Self::TemplateLiteral { span, .. }
+            | Self::TaggedTemplate { span, .. }
             | Self::Spread { span, .. }
             | Self::This { span, .. }
             | Self::New { span, .. }

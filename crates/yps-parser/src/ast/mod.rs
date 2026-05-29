@@ -7,7 +7,7 @@ pub mod pattern;
 pub mod program;
 pub mod stmt;
 
-pub use expr::{Expr, TemplatePart};
+pub use expr::{Expr, TemplatePart, TemplateQuasi};
 pub use ident::Identifier;
 pub use literal::{Literal, ObjectEntry, PropKey};
 pub use ops::{BinaryOp, PostfixOp, UnaryOp};

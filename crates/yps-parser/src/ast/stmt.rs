@@ -81,9 +81,16 @@ pub enum Stmt {
         span: Span,
     },
     Break {
+        label: Option<Identifier>,
         span: Span,
     },
     Continue {
+        label: Option<Identifier>,
+        span: Span,
+    },
+    Labeled {
+        label: Identifier,
+        body: Box<Stmt>,
         span: Span,
     },
     FunctionDecl {
@@ -163,6 +170,38 @@ pub enum Stmt {
         kind: ExportKind,
         span: Span,
     },
+}
+
+impl Stmt {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Self::Block(Block { span, .. })
+            | Self::VarDecl { span, .. }
+            | Self::Expr { span, .. }
+            | Self::Empty { span }
+            | Self::If { span, .. }
+            | Self::While { span, .. }
+            | Self::For { span, .. }
+            | Self::Break { span, .. }
+            | Self::Continue { span, .. }
+            | Self::Labeled { span, .. }
+            | Self::FunctionDecl { span, .. }
+            | Self::Return { span, .. }
+            | Self::TryCatch { span, .. }
+            | Self::Throw { span, .. }
+            | Self::Switch { span, .. }
+            | Self::DoWhile { span, .. }
+            | Self::ForIn { span, .. }
+            | Self::ForOf { span, .. }
+            | Self::ForAwaitOf { span, .. }
+            | Self::ClassDecl { span, .. }
+            | Self::Using { span, .. }
+            | Self::Debugger { span }
+            | Self::Import { span, .. }
+            | Self::Export { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

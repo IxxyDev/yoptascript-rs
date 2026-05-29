@@ -8,10 +8,11 @@ use crate::error::RuntimeError;
 use crate::symbols;
 use crate::value::Value;
 
-use super::{ControlFlow, Interpreter};
+use super::{ControlFlow, Interpreter, LoopOp};
 
 impl Interpreter {
     pub(super) fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
+        let incoming_label = self.pending_label.take();
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, span } => {
                 let value = self.eval_expr(init)?;
@@ -35,22 +36,24 @@ impl Interpreter {
                 }
             }
             Stmt::While { condition, body, .. } => {
+                let label = incoming_label;
                 loop {
                     let cond = self.eval_expr(condition)?;
                     if !cond.is_truthy() {
                         break;
                     }
                     if let Some(cf) = self.exec_stmt(body)? {
-                        match cf {
-                            ControlFlow::Break => break,
-                            ControlFlow::Continue => continue,
-                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => return Ok(Some(cf)),
+                        match cf.for_loop(label.as_deref()) {
+                            LoopOp::Break => break,
+                            LoopOp::Continue => continue,
+                            LoopOp::Exit(cf) => return Ok(Some(cf)),
                         }
                     }
                 }
                 Ok(None)
             }
             Stmt::For { init, condition, update, body, .. } => {
+                let label = incoming_label;
                 self.env.push_scope();
                 if let Some(init_stmt) = init {
                     self.exec_stmt(init_stmt)?;
@@ -63,10 +66,10 @@ impl Interpreter {
                         }
                     }
                     if let Some(cf) = self.exec_stmt(body)? {
-                        match cf {
-                            ControlFlow::Break => break,
-                            ControlFlow::Continue => {}
-                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                        match cf.for_loop(label.as_deref()) {
+                            LoopOp::Break => break,
+                            LoopOp::Continue => {}
+                            LoopOp::Exit(cf) => {
                                 self.env.pop_scope();
                                 return Ok(Some(cf));
                             }
@@ -79,8 +82,18 @@ impl Interpreter {
                 self.env.pop_scope();
                 Ok(None)
             }
-            Stmt::Break { .. } => Ok(Some(ControlFlow::Break)),
-            Stmt::Continue { .. } => Ok(Some(ControlFlow::Continue)),
+            Stmt::Break { label, .. } => Ok(Some(ControlFlow::Break(label.as_ref().map(|l| l.name.clone())))),
+            Stmt::Continue { label, .. } => Ok(Some(ControlFlow::Continue(label.as_ref().map(|l| l.name.clone())))),
+            Stmt::Labeled { label, body, .. } => {
+                self.pending_label = Some(label.name.clone());
+                let result = self.exec_stmt(body);
+                self.pending_label = None;
+                match result? {
+                    Some(ControlFlow::Break(Some(l))) if l == label.name => Ok(None),
+                    Some(ControlFlow::Continue(Some(l))) if l == label.name => Ok(None),
+                    other => Ok(other),
+                }
+            }
             Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } => {
                 let func = Value::Function {
                     name: Rc::from(name.name.as_str()),
@@ -116,15 +129,16 @@ impl Interpreter {
                         ));
                     }
                 };
+                let label = incoming_label;
                 self.env.push_scope();
                 self.env.define(variable.name.clone(), Value::Undefined, false);
                 for item in items {
                     self.env.set(&variable.name, item);
                     if let Some(cf) = self.exec_stmt(body)? {
-                        match cf {
-                            ControlFlow::Break => break,
-                            ControlFlow::Continue => continue,
-                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                        match cf.for_loop(label.as_deref()) {
+                            LoopOp::Break => break,
+                            LoopOp::Continue => continue,
+                            LoopOp::Exit(cf) => {
                                 self.env.pop_scope();
                                 return Ok(Some(cf));
                             }
@@ -135,12 +149,13 @@ impl Interpreter {
                 Ok(None)
             }
             Stmt::DoWhile { body, condition, .. } => {
+                let label = incoming_label;
                 loop {
                     if let Some(cf) = self.exec_stmt(body)? {
-                        match cf {
-                            ControlFlow::Break => break,
-                            ControlFlow::Continue => {}
-                            cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => return Ok(Some(cf)),
+                        match cf.for_loop(label.as_deref()) {
+                            LoopOp::Break => break,
+                            LoopOp::Continue => {}
+                            LoopOp::Exit(cf) => return Ok(Some(cf)),
                         }
                     }
                     let cond = self.eval_expr(condition)?;
@@ -151,10 +166,10 @@ impl Interpreter {
                 Ok(None)
             }
             Stmt::ForOf { variable, iterable, body, span, .. } => {
-                self.exec_for_of_loop(variable, iterable, body, *span, false)
+                self.exec_for_of_loop(variable, iterable, body, *span, false, incoming_label)
             }
             Stmt::ForAwaitOf { variable, iterable, body, span, .. } => {
-                self.exec_for_of_loop(variable, iterable, body, *span, true)
+                self.exec_for_of_loop(variable, iterable, body, *span, true, incoming_label)
             }
             Stmt::Switch { expr, cases, default, .. } => {
                 let switch_val = self.eval_expr(expr)?;
@@ -315,12 +330,29 @@ impl Interpreter {
     }
 
     pub(super) fn exec_block_stmts(&mut self, stmts: &[Stmt]) -> Result<Option<ControlFlow>, RuntimeError> {
+        self.hoist_functions(stmts);
         for stmt in stmts {
             if let Some(cf) = self.exec_stmt(stmt)? {
                 return Ok(Some(cf));
             }
         }
         Ok(None)
+    }
+
+    pub(super) fn hoist_functions(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            if let Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } = stmt {
+                let func = Value::Function {
+                    name: Rc::from(name.name.as_str()),
+                    params: params.clone(),
+                    body: body.clone(),
+                    env: self.env.snapshot(),
+                    is_generator: *is_generator,
+                    is_async: *is_async,
+                };
+                self.env.define(name.name.clone(), func, false);
+            }
+        }
     }
 
     fn destructure_pattern(
@@ -334,6 +366,10 @@ impl Interpreter {
             Pattern::Identifier(ident) => {
                 self.env.define(ident.name.clone(), value, is_const);
                 Ok(())
+            }
+            Pattern::Default { pattern: inner, default, .. } => {
+                let value = if matches!(value, Value::Undefined) { self.eval_expr(default)? } else { value };
+                self.destructure_pattern(inner, value, is_const, span)
             }
             Pattern::Array { elements, rest, .. } => {
                 let items = match &value {
@@ -404,6 +440,7 @@ impl Interpreter {
         body: &Stmt,
         span: Span,
         is_await: bool,
+        label: Option<String>,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
         let val = self.eval_expr(iterable)?;
         let val = if is_await { self.do_await(val, span)? } else { val };
@@ -422,10 +459,10 @@ impl Interpreter {
                 let item = if is_await { self.do_await(item, span)? } else { item };
                 self.env.set(&variable.name, item);
                 if let Some(cf) = self.exec_stmt(body)? {
-                    match cf {
-                        ControlFlow::Break => break,
-                        ControlFlow::Continue => continue,
-                        cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                    match cf.for_loop(label.as_deref()) {
+                        LoopOp::Break => break,
+                        LoopOp::Continue => continue,
+                        LoopOp::Exit(cf) => {
                             self.env.pop_scope();
                             return Ok(Some(cf));
                         }
@@ -450,10 +487,10 @@ impl Interpreter {
             let item = if is_await { self.do_await(item, span)? } else { item };
             self.env.set(&variable.name, item);
             if let Some(cf) = self.exec_stmt(body)? {
-                match cf {
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => continue,
-                    cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)) => {
+                match cf.for_loop(label.as_deref()) {
+                    LoopOp::Break => break,
+                    LoopOp::Continue => continue,
+                    LoopOp::Exit(cf) => {
                         self.env.pop_scope();
                         return Ok(Some(cf));
                     }
@@ -480,6 +517,7 @@ fn collect_decl_names(stmt: &Stmt) -> Vec<String> {
 fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
     match pattern {
         Pattern::Identifier(ident) => out.push(ident.name.clone()),
+        Pattern::Default { pattern, .. } => collect_pattern_names(pattern, out),
         Pattern::Array { elements, rest, .. } => {
             for el in elements.iter().flatten() {
                 collect_pattern_names(el, out);

@@ -447,13 +447,24 @@ fn step_block_stmt(
             }
             Ok(None)
         }
-        Stmt::Break { .. } => {
+        Stmt::Labeled { body, .. } => {
+            let body = Rc::new((**body).clone());
+            push_body(g, &body);
+            Ok(None)
+        }
+        Stmt::Break { label, .. } => {
+            if label.is_some() {
+                return Err(RuntimeError::new("Маркированный 'харэ' не поддерживается внутри генераторов", span));
+            }
             if let Some(step) = unwind(interp, g, Unwind::Break, span)? {
                 return Ok(Some(step));
             }
             Ok(None)
         }
-        Stmt::Continue { .. } => {
+        Stmt::Continue { label, .. } => {
+            if label.is_some() {
+                return Err(RuntimeError::new("Маркированный 'двигай' не поддерживается внутри генераторов", span));
+            }
             if let Some(step) = unwind(interp, g, Unwind::Continue, span)? {
                 return Ok(Some(step));
             }
@@ -489,13 +500,13 @@ fn step_block_stmt(
                     }
                     Ok(None)
                 }
-                Some(ControlFlow::Break) => {
+                Some(ControlFlow::Break(_)) => {
                     if let Some(step) = unwind(interp, g, Unwind::Break, span)? {
                         return Ok(Some(step));
                     }
                     Ok(None)
                 }
-                Some(ControlFlow::Continue) => {
+                Some(ControlFlow::Continue(_)) => {
                     if let Some(step) = unwind(interp, g, Unwind::Continue, span)? {
                         return Ok(Some(step));
                     }
