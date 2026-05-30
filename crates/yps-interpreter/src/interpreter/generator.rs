@@ -34,9 +34,9 @@ enum Unwind {
     Return(Value),
 }
 
-pub(crate) fn build_generator(env: Environment, body: &Rc<Block>) -> GenState {
+pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>) -> GenState {
     let stmts: Rc<[Stmt]> = Rc::from(body.stmts.as_slice());
-    GenState { env, frames: vec![GenFrame::Block { stmts, idx: 0 }], completed: false, pending_bind: None }
+    GenState { name, env, frames: vec![GenFrame::Block { stmts, idx: 0 }], completed: false, pending_bind: None }
 }
 
 pub(crate) fn step_generator(
@@ -54,7 +54,9 @@ pub(crate) fn step_generator(
     }
 
     let saved_env = std::mem::replace(&mut interp.env, g.env.clone());
-    let result = match input {
+    let saved_stack = std::mem::take(&mut interp.call_stack);
+    interp.push_frame(Rc::clone(&g.name), span);
+    let mut result = match input {
         GenInput::Send(v) => {
             if let Some(bind) = g.pending_bind.take() {
                 apply_bind(&mut g.env, bind, v);
@@ -70,6 +72,12 @@ pub(crate) fn step_generator(
             pump_with_unwind(interp, g, Unwind::Throw(v), span)
         }
     };
+    if let Err(e) = &mut result {
+        e.attach_stack(interp.snapshot_stack());
+    }
+    let gen_stack = if matches!(result, Ok(GenStep::Threw(_))) { interp.snapshot_stack() } else { Vec::new() };
+    interp.pop_frame();
+    interp.call_stack = saved_stack;
     g.env = std::mem::replace(&mut interp.env, saved_env);
 
     match result? {
@@ -80,7 +88,7 @@ pub(crate) fn step_generator(
         }
         GenStep::Threw(v) => {
             g.completed = true;
-            Err(RuntimeError::thrown(v, span))
+            Err(RuntimeError::thrown_with_stack(v, span, gen_stack))
         }
     }
 }

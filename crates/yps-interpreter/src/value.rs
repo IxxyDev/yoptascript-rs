@@ -32,6 +32,7 @@ pub enum IteratorState {
 
 #[derive(Clone)]
 pub struct GenState {
+    pub name: Rc<str>,
     pub env: Environment,
     pub frames: Vec<GenFrame>,
     pub completed: bool,

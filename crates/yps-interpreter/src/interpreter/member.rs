@@ -82,7 +82,15 @@ impl Interpreter {
                     let params = params.clone();
                     let body = Rc::clone(body);
                     let env = Rc::clone(env);
-                    return self.call_method_with_this(&params, &body, &env, vec![], Some(obj), span);
+                    return self.call_method_with_this(
+                        Rc::from(property),
+                        &params,
+                        &body,
+                        &env,
+                        vec![],
+                        Some(obj),
+                        span,
+                    );
                 }
                 if let Some(val) = map.get(property) {
                     return Ok(val.clone());
@@ -98,7 +106,15 @@ impl Interpreter {
                         let params = params.clone();
                         let body = Rc::clone(body);
                         let env = Rc::clone(env);
-                        return self.call_method_with_this(&params, &body, &env, vec![], Some(obj), span);
+                        return self.call_method_with_this(
+                            Rc::from(property),
+                            &params,
+                            &body,
+                            &env,
+                            vec![],
+                            Some(obj),
+                            span,
+                        );
                     }
                     if let Some((params, body, env)) = Self::find_method_in_class(cls, property) {
                         return Ok(Value::Function {
@@ -124,7 +140,7 @@ impl Interpreter {
                     return Ok(Self::class_prototype_object(cls));
                 }
                 if let Some((params, body, env)) = cls.static_getters.get(property) {
-                    return self.call_method_with_this(params, body, env, vec![], None, span);
+                    return self.call_method_with_this(Rc::from(property), params, body, env, vec![], None, span);
                 }
                 if let Some(val) = cls.static_fields.get(property) {
                     return Ok(val.clone());

@@ -116,7 +116,15 @@ impl Interpreter {
                     let params = params.clone();
                     let body = Rc::clone(body);
                     let env = Rc::clone(env);
-                    let updated = self.call_setter_returning_this(&params, &body, &env, value.clone(), obj, span)?;
+                    let updated = self.call_setter_returning_this(
+                        Rc::from(property),
+                        &params,
+                        &body,
+                        &env,
+                        value.clone(),
+                        obj,
+                        span,
+                    )?;
                     self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
@@ -126,8 +134,15 @@ impl Interpreter {
                     let params = params.clone();
                     let body = Rc::clone(body);
                     let env = Rc::clone(env);
-                    let updated =
-                        self.call_setter_returning_this(&params, &body, &env, value.clone(), obj.clone(), span)?;
+                    let updated = self.call_setter_returning_this(
+                        Rc::from(property),
+                        &params,
+                        &body,
+                        &env,
+                        value.clone(),
+                        obj.clone(),
+                        span,
+                    )?;
                     self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
@@ -135,7 +150,7 @@ impl Interpreter {
             }
             Value::Class(cls) => {
                 if let Some((params, body, env)) = cls.static_setters.get(property) {
-                    self.call_method_with_this(params, body, env, vec![value.clone()], None, span)?;
+                    self.call_method_with_this(Rc::from(property), params, body, env, vec![value.clone()], None, span)?;
                     return Ok(Some(value));
                 }
                 Ok(None)
@@ -144,8 +159,10 @@ impl Interpreter {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn call_setter_returning_this(
         &mut self,
+        name: Rc<str>,
         params: &[yps_parser::ast::Param],
         body: &Rc<Block>,
         env: &Rc<RefCell<EnvFrame>>,
@@ -160,11 +177,18 @@ impl Interpreter {
         if let Some(param) = params.first() {
             self.env.define(param.name.name.clone(), value, false);
         }
-        let result = self.exec_block_stmts(&body.stmts);
+        self.push_frame(name, span);
+        let mut result = self.exec_block_stmts(&body.stmts);
+        if let Err(e) = &mut result {
+            e.attach_stack(self.snapshot_stack());
+        }
+        let frame_stack =
+            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
         let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
+        self.pop_frame();
         self.env = saved_env;
         match result? {
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
             _ => Ok(updated_this),
         }
     }

@@ -13,8 +13,10 @@ use crate::value::Value;
 use super::{ControlFlow, Interpreter};
 
 impl Interpreter {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn call_method_returning_this(
         &mut self,
+        name: Rc<str>,
         params: &[yps_parser::ast::Param],
         body: &Rc<Block>,
         env: &Rc<RefCell<EnvFrame>>,
@@ -49,8 +51,15 @@ impl Interpreter {
             self.env.define(param.name.name.clone(), value, false);
         }
 
-        let result = self.exec_block_stmts(&body.stmts);
+        self.push_frame(name, span);
+        let mut result = self.exec_block_stmts(&body.stmts);
+        if let Err(e) = &mut result {
+            e.attach_stack(self.snapshot_stack());
+        }
+        let frame_stack =
+            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
         let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
+        self.pop_frame();
 
         self.env = saved_env;
 
@@ -64,7 +73,7 @@ impl Interpreter {
                 label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                 span,
             )),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
             None => Ok((Value::Undefined, updated_this)),
         }
     }
@@ -160,7 +169,7 @@ impl Interpreter {
 
                 if is_generator {
                     let gen_env = std::mem::replace(&mut self.env, saved_env);
-                    let gen_state = super::generator::build_generator(gen_env, &body);
+                    let gen_state = super::generator::build_generator(name, gen_env, &body);
                     Ok(Value::Iterator(Rc::new(RefCell::new(crate::value::IteratorState::Generator(Box::new(
                         gen_state,
                     ))))))
@@ -173,10 +182,18 @@ impl Interpreter {
                         _ => unreachable!(),
                     };
                     let body_for_task = Rc::clone(&body);
+                    let name_for_async = Rc::clone(&name);
                     self.enqueue_microtask(Box::new(move |interp, sp| {
                         let caller_env = interp.env.clone();
+                        let saved_stack = std::mem::take(&mut interp.call_stack);
                         interp.env = Environment::from_snapshot(async_env);
-                        let result = interp.exec_block_stmts(&body_for_task.stmts);
+                        interp.push_frame(name_for_async, sp);
+                        let mut result = interp.exec_block_stmts(&body_for_task.stmts);
+                        if let Err(e) = &mut result {
+                            e.attach_stack(interp.snapshot_stack());
+                        }
+                        interp.pop_frame();
+                        interp.call_stack = saved_stack;
                         interp.env = caller_env;
                         let (kind, value) = match result {
                             Ok(Some(ControlFlow::Return(val))) => (crate::value::CapKind::Resolve, val),
@@ -201,7 +218,7 @@ impl Interpreter {
                                 ));
                             }
                             Err(e) => match e.thrown {
-                                Some(val) => (crate::value::CapKind::Reject, val),
+                                Some(val) => (crate::value::CapKind::Reject, *val),
                                 None => return Err(e),
                             },
                         };
@@ -209,7 +226,17 @@ impl Interpreter {
                     }));
                     Ok(outer)
                 } else {
-                    let result = self.exec_block_stmts(&body.stmts);
+                    self.push_frame(name, span);
+                    let mut result = self.exec_block_stmts(&body.stmts);
+                    if let Err(e) = &mut result {
+                        e.attach_stack(self.snapshot_stack());
+                    }
+                    let frame_stack = if matches!(result, Ok(Some(ControlFlow::Throw(_)))) {
+                        self.snapshot_stack()
+                    } else {
+                        Vec::new()
+                    };
+                    self.pop_frame();
                     self.env = saved_env;
                     match result? {
                         Some(ControlFlow::Return(val)) => Ok(val),
@@ -224,7 +251,7 @@ impl Interpreter {
                             ),
                             span,
                         )),
-                        Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+                        Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
                         None => Ok(Value::Undefined),
                     }
                 }
@@ -265,8 +292,10 @@ impl Interpreter {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn call_method_with_this(
         &mut self,
+        name: Rc<str>,
         params: &[yps_parser::ast::Param],
         body: &Rc<Block>,
         env: &Rc<RefCell<EnvFrame>>,
@@ -303,7 +332,14 @@ impl Interpreter {
             self.env.define(param.name.name.clone(), value, false);
         }
 
-        let result = self.exec_block_stmts(&body.stmts);
+        self.push_frame(name, span);
+        let mut result = self.exec_block_stmts(&body.stmts);
+        if let Err(e) = &mut result {
+            e.attach_stack(self.snapshot_stack());
+        }
+        let frame_stack =
+            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
+        self.pop_frame();
 
         self.env = saved_env;
 
@@ -317,7 +353,7 @@ impl Interpreter {
                 label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                 span,
             )),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
             None => Ok(Value::Undefined),
         }
     }
