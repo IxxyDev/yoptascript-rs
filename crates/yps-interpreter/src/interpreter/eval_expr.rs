@@ -120,7 +120,15 @@ impl Interpreter {
                         && let Some((ref params, ref body, ref env)) = cls.constructor
                     {
                         let arg_values = self.eval_args(args)?;
-                        return self.call_method_with_this(params, body, env, arg_values, None, *span);
+                        return self.call_method_with_this(
+                            Rc::from("<конструктор>"),
+                            params,
+                            body,
+                            env,
+                            arg_values,
+                            None,
+                            *span,
+                        );
                     }
                     if matches!(
                         obj,
@@ -149,7 +157,15 @@ impl Interpreter {
                     if matches!(obj, Value::Object(_))
                         && let Value::Function { params, body, env, .. } = &func
                     {
-                        let result = self.call_method_returning_this(params, body, env, arg_values, obj, *span)?;
+                        let result = self.call_method_returning_this(
+                            Rc::from(property.name.as_str()),
+                            params,
+                            body,
+                            env,
+                            arg_values,
+                            obj,
+                            *span,
+                        )?;
                         self.write_back_object(object, result.1, *span)?;
                         return Ok(result.0);
                     }
@@ -163,7 +179,15 @@ impl Interpreter {
                     {
                         let arg_values = self.eval_args(args)?;
                         let this_val = self.env.get(symbols::THIS);
-                        return self.call_method_with_this(params, body, env, arg_values, this_val, *span);
+                        return self.call_method_with_this(
+                            Rc::from("<конструктор>"),
+                            params,
+                            body,
+                            env,
+                            arg_values,
+                            this_val,
+                            *span,
+                        );
                     }
                     Err(RuntimeError::new("Родительский класс не имеет конструктора", *span))
                 } else {
