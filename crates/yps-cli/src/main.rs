@@ -55,6 +55,10 @@ fn main() {
     if let Err(e) = interpreter.run(&program) {
         let (line, col) = source.position(e.span.start);
         eprintln!("{filename}:{line}:{col}: {e}");
+        for frame in &e.stack {
+            let (fl, fc) = source.position(frame.span.start);
+            eprintln!("  в {}:{filename}:{fl}:{fc}", frame.name);
+        }
         process::exit(1);
     }
 }
