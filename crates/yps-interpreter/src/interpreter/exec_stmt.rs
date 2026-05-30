@@ -188,15 +188,17 @@ impl Interpreter {
                 self.exec_class_decl(name, super_class.as_ref(), members, decorators, *span)
             }
             Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
+                let stack_depth = self.call_stack.len();
                 let try_result = self.exec_block(try_block);
 
                 let result = match try_result {
                     Err(err) => {
+                        debug_assert_eq!(self.call_stack.len(), stack_depth, "стек вызовов разбалансирован после try");
                         if let Some(cb) = catch_block {
                             self.env.push_scope();
                             if let Some(param) = catch_param {
                                 let bound = if let Some(thrown) = err.thrown {
-                                    thrown
+                                    *thrown
                                 } else {
                                     let mut map = HashMap::new();
                                     map.insert(
@@ -216,6 +218,7 @@ impl Interpreter {
                         }
                     }
                     Ok(Some(ControlFlow::Throw(val))) => {
+                        debug_assert_eq!(self.call_stack.len(), stack_depth, "стек вызовов разбалансирован после try");
                         if let Some(cb) = catch_block {
                             self.env.push_scope();
                             if let Some(param) = catch_param {
