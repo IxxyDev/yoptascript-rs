@@ -364,13 +364,20 @@ impl Interpreter {
                 self.env.define(param.name.name.clone(), value, false);
             }
 
-            let result = self.exec_block_stmts(&body.stmts);
+            self.push_frame(Rc::from(class_def.name.as_str()), span);
+            let mut result = self.exec_block_stmts(&body.stmts);
+            if let Err(e) = &mut result {
+                e.attach_stack(self.snapshot_stack());
+            }
+            let frame_stack =
+                if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
             let this_after = self.env.get(symbols::THIS).unwrap_or(instance_val);
+            self.pop_frame();
             self.env = saved_env;
 
             match result? {
                 Some(ControlFlow::Return(_)) | None => Ok(this_after),
-                Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+                Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
                 Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
                     label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                     span,
@@ -564,7 +571,15 @@ impl Interpreter {
     pub(super) fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
         if let Value::Object(map) = &resource {
             if let Some(Value::Function { params, body, env, .. }) = map.get(symbols::DISPOSE_METHOD).cloned() {
-                self.call_method_with_this(&params, &body, &env, vec![], Some(resource.clone()), span)?;
+                self.call_method_with_this(
+                    Rc::from("<dispose>"),
+                    &params,
+                    &body,
+                    &env,
+                    vec![],
+                    Some(resource.clone()),
+                    span,
+                )?;
                 return Ok(());
             }
             if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG).cloned()
@@ -574,7 +589,7 @@ impl Interpreter {
                 let params = method.0.clone();
                 let body = Rc::clone(&method.1);
                 let env = Rc::clone(&method.2);
-                self.call_method_with_this(&params, &body, &env, vec![], Some(resource), span)?;
+                self.call_method_with_this(Rc::from("<dispose>"), &params, &body, &env, vec![], Some(resource), span)?;
                 return Ok(());
             }
         }

@@ -8,7 +8,7 @@ use yps_parser::ast::Program;
 
 use crate::builtins::builtin_names;
 use crate::environment::Environment;
-use crate::error::RuntimeError;
+use crate::error::{Frame, MAX_STACK_DEPTH, RuntimeError};
 use crate::value::Value;
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
@@ -40,6 +40,7 @@ pub struct Interpreter {
     pub(super) macrotasks: MacrotaskQueue,
     pub(super) await_depth: usize,
     pub(super) pending_label: Option<String>,
+    pub(super) call_stack: Vec<Frame>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -70,7 +71,23 @@ impl Interpreter {
             macrotasks: MacrotaskQueue::new(),
             await_depth: 0,
             pending_label: None,
+            call_stack: Vec::new(),
         }
+    }
+
+    pub(super) fn push_frame(&mut self, name: Rc<str>, span: Span) {
+        self.call_stack.push(Frame { name, span });
+    }
+
+    pub(super) fn pop_frame(&mut self) {
+        self.call_stack.pop();
+    }
+
+    pub(super) fn snapshot_stack(&self) -> Vec<Frame> {
+        let start = self.call_stack.len().saturating_sub(MAX_STACK_DEPTH);
+        let mut frames = self.call_stack[start..].to_vec();
+        frames.reverse();
+        frames
     }
 
     pub fn set_base_path(&mut self, path: PathBuf) {
@@ -82,6 +99,7 @@ impl Interpreter {
     }
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
+        self.call_stack.clear();
         self.hoist_functions(&program.items);
         for stmt in &program.items {
             let cf_opt = self.exec_stmt(stmt)?;
