@@ -17,6 +17,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
         s if s == symbols::ERROR_NAME => stdlib::error::construct(args, span),
         "этоКосяк" => is_kosyak(args, span),
         "RegExp" => construct_regexp(args, span),
+        "Дата" => crate::stdlib::date::construct(args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             println!("{}", parts.join(" "));
@@ -121,6 +122,7 @@ pub fn builtin_names() -> &'static [&'static str] {
         symbols::ERROR_NAME,
         "этоКосяк",
         "RegExp",
+        "Дата",
         "чутка",
         "отменаЧутки",
         "интервал",

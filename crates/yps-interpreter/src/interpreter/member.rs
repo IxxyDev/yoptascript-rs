@@ -163,6 +163,7 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
+            Value::Date(_) => Ok(Value::Undefined),
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }
