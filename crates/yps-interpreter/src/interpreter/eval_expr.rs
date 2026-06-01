@@ -141,6 +141,7 @@ impl Interpreter {
                             | Value::Promise { .. }
                             | Value::Iterator(_)
                             | Value::RegExp { .. }
+                            | Value::Date(_)
                             | Value::AbortController { .. }
                             | Value::AbortSignal { .. }
                     ) {

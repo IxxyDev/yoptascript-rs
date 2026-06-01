@@ -1,6 +1,7 @@
 pub mod abort;
 pub mod array;
 pub mod console;
+pub mod date;
 pub mod error;
 pub mod fs;
 pub mod iterator;
@@ -40,6 +41,7 @@ pub fn call_method(
         Value::Map(_) => map::call(interp, receiver, method, args, span),
         Value::Set(_) => set::call(interp, receiver, method, args, span),
         Value::Symbol { .. } => symbol::call_instance(interp, receiver, method, args, span),
+        Value::Date(_) => date::call_instance(interp, receiver, method, args, span),
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
         Value::RegExp { .. } => regexp::call(interp, receiver, method, args, span),
@@ -74,6 +76,9 @@ pub fn call_static_namespaced(
     }
     if let Some(stripped) = namespaced.strip_prefix("Симбол.") {
         return Some(symbol::call_static(interp, stripped, args, span));
+    }
+    if let Some(stripped) = namespaced.strip_prefix("Дата.") {
+        return Some(date::call_static(interp, stripped, args, span));
     }
     if let Some(stripped) = namespaced.strip_prefix("СловоПацана.") {
         return Some(promise::call_static(interp, stripped, args, span));
@@ -151,6 +156,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Карта".to_string(), Value::BuiltinFunction("Карта".to_string())),
         ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
         ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
+        ("Дата".to_string(), Value::BuiltinFunction("Дата".to_string())),
         ("СловоПацана".to_string(), Value::BuiltinFunction("СловоПацана".to_string())),
         ("Итератор".to_string(), iterator::build_object()),
         ("КонтроллёрОтмены".to_string(), Value::BuiltinFunction("КонтроллёрОтмены".to_string())),

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::rc::Rc;
@@ -236,6 +236,7 @@ pub enum Value {
         compiled: Rc<regex::Regex>,
         last_index: Rc<RefCell<usize>>,
     },
+    Date(Rc<Cell<f64>>),
     AbortController {
         state: Rc<RefCell<AbortState>>,
     },
@@ -294,7 +295,8 @@ impl Value {
             | Value::Set(_)
             | Value::Promise { .. }
             | Value::Iterator(_)
-            | Value::RegExp { .. } => "объект",
+            | Value::RegExp { .. }
+            | Value::Date(_) => "объект",
             Value::Symbol { .. } => "символ",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
@@ -326,6 +328,7 @@ impl Value {
             Value::Promise { .. } => "обещание",
             Value::Iterator(_) => "итератор",
             Value::RegExp { .. } => "регэксп",
+            Value::Date(_) => "дата",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
             Value::AbortListener { .. }
@@ -370,6 +373,7 @@ impl fmt::Debug for Value {
             Value::PromiseAggregateHandler { .. } => write!(f, "PromiseAggregateHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
             Value::RegExp { pattern, flags, .. } => write!(f, "RegExp(/{pattern}/{flags})"),
+            Value::Date(cell) => write!(f, "Date({})", crate::stdlib::date::format_iso(cell.get())),
             Value::AbortController { state } => {
                 if state.borrow().aborted {
                     write!(f, "AbortController(aborted)")
@@ -471,6 +475,7 @@ impl fmt::Display for Value {
             Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
             Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
+            Value::Date(cell) => write!(f, "{}", crate::stdlib::date::format_iso(cell.get())),
             Value::AbortController { state } => {
                 if state.borrow().aborted {
                     write!(f, "[контроллёрОтмены отменён]")
@@ -507,6 +512,7 @@ impl PartialEq for Value {
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),
+            (Value::Date(a), Value::Date(b)) => Rc::ptr_eq(a, b),
             (Value::RegExp { pattern: pa, flags: fa, .. }, Value::RegExp { pattern: pb, flags: fb, .. }) => {
                 pa == pb && fa == fb
             }

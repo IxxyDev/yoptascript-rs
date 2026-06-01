@@ -133,6 +133,14 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
             ));
         }
         Value::RegExp { .. } => out.push_str("{}"),
+        Value::Date(cell) => {
+            let ms = cell.get();
+            if ms.is_finite() {
+                write_json_string(out, &crate::stdlib::date::format_iso(ms));
+            } else {
+                out.push_str("null");
+            }
+        }
         Value::AbortController { .. }
         | Value::AbortSignal { .. }
         | Value::AbortListener { .. }
