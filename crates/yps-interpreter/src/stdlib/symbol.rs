@@ -11,6 +11,8 @@ use crate::value::Value;
 pub const ITERATOR_ID: u64 = 1;
 pub const DISPOSE_ID: u64 = 2;
 pub const ASYNC_ITERATOR_ID: u64 = 3;
+pub const TO_PRIMITIVE_ID: u64 = 4;
+pub const TO_STRING_TAG_ID: u64 = 5;
 
 thread_local! {
     static NEXT_ID: Cell<u64> = const { Cell::new(100) };
@@ -30,6 +32,8 @@ pub fn well_known(property: &str) -> Option<Value> {
         "итератор" => ("Symbol.iterator", ITERATOR_ID),
         s if s == symbols::DISPOSE_METHOD => ("Symbol.dispose", DISPOSE_ID),
         "асинхИтератор" => ("Symbol.asyncIterator", ASYNC_ITERATOR_ID),
+        "вПримитив" => ("Symbol.toPrimitive", TO_PRIMITIVE_ID),
+        "строковыйТег" => ("Symbol.toStringTag", TO_STRING_TAG_ID),
         _ => return None,
     };
     Some(Value::Symbol { description: Some(desc.to_string()), id })
@@ -112,4 +116,84 @@ pub fn member(receiver: &Value, property: &str) -> Option<Value> {
         });
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(src: &str) -> Result<(), crate::error::RuntimeError> {
+        let source = yps_lexer::SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        let (program, _) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        crate::interpreter::Interpreter::new().run(&program)
+    }
+
+    #[test]
+    fn well_known_to_primitive_id() {
+        let v = well_known("вПримитив").unwrap();
+        match v {
+            Value::Symbol { id, .. } => assert_eq!(id, TO_PRIMITIVE_ID),
+            _ => panic!("ожидался символ"),
+        }
+    }
+
+    #[test]
+    fn well_known_to_string_tag_id() {
+        let v = well_known("строковыйТег").unwrap();
+        match v {
+            Value::Symbol { id, .. } => assert_eq!(id, TO_STRING_TAG_ID),
+            _ => panic!("ожидался символ"),
+        }
+    }
+
+    #[test]
+    fn well_known_to_primitive_stability() {
+        run(r#"
+            гыы а = Симбол.вПримитив;
+            гыы б = Симбол.вПримитив;
+            вилкойвглаз (а !== б) { кидай "нестабильный"; }
+        "#)
+        .unwrap();
+    }
+
+    #[test]
+    fn well_known_to_primitive_not_equal_to_string_tag() {
+        run(r#"
+            вилкойвглаз (Симбол.вПримитив === Симбол.строковыйТег) { кидай "равны"; }
+        "#)
+        .unwrap();
+    }
+
+    #[test]
+    fn well_known_to_primitive_not_equal_to_iterator() {
+        run(r#"
+            вилкойвглаз (Симбол.вПримитив === Симбол.итератор) { кидай "равны"; }
+        "#)
+        .unwrap();
+    }
+
+    #[test]
+    fn well_known_to_primitive_typeof_is_symbol() {
+        run(r#"
+            вилкойвглаз (тип(Симбол.вПримитив) !== "символ") { кидай "не символ"; }
+        "#)
+        .unwrap();
+    }
+
+    #[test]
+    fn json_stringify_symbol_throws() {
+        let result = run(r#"
+            Жсон.строка(Симбол("x"));
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn symbol_for_same_key_returns_same() {
+        run(r#"
+            вилкойвглаз (Симбол.для("k") !== Симбол.для("k")) { кидай "разные"; }
+        "#)
+        .unwrap();
+    }
 }
