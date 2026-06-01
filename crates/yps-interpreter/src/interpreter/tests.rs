@@ -7272,3 +7272,147 @@ fn stack_balanced_after_nested_try_catch() {
     );
     assert_eq!(stack_names(&err), vec!["д"]);
 }
+
+#[test]
+fn date_construct_and_instance_method_gate() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы год = д.год();
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("год"), Some(Value::Number(1970.0)));
+    assert_eq!(interp.get("исо"), Some(Value::String("1970-01-01T00:00:00.000Z".to_string())));
+}
+
+#[test]
+fn date_getters_utc() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата("2000-02-29T12:30:45.500Z");
+        гыы год = д.год();
+        гыы месяц = д.месяц();
+        гыы день = д.день();
+        гыы часы = д.часы();
+        гыы минуты = д.минуты();
+        гыы секунды = д.секунды();
+        гыы мс = д.миллисекунды();
+        "#,
+    );
+    assert_eq!(interp.get("год"), Some(Value::Number(2000.0)));
+    assert_eq!(interp.get("месяц"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("день"), Some(Value::Number(29.0)));
+    assert_eq!(interp.get("часы"), Some(Value::Number(12.0)));
+    assert_eq!(interp.get("минуты"), Some(Value::Number(30.0)));
+    assert_eq!(interp.get("секунды"), Some(Value::Number(45.0)));
+    assert_eq!(interp.get("мс"), Some(Value::Number(500.0)));
+}
+
+#[test]
+fn date_weekday_epoch() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы дн = д.деньНедели();
+        "#,
+    );
+    assert_eq!(interp.get("дн"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn date_before_1970() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(-86400000);
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("исо"), Some(Value::String("1969-12-31T00:00:00.000Z".to_string())));
+}
+
+#[test]
+fn date_invalid_returns_nan_and_invalid_string() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата("не дата");
+        гыы исо = д.вИСО();
+        гыы год = д.год();
+        гыы плохо = год !== год;
+        "#,
+    );
+    assert_eq!(interp.get("исо"), Some(Value::String("Invalid Date".to_string())));
+    assert_eq!(interp.get("плохо"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn date_identity_equality() {
+    let interp = run_code(
+        r#"
+        гыы а = захуярить Дата(5);
+        гыы б = захуярить Дата(5);
+        гыы разные = а !== б;
+        гыы сам = а === а;
+        "#,
+    );
+    assert_eq!(interp.get("разные"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("сам"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn date_map_keys_do_not_collapse() {
+    let interp = run_code(
+        r#"
+        гыы м = захуярить Карта();
+        м.поставить(захуярить Дата(5), "а");
+        м.поставить(захуярить Дата(5), "б");
+        гыы размер = м.размер;
+        "#,
+    );
+    assert_eq!(interp.get("размер"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn date_typeof_is_object() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы оп = чезажижан д;
+        гыы имя = тип(д);
+        "#,
+    );
+    assert_eq!(interp.get("оп"), Some(Value::String("объект".to_string())));
+    assert_eq!(interp.get("имя"), Some(Value::String("дата".to_string())));
+}
+
+#[test]
+fn date_now_is_number() {
+    let interp = run_code(
+        r#"
+        гыы т = тип(Дата.сейчас());
+        "#,
+    );
+    assert_eq!(interp.get("т"), Some(Value::String("число".to_string())));
+}
+
+#[test]
+fn date_json_serializes_to_iso() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы с = Жсон.вСтроку(д);
+        "#,
+    );
+    assert_eq!(interp.get("с"), Some(Value::String("\"1970-01-01T00:00:00.000Z\"".to_string())));
+}
+
+#[test]
+fn date_json_invalid_to_null() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата("не дата");
+        гыы с = Жсон.вСтроку(д);
+        "#,
+    );
+    assert_eq!(interp.get("с"), Some(Value::String("null".to_string())));
+}
