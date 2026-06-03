@@ -141,6 +141,25 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
                 out.push_str("null");
             }
         }
+        Value::TypedArray { buffer, offset, length, kind } => {
+            out.push('[');
+            let bytes = buffer.borrow();
+            let size = kind.element_size();
+            for i in 0..*length {
+                if i > 0 {
+                    out.push(',');
+                }
+                let num = kind.read_le(&bytes, offset + i * size);
+                stringify_into(&Value::Number(num), out, span)?;
+            }
+            out.push(']');
+        }
+        Value::ArrayBuffer(_) | Value::DataView { .. } => {
+            return Err(RuntimeError::new(
+                "ОбластьБайтов/ОбзорБайтов нельзя сериализовать в JSON напрямую — используйте типизированный массив",
+                span,
+            ));
+        }
         Value::AbortController { .. }
         | Value::AbortSignal { .. }
         | Value::AbortListener { .. }
