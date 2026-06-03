@@ -1,4 +1,7 @@
-use crate::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
+use crate::{
+    Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind, Trivia,
+    TriviaKind,
+};
 
 pub struct Lexer<'src> {
     source: &'src SourceFile,
@@ -6,16 +9,30 @@ pub struct Lexer<'src> {
     diagnostics: Vec<Diagnostic>,
     template_brace_depth: Vec<usize>,
     last_kind: Option<TokenKind>,
+    trivia: Vec<Trivia>,
 }
 
 impl<'src> Lexer<'src> {
     #[must_use]
     pub const fn new(source: &'src SourceFile) -> Self {
-        Self { source, position: 0, diagnostics: Vec::new(), template_brace_depth: Vec::new(), last_kind: None }
+        Self {
+            source,
+            position: 0,
+            diagnostics: Vec::new(),
+            template_brace_depth: Vec::new(),
+            last_kind: None,
+            trivia: Vec::new(),
+        }
     }
 
     #[must_use]
-    pub fn tokenize(mut self) -> (Vec<Token>, Vec<Diagnostic>) {
+    pub fn tokenize(self) -> (Vec<Token>, Vec<Diagnostic>) {
+        let (tokens, _trivia, diagnostics) = self.tokenize_with_trivia();
+        (tokens, diagnostics)
+    }
+
+    #[must_use]
+    pub fn tokenize_with_trivia(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>) {
         let mut tokens = Vec::new();
 
         loop {
@@ -31,7 +48,7 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        (tokens, self.diagnostics)
+        (tokens, self.trivia, self.diagnostics)
     }
 
     fn regex_context(&self) -> bool {
@@ -347,6 +364,12 @@ impl<'src> Lexer<'src> {
                     while !self.is_at_end() && self.current_char() != '\n' {
                         self.advance();
                     }
+                    let span = Span { start, end: self.position };
+                    self.trivia.push(Trivia {
+                        kind: TriviaKind::LineComment,
+                        text: self.source.slice(span).to_string(),
+                        span,
+                    });
                     return self.next_token();
                 } else if self.current_char() == '*' {
                     self.advance();
@@ -366,6 +389,12 @@ impl<'src> Lexer<'src> {
                         }
                         self.advance();
                     }
+                    let span = Span { start, end: self.position };
+                    self.trivia.push(Trivia {
+                        kind: TriviaKind::BlockComment,
+                        text: self.source.slice(span).to_string(),
+                        span,
+                    });
                     return self.next_token();
                 } else if self.regex_context() {
                     return self.read_regex(start);
@@ -703,6 +732,23 @@ mod tests {
         let plain_kinds: Vec<_> = plain_tokens.iter().map(|t| &t.kind).collect();
         let commented_kinds: Vec<_> = commented_tokens.iter().map(|t| &t.kind).collect();
         assert_eq!(plain_kinds, commented_kinds, "блок-комментарий не должен порождать токены");
+    }
+
+    #[test]
+    fn tokenize_with_trivia_collects_comments_without_changing_tokens() {
+        let src = "гыы х = 1; // хвост\n/* блок */ сказать(х);";
+        let source = SourceFile::new("test.yop".to_string(), src.to_string());
+        let (trivia_tokens, trivia, diags) = Lexer::new(&source).tokenize_with_trivia();
+        assert!(diags.is_empty(), "unexpected diags: {diags:?}");
+
+        let plain = SourceFile::new("test.yop".to_string(), src.to_string());
+        let (plain_tokens, _) = Lexer::new(&plain).tokenize();
+        let trivia_kinds: Vec<_> = trivia_tokens.iter().map(|t| &t.kind).collect();
+        let plain_kinds: Vec<_> = plain_tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(trivia_kinds, plain_kinds, "trivia-метод не должен менять поток токенов");
+
+        let texts: Vec<&str> = trivia.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts, vec!["// хвост", "/* блок */"]);
     }
 
     #[test]
