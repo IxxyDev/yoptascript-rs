@@ -18,6 +18,7 @@ cargo test               # Run all tests
 cargo test -p yps-lexer  # Run lexer tests only
 cargo test -p yps-parser # Run parser tests only
 cargo test -p yps-interpreter # Run interpreter tests only
+cargo test -p yps-fmt  # Run formatter tests only
 cargo clippy --workspace --all-targets --all-features -D warnings  # Lint (matches CI)
 cargo fmt --all --check  # Format check (matches CI)
 ```
@@ -26,9 +27,11 @@ Run a single test: `cargo test -p yps-interpreter test_name`
 
 Run the CLI: `cargo run -p yps-cli -- examples/hello.yop`
 
+Format a `.yop` file: `cargo run -p yps-cli -- fmt examples/hello.yop [--write|-w] [--check]`
+
 ## Architecture
 
-Cargo workspace with four crates:
+Cargo workspace with five crates:
 
 - **yps-lexer** (`crates/yps-lexer/`) — Tokenizer. Handles UTF-8 Russian keywords, produces `Token` (with `TokenKind` + `Span`), and emits `Diagnostic` for errors. Entry point: `Lexer::new(&source).tokenize()` → `(Vec<Token>, Vec<Diagnostic>)`.
 
@@ -36,7 +39,9 @@ Cargo workspace with four crates:
 
 - **yps-interpreter** (`crates/yps-interpreter/`) — Tree-walking interpreter. Evaluates AST with `Environment` (scope stack + const tracking). Entry point: `Interpreter::new().run(&program)` → `Result<(), RuntimeError>`. Has 6 builtins: `сказать` (print), `длина` (length), `тип` (typeof), `число` (to number), `строка` (to string), `втолкнуть` (array push).
 
-- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yop` files.
+- **yps-fmt** (`crates/yps-fmt/`) — AST-based source formatter (zero external deps). Entry point: `format_source(&source)` → `Result<FormatOutcome, FormatError>`. Pretty-prints the `Program` with canonical style, restores parentheses from the precedence table exported by `yps-parser` (`binary_precedence` / `UNARY_PRECEDENCE` / `TERNARY_PRECEDENCE` / `binary_is_right_assoc`), and guards correctness with a round-trip self-check (`parse(fmt(x)) ≡ parse(x)` via `normalize`). Comments are preserved via the lexer's additive `tokenize_with_trivia()` plus an attach pass (`comments.rs`); an unrecognized comment position (dangling) yields `FormatError::CommentRefused` rather than silent loss.
+
+- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yop` files; also exposes the `fmt` subcommand (`yps fmt <file> [--write|-w] [--check]`) backed by `yps-fmt`.
 
 ## Language Keywords Mapping
 
