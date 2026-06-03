@@ -32,6 +32,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             match &args[0] {
                 Value::String(s) => Ok(Value::Number(s.chars().count() as f64)),
                 Value::Array(a) => Ok(Value::Number(a.len() as f64)),
+                Value::TypedArray { length, .. } => Ok(Value::Number(*length as f64)),
                 Value::Object(map) => match map.get("длина").or_else(|| map.get("length")) {
                     Some(Value::Number(n)) => Ok(Value::Number(*n)),
                     _ => Err(RuntimeError::new("'длина' не работает с типом 'объект'", span)),

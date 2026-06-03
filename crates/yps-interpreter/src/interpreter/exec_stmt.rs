@@ -121,6 +121,9 @@ impl Interpreter {
                 let val = self.eval_expr(iterable)?;
                 let items: Vec<Value> = match val {
                     Value::Array(elements) => elements,
+                    Value::TypedArray { buffer, offset, length, kind } => {
+                        crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
+                    }
                     Value::Object(map) => map.keys().map(|k| Value::String(k.clone())).collect(),
                     other => {
                         return Err(RuntimeError::new(
@@ -480,6 +483,9 @@ impl Interpreter {
             Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
             Value::Set(s) => s,
             Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+            Value::TypedArray { buffer, offset, length, kind } => {
+                crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
+            }
             other => {
                 return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span));
             }
