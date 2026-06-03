@@ -368,6 +368,17 @@ impl Interpreter {
             (Value::Object(map), Value::Number(n)) => {
                 Ok(map.get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
             }
+            (Value::TypedArray { buffer, offset, length, kind }, Value::Number(n)) => {
+                if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
+                    return Ok(Value::Undefined);
+                }
+                let i = *n as usize;
+                if i >= *length {
+                    return Ok(Value::Undefined);
+                }
+                let bytes = buffer.borrow();
+                Ok(Value::Number(kind.read_le(&bytes, offset + i * kind.element_size())))
+            }
             _ => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
                 span,
@@ -384,6 +395,9 @@ impl Interpreter {
                     Value::Array(arr) => values.extend(arr),
                     Value::Set(s) => values.extend(s),
                     Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                    Value::TypedArray { buffer, offset, length, kind } => {
+                        values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
+                    }
                     Value::Iterator(rc) => {
                         values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
                     }

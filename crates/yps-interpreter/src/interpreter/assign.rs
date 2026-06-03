@@ -262,6 +262,24 @@ impl Interpreter {
             return Ok(());
         }
         match (&path[0], target) {
+            (AccessSegment::Index(Value::Number(n)), Value::TypedArray { buffer, offset, length, kind }) => {
+                if path.len() != 1 {
+                    return Err(RuntimeError::new("Нельзя индексировать элемент типизированного массива далее", span));
+                }
+                if n.is_finite() && *n >= 0.0 && n.fract() == 0.0 {
+                    let i = *n as usize;
+                    if i < *length {
+                        crate::stdlib::typed_array::write_element(
+                            buffer,
+                            *kind,
+                            *offset + i * kind.element_size(),
+                            &value,
+                            span,
+                        )?;
+                    }
+                }
+                Ok(())
+            }
             (AccessSegment::Index(Value::Number(n)), Value::Array(arr)) => {
                 let i = *n as usize;
                 let len = arr.len();
