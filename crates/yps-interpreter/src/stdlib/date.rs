@@ -74,10 +74,7 @@ fn format_components(c: &Components) -> String {
 }
 
 fn parse_iso(s: &str) -> f64 {
-    match parse_iso_opt(s.trim()) {
-        Some(ms) => ms,
-        None => f64::NAN,
-    }
+    parse_iso_opt(s.trim()).unwrap_or(f64::NAN)
 }
 
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
