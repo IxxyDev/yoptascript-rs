@@ -66,12 +66,12 @@ fn label_of(args: &[Value]) -> String {
 fn print_table(args: &[Value]) {
     match args.first() {
         Some(Value::Array(items)) => {
-            for (i, v) in items.iter().enumerate() {
+            for (i, v) in items.borrow().iter().enumerate() {
                 println!("{i}\t{v}");
             }
         }
         Some(Value::Object(map)) => {
-            for (k, v) in map {
+            for (k, v) in map.borrow().iter() {
                 println!("{k}\t{v}");
             }
         }

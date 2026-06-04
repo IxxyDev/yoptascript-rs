@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use yps_lexer::Span;
 
@@ -52,11 +53,12 @@ pub fn call_static(
 
 fn stringify(v: &Value, span: Span) -> Result<Value, RuntimeError> {
     let mut out = String::new();
-    stringify_into(v, &mut out, span)?;
+    let mut seen: HashSet<*const ()> = HashSet::new();
+    stringify_into(v, &mut out, span, &mut seen)?;
     Ok(Value::String(out))
 }
 
-fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), RuntimeError> {
+fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*const ()>) -> Result<(), RuntimeError> {
     match v {
         Value::Null | Value::Undefined => out.push_str("null"),
         Value::Boolean(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -75,19 +77,30 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
             write_json_string(out, s);
         }
         Value::Array(arr) => {
+            let ptr = Rc::as_ptr(arr) as *const ();
+            if !seen.insert(ptr) {
+                return Err(RuntimeError::new("Циклическая структура не может быть сериализована в JSON", span));
+            }
+            let snapshot = arr.borrow().clone();
             out.push('[');
-            for (i, el) in arr.iter().enumerate() {
+            for (i, el) in snapshot.iter().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }
-                stringify_into(el, out, span)?;
+                stringify_into(el, out, span, seen)?;
             }
             out.push(']');
+            seen.remove(&ptr);
         }
         Value::Object(map) => {
+            let ptr = Rc::as_ptr(map) as *const ();
+            if !seen.insert(ptr) {
+                return Err(RuntimeError::new("Циклическая структура не может быть сериализована в JSON", span));
+            }
+            let snapshot: Vec<(String, Value)> = map.borrow().iter().map(|(k, val)| (k.clone(), val.clone())).collect();
             out.push('{');
             let mut first = true;
-            for (k, val) in map.iter() {
+            for (k, val) in snapshot.iter() {
                 if symbols::is_internal_key(k) {
                     continue;
                 }
@@ -100,9 +113,10 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
                 first = false;
                 write_json_string(out, k);
                 out.push(':');
-                stringify_into(val, out, span)?;
+                stringify_into(val, out, span, seen)?;
             }
             out.push('}');
+            seen.remove(&ptr);
         }
         Value::Map(_) | Value::Set(_) => {
             return Err(RuntimeError::new(
@@ -150,7 +164,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span) -> Result<(), Runtime
                     out.push(',');
                 }
                 let num = kind.read_le(&bytes, offset + i * size);
-                stringify_into(&Value::Number(num), out, span)?;
+                stringify_into(&Value::Number(num), out, span, seen)?;
             }
             out.push(']');
         }
@@ -228,7 +242,7 @@ impl<'a> JsonParser<'a> {
         self.skip_ws();
         if self.peek() == Some(b'}') {
             self.pos += 1;
-            return Ok(Value::Object(map));
+            return Ok(Value::object(map));
         }
         loop {
             self.skip_ws();
@@ -245,7 +259,7 @@ impl<'a> JsonParser<'a> {
                 Some(b',') => self.pos += 1,
                 Some(b'}') => {
                     self.pos += 1;
-                    return Ok(Value::Object(map));
+                    return Ok(Value::object(map));
                 }
                 _ => return Err(RuntimeError::new("Ожидалось ',' или '}' в объекте JSON", span)),
             }
@@ -258,7 +272,7 @@ impl<'a> JsonParser<'a> {
         self.skip_ws();
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(Value::Array(arr));
+            return Ok(Value::array(arr));
         }
         loop {
             let v = self.parse_value(span)?;
@@ -268,7 +282,7 @@ impl<'a> JsonParser<'a> {
                 Some(b',') => self.pos += 1,
                 Some(b']') => {
                     self.pos += 1;
-                    return Ok(Value::Array(arr));
+                    return Ok(Value::array(arr));
                 }
                 _ => return Err(RuntimeError::new("Ожидалось ',' или ']' в массиве JSON", span)),
             }
