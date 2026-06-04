@@ -13,7 +13,7 @@ impl Interpreter {
         match &obj {
             Value::Array(arr) => {
                 if property == "length" || property == "длина" {
-                    return Ok(Value::Number(arr.len() as f64));
+                    return Ok(Value::Number(arr.borrow().len() as f64));
                 }
                 Ok(Value::Undefined)
             }
@@ -57,15 +57,23 @@ impl Interpreter {
             }
             Value::Object(map) => {
                 if property.starts_with('#') {
-                    let in_class = if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG) {
+                    let class_name = match map.borrow().get(symbols::CLASS_TAG) {
+                        Some(Value::String(cn)) => Some(cn.clone()),
+                        _ => None,
+                    };
+                    let in_class = if let Some(class_name) = class_name {
                         self.env.get(symbols::THIS).is_some()
                             && self
                                 .env
                                 .get(symbols::THIS)
                                 .and_then(|this| {
-                                    if let Value::Object(m) = &this { m.get(symbols::CLASS_TAG).cloned() } else { None }
+                                    if let Value::Object(m) = &this {
+                                        m.borrow().get(symbols::CLASS_TAG).cloned()
+                                    } else {
+                                        None
+                                    }
                                 })
-                                .is_some_and(|c| if let Value::String(cn) = c { cn == *class_name } else { false })
+                                .is_some_and(|c| if let Value::String(cn) = c { cn == class_name } else { false })
                     } else {
                         false
                     };
@@ -78,10 +86,13 @@ impl Interpreter {
                 }
 
                 let getter_key = symbols::getter_key(property);
-                if let Some(Value::Function { params, body, env, .. }) = map.get(&getter_key) {
-                    let params = params.clone();
-                    let body = Rc::clone(body);
-                    let env = Rc::clone(env);
+                let getter = match map.borrow().get(&getter_key) {
+                    Some(Value::Function { params, body, env, .. }) => {
+                        Some((params.clone(), Rc::clone(body), Rc::clone(env)))
+                    }
+                    _ => None,
+                };
+                if let Some((params, body, env)) = getter {
                     return self.call_method_with_this(
                         Rc::from(property),
                         &params,
@@ -92,7 +103,7 @@ impl Interpreter {
                         span,
                     );
                 }
-                if let Some(val) = map.get(property) {
+                if let Some(val) = map.borrow().get(property) {
                     return Ok(val.clone());
                 }
                 let effective_class = Self::resolve_class_for_object(map, &self.env);
@@ -127,7 +138,8 @@ impl Interpreter {
                         });
                     }
                 }
-                if let Some(proto) = map.get(symbols::PROTO).cloned() {
+                let proto = map.borrow().get(symbols::PROTO).cloned();
+                if let Some(proto) = proto {
                     match proto {
                         Value::Class(_) | Value::Null => return Ok(Value::Undefined),
                         _ => return self.eval_member(proto, property, span),
@@ -186,15 +198,20 @@ impl Interpreter {
     }
 
     pub(crate) fn resolve_class_for_object(
-        map: &std::collections::HashMap<String, Value>,
+        map: &Rc<std::cell::RefCell<std::collections::HashMap<String, Value>>>,
         env: &crate::environment::Environment,
     ) -> Option<std::rc::Rc<crate::value::ClassDef>> {
-        match map.get(symbols::PROTO) {
-            Some(Value::Class(cls)) => Some(std::rc::Rc::clone(cls)),
+        let proto = map.borrow().get(symbols::PROTO).cloned();
+        match proto {
+            Some(Value::Class(cls)) => Some(cls),
             Some(_) => None,
             None => {
-                if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-                    && let Some(Value::Class(cls)) = env.get(class_name)
+                let class_name = match map.borrow().get(symbols::CLASS_TAG) {
+                    Some(Value::String(cn)) => Some(cn.clone()),
+                    _ => None,
+                };
+                if let Some(class_name) = class_name
+                    && let Some(Value::Class(cls)) = env.get(&class_name)
                 {
                     return Some(cls);
                 }
@@ -221,6 +238,6 @@ impl Interpreter {
         }
         map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
         map.insert(symbols::PROTO.to_string(), Value::Class(std::rc::Rc::clone(cls)));
-        Value::Object(map)
+        Value::object(map)
     }
 }

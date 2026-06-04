@@ -13,71 +13,6 @@ use crate::value::Value;
 use super::{ControlFlow, Interpreter};
 
 impl Interpreter {
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn call_method_returning_this(
-        &mut self,
-        name: Rc<str>,
-        params: &[yps_parser::ast::Param],
-        body: &Rc<Block>,
-        env: &Rc<RefCell<EnvFrame>>,
-        args: Vec<Value>,
-        this_val: Value,
-        span: Span,
-    ) -> Result<(Value, Value), RuntimeError> {
-        let saved_env = self.env.clone();
-        self.env = Environment::from_snapshot(Rc::clone(env));
-        self.env.push_scope();
-
-        self.env.define(symbols::THIS.to_string(), this_val.clone(), false);
-
-        if let Some(super_val) = saved_env.get(symbols::SUPER) {
-            self.env.define(symbols::SUPER.to_string(), super_val, false);
-        }
-
-        for (i, param) in params.iter().enumerate() {
-            if param.is_rest {
-                let rest_start = i.min(args.len());
-                let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
-                break;
-            }
-            let value = if i < args.len() {
-                args[i].clone()
-            } else if let Some(default_expr) = &param.default {
-                self.eval_expr(default_expr)?
-            } else {
-                Value::Undefined
-            };
-            self.env.define(param.name.name.clone(), value, false);
-        }
-
-        self.push_frame(name, span);
-        let mut result = self.exec_block_stmts(&body.stmts);
-        if let Err(e) = &mut result {
-            e.attach_stack(self.snapshot_stack());
-        }
-        let frame_stack =
-            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
-        let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
-        self.pop_frame();
-
-        self.env = saved_env;
-
-        match result? {
-            Some(ControlFlow::Return(val)) => Ok((val, updated_this)),
-            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
-                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                span,
-            )),
-            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
-                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                span,
-            )),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
-            None => Ok((Value::Undefined, updated_this)),
-        }
-    }
-
     pub(super) fn numeric_op(
         &self,
         left: &Value,
@@ -153,7 +88,7 @@ impl Interpreter {
                     if param.is_rest {
                         let rest_start = i.min(args.len());
                         let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                        self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                        self.env.define(param.name.name.clone(), Value::array(rest_values), false);
                         break;
                     }
 
@@ -319,7 +254,7 @@ impl Interpreter {
             if param.is_rest {
                 let rest_start = i.min(args.len());
                 let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
                 break;
             }
             let value = if i < args.len() {
@@ -362,11 +297,11 @@ impl Interpreter {
         match (&obj, &index) {
             (Value::Array(arr), Value::Number(n)) => {
                 let i = *n as usize;
-                Ok(arr.get(i).cloned().unwrap_or(Value::Undefined))
+                Ok(arr.borrow().get(i).cloned().unwrap_or(Value::Undefined))
             }
-            (Value::Object(map), Value::String(key)) => Ok(map.get(key).cloned().unwrap_or(Value::Undefined)),
+            (Value::Object(map), Value::String(key)) => Ok(map.borrow().get(key).cloned().unwrap_or(Value::Undefined)),
             (Value::Object(map), Value::Number(n)) => {
-                Ok(map.get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
+                Ok(map.borrow().get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
             }
             (Value::TypedArray { buffer, offset, length, kind }, Value::Number(n)) => {
                 if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
@@ -392,7 +327,7 @@ impl Interpreter {
             if let Expr::Spread { expr, span } = arg {
                 let val = self.eval_expr(expr)?;
                 match val {
-                    Value::Array(arr) => values.extend(arr),
+                    Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                     Value::Set(s) => values.extend(s),
                     Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                     Value::TypedArray { buffer, offset, length, kind } => {

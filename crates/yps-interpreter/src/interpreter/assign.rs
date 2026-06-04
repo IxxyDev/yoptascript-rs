@@ -74,12 +74,11 @@ impl Interpreter {
                 if self.env.is_const(&root_name) {
                     return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
                 }
-                let mut root = self
+                let root = self
                     .env
                     .get(&root_name)
                     .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-                Self::set_at_path(&mut root, &path, value.clone(), span)?;
-                self.env.set(&root_name, root);
+                Self::set_at_path(root, &path, value.clone(), span)?;
                 Ok(value)
             }
             Expr::Index { .. } => {
@@ -89,12 +88,11 @@ impl Interpreter {
                 if self.env.is_const(&root_name) {
                     return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
                 }
-                let mut root = self
+                let root = self
                     .env
                     .get(&root_name)
                     .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-                Self::set_at_path(&mut root, &path, value.clone(), span)?;
-                self.env.set(&root_name, root);
+                Self::set_at_path(root, &path, value.clone(), span)?;
                 Ok(value)
             }
             _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
@@ -112,11 +110,14 @@ impl Interpreter {
         match &obj {
             Value::Object(map) => {
                 let setter_key = symbols::setter_key(property);
-                if let Some(Value::Function { params, body, env, .. }) = map.get(&setter_key) {
-                    let params = params.clone();
-                    let body = Rc::clone(body);
-                    let env = Rc::clone(env);
-                    let updated = self.call_setter_returning_this(
+                let setter = match map.borrow().get(&setter_key) {
+                    Some(Value::Function { params, body, env, .. }) => {
+                        Some((params.clone(), Rc::clone(body), Rc::clone(env)))
+                    }
+                    _ => None,
+                };
+                if let Some((params, body, env)) = setter {
+                    self.call_setter_returning_this(
                         Rc::from(property),
                         &params,
                         &body,
@@ -125,16 +126,13 @@ impl Interpreter {
                         obj,
                         span,
                     )?;
-                    self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
-                if let Some(cls) = Self::resolve_class_for_object(map, &self.env)
-                    && let Some((params, body, env)) = Self::find_setter_in_class(&cls, property)
-                {
-                    let params = params.clone();
-                    let body = Rc::clone(body);
-                    let env = Rc::clone(env);
-                    let updated = self.call_setter_returning_this(
+                let class_setter = Self::resolve_class_for_object(map, &self.env).and_then(|cls| {
+                    Self::find_setter_in_class(&cls, property).map(|(p, b, e)| (p.clone(), Rc::clone(b), Rc::clone(e)))
+                });
+                if let Some((params, body, env)) = class_setter {
+                    self.call_setter_returning_this(
                         Rc::from(property),
                         &params,
                         &body,
@@ -143,7 +141,6 @@ impl Interpreter {
                         obj.clone(),
                         span,
                     )?;
-                    self.write_back_object(object_expr, updated, span)?;
                     return Ok(Some(value));
                 }
                 Ok(None)
@@ -256,14 +253,15 @@ impl Interpreter {
         }
     }
 
-    fn set_at_path(target: &mut Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
+    fn set_at_path(target: Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
         if path.is_empty() {
-            *target = value;
             return Ok(());
         }
-        match (&path[0], target) {
+        let seg = &path[0];
+        let is_last = path.len() == 1;
+        match (seg, &target) {
             (AccessSegment::Index(Value::Number(n)), Value::TypedArray { buffer, offset, length, kind }) => {
-                if path.len() != 1 {
+                if !is_last {
                     return Err(RuntimeError::new("Нельзя индексировать элемент типизированного массива далее", span));
                 }
                 if n.is_finite() && *n >= 0.0 && n.fract() == 0.0 {
@@ -282,32 +280,55 @@ impl Interpreter {
             }
             (AccessSegment::Index(Value::Number(n)), Value::Array(arr)) => {
                 let i = *n as usize;
-                let len = arr.len();
-                let elem = arr
-                    .get_mut(i)
-                    .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span))?;
-                Self::set_at_path(elem, &path[1..], value, span)
-            }
-            (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
-                if path.len() == 1 {
-                    map.insert(key.clone(), value);
+                if is_last {
+                    let mut guard = arr
+                        .try_borrow_mut()
+                        .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация массива", span))?;
+                    let len = guard.len();
+                    let slot = guard
+                        .get_mut(i)
+                        .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span))?;
+                    *slot = value;
                     Ok(())
                 } else {
-                    let entry = map
-                        .get_mut(key)
+                    let child = {
+                        let guard = arr.borrow();
+                        let len = guard.len();
+                        guard
+                            .get(i)
+                            .cloned()
+                            .ok_or_else(|| RuntimeError::new(format!("Индекс {i} вне диапазона (длина {len})"), span))?
+                    };
+                    Self::descend_set(child, &path[1..], value, span)
+                }
+            }
+            (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
+                if is_last {
+                    map.try_borrow_mut()
+                        .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
+                        .insert(key.clone(), value);
+                    Ok(())
+                } else {
+                    let child = map
+                        .borrow()
+                        .get(key)
+                        .cloned()
                         .ok_or_else(|| RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span))?;
-                    Self::set_at_path(entry, &path[1..], value, span)
+                    Self::descend_set(child, &path[1..], value, span)
                 }
             }
             (AccessSegment::Member(prop), Value::Object(map)) => {
-                if path.len() == 1 {
-                    map.insert(prop.clone(), value);
+                if is_last {
+                    map.try_borrow_mut()
+                        .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
+                        .insert(prop.clone(), value);
                     Ok(())
                 } else {
-                    let entry = map
-                        .get_mut(prop)
-                        .ok_or_else(|| RuntimeError::new(format!("Свойство '{prop}' не найдено в объекте"), span))?;
-                    Self::set_at_path(entry, &path[1..], value, span)
+                    let child =
+                        map.borrow().get(prop).cloned().ok_or_else(|| {
+                            RuntimeError::new(format!("Свойство '{prop}' не найдено в объекте"), span)
+                        })?;
+                    Self::descend_set(child, &path[1..], value, span)
                 }
             }
             (AccessSegment::Index(idx), val) => Err(RuntimeError::new(
@@ -317,6 +338,15 @@ impl Interpreter {
             (AccessSegment::Member(_), val) => {
                 Err(RuntimeError::new(format!("Нельзя установить свойство у типа '{}'", val.type_name()), span))
             }
+        }
+    }
+
+    fn descend_set(child: Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
+        match &child {
+            Value::Array(_) | Value::Object(_) | Value::TypedArray { .. } => {
+                Self::set_at_path(child, path, value, span)
+            }
+            other => Err(RuntimeError::new(format!("Нельзя индексировать '{}' далее", other.type_name()), span)),
         }
     }
 

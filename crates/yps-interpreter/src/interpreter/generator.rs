@@ -416,9 +416,9 @@ fn step_block_stmt(
         Stmt::ForIn { variable, iterable, body, span: fs } => {
             let val = interp.eval_expr(iterable)?;
             let keys: Vec<Value> = match val {
-                Value::Array(arr) => (0..arr.len()).map(|i| Value::Number(i as f64)).collect(),
+                Value::Array(arr) => (0..arr.borrow().len()).map(|i| Value::Number(i as f64)).collect(),
                 Value::TypedArray { length, .. } => (0..length).map(|i| Value::Number(i as f64)).collect(),
-                Value::Object(map) => map.keys().map(|k| Value::String(k.clone())).collect(),
+                Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone())).collect(),
                 other => {
                     return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), *fs));
                 }
@@ -700,7 +700,7 @@ fn unwind(
 fn value_to_iterator(val: Value, span: Span) -> Result<Rc<RefCell<IteratorState>>, RuntimeError> {
     let state = match val {
         Value::Iterator(rc) => return Ok(rc),
-        Value::Array(values) => IteratorState::Array { values, index: 0 },
+        Value::Array(values) => IteratorState::Array { values: values.borrow().clone(), index: 0 },
         Value::String(s) => IteratorState::Chars { chars: s.chars().collect(), index: 0 },
         Value::Set(items) => IteratorState::Array { values: items, index: 0 },
         Value::Map(entries) => IteratorState::MapEntries { entries, index: 0 },

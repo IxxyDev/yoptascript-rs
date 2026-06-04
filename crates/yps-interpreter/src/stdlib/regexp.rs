@@ -165,12 +165,12 @@ pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex
             None => groups.insert(name_opt.to_string(), Value::Null),
         };
     }
-    let groups_val = if has_named { Value::Object(groups) } else { Value::Null };
+    let groups_val = if has_named { Value::object(groups) } else { Value::Null };
     map.insert("groups".to_string(), groups_val);
 
     if with_indices {
         let pair = |m: regex::Match<'_>| {
-            Value::Array(vec![
+            Value::array(vec![
                 Value::Number(char_index_at(s, m.start()) as f64),
                 Value::Number(char_index_at(s, m.end()) as f64),
             ])
@@ -185,12 +185,12 @@ pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex
             let v = caps.name(name).map(pair).unwrap_or(Value::Null);
             named_groups.insert(name.to_string(), v);
         }
-        let groups_d = if named_groups.is_empty() { Value::Null } else { Value::Object(named_groups) };
+        let groups_d = if named_groups.is_empty() { Value::Null } else { Value::object(named_groups) };
         indices_obj.insert("groups".to_string(), groups_d);
-        map.insert("indices".to_string(), Value::Object(indices_obj));
+        map.insert("indices".to_string(), Value::object(indices_obj));
     }
 
-    Value::Object(map)
+    Value::object(map)
 }
 
 pub fn match_first(re: &Rc<regex::Regex>, s: &str) -> Value {

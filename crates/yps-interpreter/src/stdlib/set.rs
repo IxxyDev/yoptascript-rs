@@ -11,8 +11,9 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     }
     match &args[0] {
         Value::Array(items) => {
+            let items = items.borrow();
             let mut out: Vec<Value> = Vec::with_capacity(items.len());
-            for v in items {
+            for v in items.iter() {
                 if !out.contains(v) {
                     out.push(v.clone());
                 }
@@ -65,7 +66,7 @@ pub fn call(
         }
         "clear" | "очистить" => Ok((Value::Undefined, Some(Value::Set(Vec::new())))),
         "size" | "размер" => Ok((Value::Number(items.len() as f64), None)),
-        "values" | "значения" => Ok((Value::Array(items), None)),
+        "values" | "значения" => Ok((Value::array(items), None)),
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();
@@ -136,8 +137,9 @@ fn extract_set_like(v: &Value, span: Span) -> Result<Vec<Value>, RuntimeError> {
     match v {
         Value::Set(s) => Ok(s.clone()),
         Value::Array(a) => {
-            let mut out = Vec::with_capacity(a.len());
-            for el in a {
+            let a = a.borrow();
+            let mut out: Vec<Value> = Vec::with_capacity(a.len());
+            for el in a.iter() {
                 if !out.contains(el) {
                     out.push(el.clone());
                 }
