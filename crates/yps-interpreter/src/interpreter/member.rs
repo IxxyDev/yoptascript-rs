@@ -9,7 +9,7 @@ use crate::value::Value;
 use super::Interpreter;
 
 impl Interpreter {
-    pub(super) fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
+    pub(crate) fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
             Value::Array(arr) => {
                 if property == "length" || property == "длина" {
@@ -164,6 +164,23 @@ impl Interpreter {
                 Ok(Value::Undefined)
             }
             Value::Date(_) => Ok(Value::Undefined),
+            Value::TypedArray { buffer, offset, length, kind } => match property {
+                "length" | "длина" => Ok(Value::Number(*length as f64)),
+                "byteLength" | "длинаБайт" => Ok(Value::Number((length * kind.element_size()) as f64)),
+                "byteOffset" | "смещениеБайт" => Ok(Value::Number(*offset as f64)),
+                "buffer" | "область" => Ok(Value::ArrayBuffer(std::rc::Rc::clone(buffer))),
+                _ => Ok(Value::Undefined),
+            },
+            Value::ArrayBuffer(buffer) => match property {
+                "byteLength" | "длинаБайт" => Ok(Value::Number(buffer.borrow().len() as f64)),
+                _ => Ok(Value::Undefined),
+            },
+            Value::DataView { buffer, offset, length } => match property {
+                "byteLength" | "длинаБайт" => Ok(Value::Number(*length as f64)),
+                "byteOffset" | "смещениеБайт" => Ok(Value::Number(*offset as f64)),
+                "buffer" | "область" => Ok(Value::ArrayBuffer(std::rc::Rc::clone(buffer))),
+                _ => Ok(Value::Undefined),
+            },
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
     }

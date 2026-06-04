@@ -131,6 +131,119 @@ impl fmt::Debug for LoopPhase {
 
 pub type MethodDef = (Rc<[Param]>, Rc<Block>, Rc<RefCell<EnvFrame>>);
 
+pub type SharedBuffer = Rc<RefCell<Vec<u8>>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedArrayKind {
+    U8,
+    U8Clamped,
+    I8,
+    U16,
+    I16,
+    U32,
+    I32,
+    F32,
+    F64,
+}
+
+impl TypedArrayKind {
+    pub fn element_size(self) -> usize {
+        match self {
+            TypedArrayKind::U8 | TypedArrayKind::U8Clamped | TypedArrayKind::I8 => 1,
+            TypedArrayKind::U16 | TypedArrayKind::I16 => 2,
+            TypedArrayKind::U32 | TypedArrayKind::I32 | TypedArrayKind::F32 => 4,
+            TypedArrayKind::F64 => 8,
+        }
+    }
+
+    pub fn type_name(self) -> &'static str {
+        match self {
+            TypedArrayKind::U8 => "Ц8Массив",
+            TypedArrayKind::U8Clamped => "Ц8ОграниченныйМассив",
+            TypedArrayKind::I8 => "Ч8Массив",
+            TypedArrayKind::U16 => "Ц16Массив",
+            TypedArrayKind::I16 => "Ч16Массив",
+            TypedArrayKind::U32 => "Ц32Массив",
+            TypedArrayKind::I32 => "Ч32Массив",
+            TypedArrayKind::F32 => "Др32Массив",
+            TypedArrayKind::F64 => "Др64Массив",
+        }
+    }
+
+    pub fn read_le(self, bytes: &[u8], byte_index: usize) -> f64 {
+        let size = self.element_size();
+        let slice = &bytes[byte_index..byte_index + size];
+        match self {
+            TypedArrayKind::U8 | TypedArrayKind::U8Clamped => slice[0] as f64,
+            TypedArrayKind::I8 => slice[0] as i8 as f64,
+            TypedArrayKind::U16 => u16::from_le_bytes([slice[0], slice[1]]) as f64,
+            TypedArrayKind::I16 => i16::from_le_bytes([slice[0], slice[1]]) as f64,
+            TypedArrayKind::U32 => u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as f64,
+            TypedArrayKind::I32 => i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as f64,
+            TypedArrayKind::F32 => f32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as f64,
+            TypedArrayKind::F64 => {
+                f64::from_le_bytes([slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]])
+            }
+        }
+    }
+
+    pub fn write_le(self, bytes: &mut [u8], byte_index: usize, num: f64) {
+        let size = self.element_size();
+        let dst = &mut bytes[byte_index..byte_index + size];
+        match self {
+            TypedArrayKind::U8 => dst[0] = to_uint_n(num, 8) as u8,
+            TypedArrayKind::U8Clamped => dst[0] = clamp_u8(num),
+            TypedArrayKind::I8 => dst[0] = (to_int_n(num, 8) as i8) as u8,
+            TypedArrayKind::U16 => dst.copy_from_slice(&(to_uint_n(num, 16) as u16).to_le_bytes()),
+            TypedArrayKind::I16 => dst.copy_from_slice(&(to_int_n(num, 16) as i16).to_le_bytes()),
+            TypedArrayKind::U32 => dst.copy_from_slice(&(to_uint_n(num, 32) as u32).to_le_bytes()),
+            TypedArrayKind::I32 => dst.copy_from_slice(&(to_int_n(num, 32) as i32).to_le_bytes()),
+            TypedArrayKind::F32 => dst.copy_from_slice(&(num as f32).to_le_bytes()),
+            TypedArrayKind::F64 => dst.copy_from_slice(&num.to_le_bytes()),
+        }
+    }
+}
+
+pub fn to_uint_n(num: f64, bits: u32) -> u64 {
+    if !num.is_finite() {
+        return 0;
+    }
+    let truncated = num.trunc();
+    let modulus = 2f64.powi(bits as i32);
+    let wrapped = truncated.rem_euclid(modulus);
+    wrapped as u64
+}
+
+pub fn to_int_n(num: f64, bits: u32) -> i64 {
+    let unsigned = to_uint_n(num, bits);
+    let half = 1u64 << (bits - 1);
+    if unsigned >= half { (unsigned as i64) - (1i64 << bits) } else { unsigned as i64 }
+}
+
+fn clamp_u8(num: f64) -> u8 {
+    if num.is_nan() {
+        return 0;
+    }
+    if num <= 0.0 {
+        return 0;
+    }
+    if num >= 255.0 {
+        return 255;
+    }
+    let floor = num.floor();
+    let diff = num - floor;
+    let rounded = if diff < 0.5 {
+        floor
+    } else if diff > 0.5 {
+        floor + 1.0
+    } else if (floor as i64) % 2 == 0 {
+        floor
+    } else {
+        floor + 1.0
+    };
+    rounded as u8
+}
+
 #[derive(Clone)]
 pub enum PromiseState {
     Pending { on_resolve: Vec<Value>, on_reject: Vec<Value> },
@@ -257,6 +370,18 @@ pub enum Value {
         reject_cap: Box<Value>,
         reason_from_signal: bool,
     },
+    ArrayBuffer(SharedBuffer),
+    TypedArray {
+        buffer: SharedBuffer,
+        offset: usize,
+        length: usize,
+        kind: TypedArrayKind,
+    },
+    DataView {
+        buffer: SharedBuffer,
+        offset: usize,
+        length: usize,
+    },
     Undefined,
     Null,
 }
@@ -296,7 +421,10 @@ impl Value {
             | Value::Promise { .. }
             | Value::Iterator(_)
             | Value::RegExp { .. }
-            | Value::Date(_) => "объект",
+            | Value::Date(_)
+            | Value::ArrayBuffer(_)
+            | Value::TypedArray { .. }
+            | Value::DataView { .. } => "объект",
             Value::Symbol { .. } => "символ",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
@@ -329,6 +457,9 @@ impl Value {
             Value::Iterator(_) => "итератор",
             Value::RegExp { .. } => "регэксп",
             Value::Date(_) => "дата",
+            Value::ArrayBuffer(_) => "ОбластьБайтов",
+            Value::TypedArray { kind, .. } => kind.type_name(),
+            Value::DataView { .. } => "ОбзорБайтов",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
             Value::AbortListener { .. }
@@ -394,6 +525,11 @@ impl fmt::Debug for Value {
             Value::AbortRejectPromise { reason_from_signal, .. } => {
                 write!(f, "AbortRejectPromise(from_signal={reason_from_signal})")
             }
+            Value::ArrayBuffer(buf) => write!(f, "ArrayBuffer({})", buf.borrow().len()),
+            Value::TypedArray { offset, length, kind, .. } => {
+                write!(f, "TypedArray({}, offset={offset}, length={length})", kind.type_name())
+            }
+            Value::DataView { offset, length, .. } => write!(f, "DataView(offset={offset}, length={length})"),
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -490,6 +626,25 @@ impl fmt::Display for Value {
                     write!(f, "[сигналОтмены активен]")
                 }
             }
+            Value::ArrayBuffer(buf) => write!(f, "ОбластьБайтов({})", buf.borrow().len()),
+            Value::TypedArray { buffer, offset, length, kind } => {
+                write!(f, "{}[", kind.type_name())?;
+                let bytes = buffer.borrow();
+                let size = kind.element_size();
+                for i in 0..*length {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    let num = kind.read_le(&bytes, offset + i * size);
+                    if num.fract() == 0.0 && num.is_finite() {
+                        write!(f, "{}", num as i64)?;
+                    } else {
+                        write!(f, "{num}")?;
+                    }
+                }
+                write!(f, "]")
+            }
+            Value::DataView { offset, length, .. } => write!(f, "ОбзорБайтов({offset}, {length})"),
             Value::AbortListener { .. }
             | Value::AbortUnsubscribe { .. }
             | Value::AbortCancelTimer { .. }
@@ -522,6 +677,15 @@ impl PartialEq for Value {
             (Value::AbortUnsubscribe { state: a, token: ta }, Value::AbortUnsubscribe { state: b, token: tb }) => {
                 Rc::ptr_eq(a, b) && ta == tb
             }
+            (Value::ArrayBuffer(a), Value::ArrayBuffer(b)) => Rc::ptr_eq(a, b),
+            (
+                Value::TypedArray { buffer: ba, offset: oa, length: la, kind: ka },
+                Value::TypedArray { buffer: bb, offset: ob, length: lb, kind: kb },
+            ) => Rc::ptr_eq(ba, bb) && oa == ob && la == lb && ka == kb,
+            (
+                Value::DataView { buffer: ba, offset: oa, length: la },
+                Value::DataView { buffer: bb, offset: ob, length: lb },
+            ) => Rc::ptr_eq(ba, bb) && oa == ob && la == lb,
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

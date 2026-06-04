@@ -142,6 +142,8 @@ impl Interpreter {
                             | Value::Iterator(_)
                             | Value::RegExp { .. }
                             | Value::Date(_)
+                            | Value::TypedArray { .. }
+                            | Value::DataView { .. }
                             | Value::AbortController { .. }
                             | Value::AbortSignal { .. }
                     ) {
@@ -357,6 +359,9 @@ impl Interpreter {
                                 values.extend(entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])));
                             }
                             Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                            Value::TypedArray { buffer, offset, length, kind } => {
+                                values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
+                            }
                             Value::Iterator(rc) => {
                                 values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
                             }
