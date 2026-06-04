@@ -14,7 +14,7 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         return Ok(Value::Map(Vec::new()));
     }
     match &args[0] {
-        Value::Array(entries) => entries_to_map(entries, span),
+        Value::Array(entries) => entries_to_map(&entries.borrow(), span),
         Value::Map(m) => Ok(Value::Map(m.clone())),
         Value::Undefined | Value::Null => Ok(Value::Map(Vec::new())),
         other => Err(RuntimeError::new(
@@ -34,7 +34,7 @@ pub fn call_static(
         "отПар" => {
             require_args(&args, 1, span, "Карта.отПар")?;
             match &args[0] {
-                Value::Array(entries) => entries_to_map(entries, span),
+                Value::Array(entries) => entries_to_map(&entries.borrow(), span),
                 Value::Map(m) => Ok(Value::Map(m.clone())),
                 other => Err(RuntimeError::new(
                     format!("'Карта.отПар' ожидает массив пар, получено '{}'", other.type_name()),
@@ -96,15 +96,15 @@ pub fn call(
         "size" | "размер" => Ok((Value::Number(entries.len() as f64), None)),
         "keys" | "ключи" => {
             let keys: Vec<Value> = entries.into_iter().map(|(k, _)| k).collect();
-            Ok((Value::Array(keys), None))
+            Ok((Value::array(keys), None))
         }
         "values" | "значения" => {
             let vals: Vec<Value> = entries.into_iter().map(|(_, v)| v).collect();
-            Ok((Value::Array(vals), None))
+            Ok((Value::array(vals), None))
         }
         "entries" | "записи" => {
-            let pairs: Vec<Value> = entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect();
-            Ok((Value::Array(pairs), None))
+            let pairs: Vec<Value> = entries.into_iter().map(|(k, v)| Value::array(vec![k, v])).collect();
+            Ok((Value::array(pairs), None))
         }
         "getOrInsert" | "взятьИлиВставить" => {
             require_args(&args, 2, span, "getOrInsert")?;
@@ -155,7 +155,8 @@ fn entries_to_map(entries: &[Value], span: Span) -> Result<Value, RuntimeError> 
     let mut out: Vec<(Value, Value)> = Vec::with_capacity(entries.len());
     for entry in entries {
         match entry {
-            Value::Array(pair) if pair.len() >= 2 => {
+            Value::Array(pair) if pair.borrow().len() >= 2 => {
+                let pair = pair.borrow();
                 let key = pair[0].clone();
                 let val = pair[1].clone();
                 if let Some(idx) = find_index(&out, &key) {

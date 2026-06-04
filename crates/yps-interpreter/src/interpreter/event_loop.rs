@@ -152,14 +152,17 @@ fn take_signal_from_opts(
 ) -> Result<Option<Rc<RefCell<AbortState>>>, RuntimeError> {
     match value {
         None | Some(Value::Undefined) | Some(Value::Null) => Ok(None),
-        Some(Value::Object(map)) => match map.get("сигнал") {
-            None | Some(Value::Undefined) | Some(Value::Null) => Ok(None),
-            Some(Value::AbortSignal { state }) => Ok(Some(Rc::clone(state))),
-            Some(other) => Err(RuntimeError::new(
-                format!("'{fn_name}': ожидался 'СигналОтмены' в опциях, получено '{}'", other.type_name()),
-                span,
-            )),
-        },
+        Some(Value::Object(map)) => {
+            let signal = map.borrow().get("сигнал").cloned();
+            match signal {
+                None | Some(Value::Undefined) | Some(Value::Null) => Ok(None),
+                Some(Value::AbortSignal { state }) => Ok(Some(state)),
+                Some(other) => Err(RuntimeError::new(
+                    format!("'{fn_name}': ожидался 'СигналОтмены' в опциях, получено '{}'", other.type_name()),
+                    span,
+                )),
+            }
+        }
         Some(other) => Err(RuntimeError::new(
             format!("'{fn_name}': третий аргумент должен быть объектом опций, получено '{}'", other.type_name()),
             span,
@@ -207,9 +210,9 @@ impl Interpreter {
         let ms = parse_delay_ms(it.next(), "подождать", span)?;
         let signal = match it.next() {
             None | Some(Value::Undefined) | Some(Value::Null) => None,
-            Some(Value::Object(map)) => match map.get("сигнал") {
+            Some(Value::Object(map)) => match map.borrow().get("сигнал").cloned() {
                 None | Some(Value::Undefined) | Some(Value::Null) => None,
-                Some(Value::AbortSignal { state }) => Some(Value::AbortSignal { state: Rc::clone(state) }),
+                Some(Value::AbortSignal { state }) => Some(Value::AbortSignal { state }),
                 Some(other) => {
                     return Err(RuntimeError::new(
                         format!("'подождать': ожидался 'СигналОтмены' в опциях, получено '{}'", other.type_name()),

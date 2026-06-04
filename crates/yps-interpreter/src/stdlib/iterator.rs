@@ -156,7 +156,7 @@ pub fn call(
         }
         "toArray" | "вМассив" => {
             let values = drain(interp, &rc, span)?;
-            Ok((Value::Array(values), None))
+            Ok((Value::array(values), None))
         }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
@@ -327,7 +327,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             }
             let (k, v) = entries[*index].clone();
             *index += 1;
-            Ok(Some(Value::Array(vec![k, v])))
+            Ok(Some(Value::array(vec![k, v])))
         }
         IteratorState::Map { inner, func, index } => match next(interp, inner, span)? {
             None => {
@@ -440,7 +440,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
 
 pub fn state_from_value(value: Value, span: Span, ctx: &str) -> Result<IteratorState, RuntimeError> {
     match value {
-        Value::Array(values) => Ok(IteratorState::Array { values, index: 0 }),
+        Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().clone(), index: 0 }),
         Value::String(s) => Ok(IteratorState::Chars { chars: s.chars().collect(), index: 0 }),
         Value::Set(values) => Ok(IteratorState::Array { values, index: 0 }),
         Value::Map(entries) => Ok(IteratorState::MapEntries { entries, index: 0 }),
@@ -463,5 +463,5 @@ fn make_result(value: Value, done: bool) -> Value {
     let mut map = std::collections::HashMap::new();
     map.insert(symbols::ITER_VALUE.to_string(), value);
     map.insert(symbols::ITER_DONE.to_string(), Value::Boolean(done));
-    Value::Object(map)
+    Value::object(map)
 }

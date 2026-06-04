@@ -78,11 +78,11 @@ pub fn call(
         "trimEnd" | "обрезатьСправа" => Ok((Value::String(s.trim_end().to_string()), None)),
         "split" | "разбить" => {
             if args.is_empty() {
-                return Ok((Value::Array(vec![Value::String(s)]), None));
+                return Ok((Value::array(vec![Value::String(s)]), None));
             }
             if let Value::RegExp { compiled, .. } = &args[0] {
                 let parts: Vec<Value> = regexp::split_string(compiled, &s).into_iter().map(Value::String).collect();
-                return Ok((Value::Array(parts), None));
+                return Ok((Value::array(parts), None));
             }
             let sep = as_string(&args[0], span, "split")?;
             let parts: Vec<Value> = if sep.is_empty() {
@@ -90,7 +90,7 @@ pub fn call(
             } else {
                 s.split(sep).map(|p| Value::String(p.to_string())).collect()
             };
-            Ok((Value::Array(parts), None))
+            Ok((Value::array(parts), None))
         }
         "replace" | "заменить" => {
             require_args(&args, 2, span, "replace")?;
@@ -163,7 +163,7 @@ pub fn call(
                 }
             };
             if flags.contains('g') {
-                Ok((Value::Array(regexp::match_all_global(compiled, &s)), None))
+                Ok((Value::array(regexp::match_all_global(compiled, &s)), None))
             } else {
                 Ok((regexp::match_first(compiled, &s), None))
             }

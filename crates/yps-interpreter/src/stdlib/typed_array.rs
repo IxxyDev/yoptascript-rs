@@ -124,10 +124,11 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
             Ok(Value::TypedArray { buffer, offset, length, kind })
         }
         Some(Value::Array(arr)) => {
-            let length = arr.len();
+            let snapshot = arr.borrow().clone();
+            let length = snapshot.len();
             let byte_len = checked_byte_len(length, size, span)?;
             let buffer = Rc::new(RefCell::new(vec![0u8; byte_len]));
-            for (i, el) in arr.iter().enumerate() {
+            for (i, el) in snapshot.iter().enumerate() {
                 write_element(&buffer, kind, i * size, el, span)?;
             }
             Ok(Value::TypedArray { buffer, offset: 0, length, kind })
@@ -219,7 +220,7 @@ pub fn call(
                 Some(_) => return Err(RuntimeError::new("'набор': смещение должно быть неотрицательным целым", span)),
             };
             let items: Vec<Value> = match source {
-                Value::Array(a) => a,
+                Value::Array(a) => a.borrow().clone(),
                 Value::TypedArray { buffer: sb, offset: so, length: sl, kind: sk } => ta_elements(&sb, so, sl, sk),
                 other => {
                     return Err(RuntimeError::new(
