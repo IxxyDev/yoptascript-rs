@@ -64,7 +64,7 @@ pub fn call_static(
             map.insert("обещание".to_string(), promise);
             map.insert("решить".to_string(), resolve);
             map.insert("отвергнуть".to_string(), reject);
-            Ok(Value::Object(map))
+            Ok(Value::object(map))
         }
         "попробовать" => {
             require_args(&args, 1, span, "СловоПацана.попробовать")?;
@@ -120,7 +120,7 @@ pub fn call(
 
 fn expect_array(v: Value, ctx: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
     match v {
-        Value::Array(a) => Ok(a),
+        Value::Array(a) => Ok(a.borrow().clone()),
         other => Err(RuntimeError::new(format!("'{ctx}' ожидает массив, получено '{}'", other.type_name()), span)),
     }
 }
@@ -133,7 +133,7 @@ fn run_aggregate(interp: &mut Interpreter, kind: AggregateKind, items: Vec<Value
         match kind {
             AggregateKind::All | AggregateKind::AllSettled => {
                 interp.enqueue_microtask(Box::new(move |interp, sp| {
-                    interp.call_function(resolve_cap, vec![Value::Array(Vec::new())], sp).map(|_| ())
+                    interp.call_function(resolve_cap, vec![Value::array(Vec::new())], sp).map(|_| ())
                 }));
             }
             AggregateKind::Any => {
@@ -226,7 +226,7 @@ pub(crate) fn apply_aggregate(
                 if s.remaining == 0 {
                     s.settled = true;
                     let res = std::mem::take(&mut s.results);
-                    Some((s.resolve.clone(), Value::Array(res)))
+                    Some((s.resolve.clone(), Value::array(res)))
                 } else {
                     None
                 }
@@ -254,12 +254,12 @@ pub(crate) fn apply_aggregate(
                 }
             }
             let mut s = state.borrow_mut();
-            s.results[index] = Value::Object(entry);
+            s.results[index] = Value::object(entry);
             s.remaining -= 1;
             if s.remaining == 0 {
                 s.settled = true;
                 let res = std::mem::take(&mut s.results);
-                Some((s.resolve.clone(), Value::Array(res)))
+                Some((s.resolve.clone(), Value::array(res)))
             } else {
                 None
             }
@@ -314,8 +314,8 @@ fn aggregate_error(errors: Vec<Value>) -> Value {
     let mut agg = HashMap::new();
     agg.insert("name".to_string(), Value::String("ВсёОбосралось".to_string()));
     agg.insert("message".to_string(), Value::String("Все обещания отклонены".to_string()));
-    agg.insert("errors".to_string(), Value::Array(errors));
-    Value::Object(agg)
+    agg.insert("errors".to_string(), Value::array(errors));
+    Value::object(agg)
 }
 
 fn chain_promise(

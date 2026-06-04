@@ -21,7 +21,7 @@ pub fn build_object() -> Value {
 
 fn args_value() -> Value {
     let argv: Vec<Value> = env::args().skip(1).map(Value::String).collect();
-    Value::Array(argv)
+    Value::array(argv)
 }
 
 fn env_value() -> Value {
@@ -29,7 +29,7 @@ fn env_value() -> Value {
     for (k, v) in env::vars() {
         map.insert(k, Value::String(v));
     }
-    Value::Object(map)
+    Value::object(map)
 }
 
 fn cwd_value() -> Value {

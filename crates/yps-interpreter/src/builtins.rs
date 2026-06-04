@@ -31,12 +31,18 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             }
             match &args[0] {
                 Value::String(s) => Ok(Value::Number(s.chars().count() as f64)),
-                Value::Array(a) => Ok(Value::Number(a.len() as f64)),
+                Value::Array(a) => Ok(Value::Number(a.borrow().len() as f64)),
                 Value::TypedArray { length, .. } => Ok(Value::Number(*length as f64)),
-                Value::Object(map) => match map.get("длина").or_else(|| map.get("length")) {
-                    Some(Value::Number(n)) => Ok(Value::Number(*n)),
-                    _ => Err(RuntimeError::new("'длина' не работает с типом 'объект'", span)),
-                },
+                Value::Object(map) => {
+                    let len_val = {
+                        let m = map.borrow();
+                        m.get("длина").or_else(|| m.get("length")).cloned()
+                    };
+                    match len_val {
+                        Some(Value::Number(n)) => Ok(Value::Number(n)),
+                        _ => Err(RuntimeError::new("'длина' не работает с типом 'объект'", span)),
+                    }
+                }
                 other => Err(RuntimeError::new(format!("'длина' не работает с типом '{}'", other.type_name()), span)),
             }
         }
@@ -100,8 +106,8 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             let arr = args.next().unwrap();
             let val = args.next().unwrap();
             match arr {
-                Value::Array(mut a) => {
-                    a.push(val);
+                Value::Array(a) => {
+                    a.borrow_mut().push(val);
                     Ok(Value::Array(a))
                 }
                 _ => Err(RuntimeError::new("первый аргумент 'втолкнуть' должен быть массивом", span)),
