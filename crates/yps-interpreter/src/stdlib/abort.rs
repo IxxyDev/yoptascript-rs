@@ -23,7 +23,7 @@ pub(crate) fn make_abort_error(message: &str) -> Value {
     let mut map = std::collections::HashMap::new();
     map.insert("name".to_string(), Value::String("ОшибкаОтмены".to_string()));
     map.insert("message".to_string(), Value::String(message.to_string()));
-    Value::Object(map)
+    Value::object(map)
 }
 
 pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
@@ -441,7 +441,7 @@ mod tests {
         let caught = interp.get("пойман").unwrap();
         match caught {
             Value::Object(map) => {
-                assert_eq!(map.get("код"), Some(&Value::Number(42.0)));
+                assert_eq!(map.borrow().get("код"), Some(&Value::Number(42.0)));
             }
             other => panic!("ожидался объект, получено {other:?}"),
         }

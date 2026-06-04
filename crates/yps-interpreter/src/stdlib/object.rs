@@ -34,9 +34,13 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.ключи")?;
             match &args[0] {
                 Value::Object(map) => {
-                    let keys: Vec<Value> =
-                        map.keys().filter(|k| !symbols::is_internal_key(k)).map(|k| Value::String(k.clone())).collect();
-                    Ok(Value::Array(keys))
+                    let keys: Vec<Value> = map
+                        .borrow()
+                        .keys()
+                        .filter(|k| !symbols::is_internal_key(k))
+                        .map(|k| Value::String(k.clone()))
+                        .collect();
+                    Ok(Value::array(keys))
                 }
                 _ => Err(RuntimeError::new("Кент.ключи ожидает объект", span)),
             }
@@ -45,9 +49,13 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.значения")?;
             match &args[0] {
                 Value::Object(map) => {
-                    let vals: Vec<Value> =
-                        map.iter().filter(|(k, _)| !symbols::is_internal_key(k)).map(|(_, v)| v.clone()).collect();
-                    Ok(Value::Array(vals))
+                    let vals: Vec<Value> = map
+                        .borrow()
+                        .iter()
+                        .filter(|(k, _)| !symbols::is_internal_key(k))
+                        .map(|(_, v)| v.clone())
+                        .collect();
+                    Ok(Value::array(vals))
                 }
                 _ => Err(RuntimeError::new("Кент.значения ожидает объект", span)),
             }
@@ -57,11 +65,12 @@ pub fn call_static(
             match &args[0] {
                 Value::Object(map) => {
                     let entries: Vec<Value> = map
+                        .borrow()
                         .iter()
                         .filter(|(k, _)| !symbols::is_internal_key(k))
-                        .map(|(k, v)| Value::Array(vec![Value::String(k.clone()), v.clone()]))
+                        .map(|(k, v)| Value::array(vec![Value::String(k.clone()), v.clone()]))
                         .collect();
-                    Ok(Value::Array(entries))
+                    Ok(Value::array(entries))
                 }
                 _ => Err(RuntimeError::new("Кент.записи ожидает объект", span)),
             }
@@ -70,29 +79,32 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.назначить")?;
             let mut iter = args.into_iter();
             let target = iter.next().unwrap();
-            let mut map = match target {
-                Value::Object(m) => m,
+            let target_rc = match &target {
+                Value::Object(m) => m.clone(),
                 _ => return Err(RuntimeError::new("Кент.назначить ожидает объект", span)),
             };
             for src in iter {
                 match src {
                     Value::Object(m) => {
-                        for (k, v) in m {
-                            map.insert(k, v);
+                        let entries: Vec<(String, Value)> =
+                            m.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        let mut guard = target_rc.borrow_mut();
+                        for (k, v) in entries {
+                            guard.insert(k, v);
                         }
                     }
                     Value::Null | Value::Undefined => {}
                     _ => return Err(RuntimeError::new("Кент.назначить: источник должен быть объектом", span)),
                 }
             }
-            Ok(Value::Object(map))
+            Ok(target)
         }
         "имеетСвоё" => {
             require_args(&args, 2, span, "Кент.имеетСвоё")?;
             let key = args[1].to_string();
             match &args[0] {
                 Value::Object(map) => {
-                    let has = !symbols::is_internal_key(&key) && map.contains_key(&key);
+                    let has = !symbols::is_internal_key(&key) && map.borrow().contains_key(&key);
                     Ok(Value::Boolean(has))
                 }
                 _ => Err(RuntimeError::new("Кент.имеетСвоё ожидает объект", span)),
@@ -104,9 +116,9 @@ pub fn call_static(
             let collection = iter.next().unwrap();
             let callback = iter.next().unwrap();
             let items: Vec<Value> = match collection {
-                Value::Array(a) => a,
+                Value::Array(a) => a.borrow().clone(),
                 Value::Set(s) => s,
-                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::array(vec![k, v])).collect(),
                 Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
                 other => {
                     return Err(RuntimeError::new(
@@ -133,19 +145,20 @@ pub fn call_static(
             let mut result = HashMap::new();
             for k in order {
                 if let Some(vals) = groups.remove(&k) {
-                    result.insert(k, Value::Array(vals));
+                    result.insert(k, Value::array(vals));
                 }
             }
-            Ok(Value::Object(result))
+            Ok(Value::object(result))
         }
         "изЗаписей" => {
             require_args(&args, 1, span, "Кент.изЗаписей")?;
             match &args[0] {
                 Value::Array(entries) => {
                     let mut map = HashMap::new();
-                    for entry in entries {
+                    for entry in entries.borrow().iter() {
                         match entry {
-                            Value::Array(pair) if pair.len() >= 2 => {
+                            Value::Array(pair) if pair.borrow().len() >= 2 => {
+                                let pair = pair.borrow();
                                 map.insert(pair[0].to_string(), pair[1].clone());
                             }
                             _ => {
@@ -156,7 +169,7 @@ pub fn call_static(
                             }
                         }
                     }
-                    Ok(Value::Object(map))
+                    Ok(Value::object(map))
                 }
                 _ => Err(RuntimeError::new("Кент.изЗаписей ожидает массив", span)),
             }
@@ -177,16 +190,19 @@ pub fn call_static(
             if !matches!(proto, Value::Null) {
                 map.insert(symbols::PROTO.to_string(), proto);
             }
-            Ok(Value::Object(map))
+            Ok(Value::object(map))
         }
         "прототип" => {
             require_args(&args, 1, span, "Кент.прототип")?;
             match &args[0] {
-                Value::Object(map) => match map.get(symbols::PROTO) {
-                    Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object(cls)),
-                    Some(other) => Ok(other.clone()),
-                    None => Ok(Value::Null),
-                },
+                Value::Object(map) => {
+                    let proto = map.borrow().get(symbols::PROTO).cloned();
+                    match proto {
+                        Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object(&cls)),
+                        Some(other) => Ok(other),
+                        None => Ok(Value::Null),
+                    }
+                }
                 _ => Ok(Value::Null),
             }
         }
@@ -201,12 +217,12 @@ pub fn call_static(
                     return Err(RuntimeError::new("Кент.назначитьПрототип ожидает (объект, объект|класс|ноль)", span));
                 }
             }
-            let mut map = match target {
-                Value::Object(m) => m,
+            let target_rc = match &target {
+                Value::Object(m) => m.clone(),
                 _ => unreachable!(),
             };
-            map.insert(symbols::PROTO.to_string(), proto);
-            Ok(Value::Object(map))
+            target_rc.borrow_mut().insert(symbols::PROTO.to_string(), proto);
+            Ok(target)
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
     }

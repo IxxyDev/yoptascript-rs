@@ -21,6 +21,58 @@ fn run_code_err(src: &str) -> RuntimeError {
     interp.run(&program).unwrap_err()
 }
 
+fn structural_eq(a: &Value, b: &Value) -> bool {
+    let mut seen: std::collections::HashSet<(*const (), *const ())> = std::collections::HashSet::new();
+    structural_eq_inner(a, b, &mut seen)
+}
+
+fn structural_eq_inner(a: &Value, b: &Value, seen: &mut std::collections::HashSet<(*const (), *const ())>) -> bool {
+    match (a, b) {
+        (Value::Array(x), Value::Array(y)) => {
+            let key = (std::rc::Rc::as_ptr(x) as *const (), std::rc::Rc::as_ptr(y) as *const ());
+            if !seen.insert(key) {
+                return true;
+            }
+            let xb = x.borrow();
+            let yb = y.borrow();
+            let res = xb.len() == yb.len() && xb.iter().zip(yb.iter()).all(|(p, q)| structural_eq_inner(p, q, seen));
+            seen.remove(&key);
+            res
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            let key = (std::rc::Rc::as_ptr(x) as *const (), std::rc::Rc::as_ptr(y) as *const ());
+            if !seen.insert(key) {
+                return true;
+            }
+            let xb = x.borrow();
+            let yb = y.borrow();
+            let res = xb.len() == yb.len()
+                && xb.iter().all(|(k, v)| match yb.get(k) {
+                    Some(w) => structural_eq_inner(v, w, seen),
+                    None => false,
+                });
+            seen.remove(&key);
+            res
+        }
+        (Value::Map(x), Value::Map(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y.iter())
+                    .all(|((k1, v1), (k2, v2))| structural_eq_inner(k1, k2, seen) && structural_eq_inner(v1, v2, seen))
+        }
+        (Value::Set(x), Value::Set(y)) => {
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| structural_eq_inner(p, q, seen))
+        }
+        _ => a == b,
+    }
+}
+
+#[track_caller]
+fn assert_struct_eq(actual: Option<Value>, expected: Value) {
+    let actual = actual.expect("значение не найдено");
+    assert!(structural_eq(&actual, &expected), "структурное несовпадение: actual={actual:?}, expected={expected:?}");
+}
+
 #[test]
 fn assign_array_index() {
     let interp = run_code(
@@ -939,6 +991,7 @@ fn destructure_object_rest() {
     assert_eq!(interp.get("х"), Some(Value::Number(1.0)));
     let rest = interp.get("остаток").unwrap();
     if let Value::Object(map) = rest {
+        let map = map.borrow();
         assert_eq!(map.get("у"), Some(&Value::Number(2.0)));
         assert_eq!(map.get("з"), Some(&Value::Number(3.0)));
         assert_eq!(map.len(), 2);
@@ -1928,7 +1981,7 @@ fn rest_param_collects_extra_args() {
         гыы р = фн(1, 2, 3, 4);
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0),])));
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]));
 }
 
 #[test]
@@ -1941,7 +1994,7 @@ fn rest_param_empty_when_no_extra_args() {
         гыы р = фн(1);
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Array(vec![])));
+    assert_struct_eq(interp.get("р"), Value::array(vec![]));
 }
 
 #[test]
@@ -1954,7 +2007,7 @@ fn rest_param_only() {
         гыы р = фн(1, 2, 3);
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),])));
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -1965,7 +2018,7 @@ fn rest_param_arrow_function() {
         гыы р = фн(10, 20);
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Array(vec![Value::Number(10.0), Value::Number(20.0)])));
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(10.0), Value::Number(20.0)]));
 }
 
 #[test]
@@ -2858,6 +2911,7 @@ fn test_class_decorator() {
     let ctx = interp.get("сохр").unwrap();
     match ctx {
         Value::Object(map) => {
+            let map = map.borrow();
             assert_eq!(map.get("вид"), Some(&Value::String("класс".to_string())));
             assert_eq!(map.get("имя"), Some(&Value::String("МойКласс".to_string())));
             assert_eq!(map.get("статичное"), Some(&Value::Boolean(false)));
@@ -2962,7 +3016,7 @@ fn test_decorator_execution_order() {
     let log = interp.get("рез").unwrap();
     match log {
         Value::Array(items) => {
-            let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+            let strs: Vec<String> = items.borrow().iter().map(|v| v.to_string()).collect();
             assert_eq!(
                 strs,
                 vec!["выч:класс", "выч:метод", "выч:поле", "прим:метод>метод", "прим:поле>поле", "прим:класс>класс",]
@@ -2992,7 +3046,7 @@ fn test_multiple_decorators_order() {
     let log = interp.get("рез").unwrap();
     match log {
         Value::Array(items) => {
-            let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+            let strs: Vec<String> = items.borrow().iter().map(|v| v.to_string()).collect();
             assert_eq!(strs, vec!["второй", "первый"]);
         }
         _ => panic!("Expected Array"),
@@ -3045,7 +3099,7 @@ fn test_stdlib_array_push_pop() {
         гыы последний = а.pop();
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("а"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
     assert_eq!(interp.get("последний"), Some(Value::Number(4.0)));
 }
 
@@ -3072,17 +3126,17 @@ fn test_stdlib_array_map_filter_reduce() {
         гыы с = а.reduce((а, б) => а + б, 0);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("у"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(2.0),
             Value::Number(4.0),
             Value::Number(6.0),
             Value::Number(8.0),
             Value::Number(10.0),
-        ]))
+        ]),
     );
-    assert_eq!(interp.get("ф"), Some(Value::Array(vec![Value::Number(3.0), Value::Number(4.0), Value::Number(5.0)])));
+    assert_struct_eq(interp.get("ф"), Value::array(vec![Value::Number(3.0), Value::Number(4.0), Value::Number(5.0)]));
     assert_eq!(interp.get("с"), Some(Value::Number(15.0)));
 }
 
@@ -3114,8 +3168,8 @@ fn test_stdlib_array_join_slice_reverse() {
         "#,
     );
     assert_eq!(interp.get("дж"), Some(Value::String("1-2-3".to_string())));
-    assert_eq!(interp.get("ср"), Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0)])));
-    assert_eq!(interp.get("пр"), Some(Value::Array(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])));
+    assert_struct_eq(interp.get("ср"), Value::array(vec![Value::Number(2.0), Value::Number(3.0)]));
+    assert_struct_eq(interp.get("пр"), Value::array(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)]));
 }
 
 #[test]
@@ -3142,22 +3196,22 @@ fn test_stdlib_array_flat() {
         гыы пл2 = а.flat(2);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("пл1"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(2.0),
-            Value::Array(vec![Value::Number(3.0), Value::Array(vec![Value::Number(4.0)])]),
-        ]))
+            Value::array(vec![Value::Number(3.0), Value::array(vec![Value::Number(4.0)])]),
+        ]),
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("пл2"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(2.0),
             Value::Number(3.0),
-            Value::Array(vec![Value::Number(4.0)]),
-        ]))
+            Value::array(vec![Value::Number(4.0)]),
+        ]),
     );
 }
 
@@ -3189,13 +3243,13 @@ fn test_stdlib_string_slice_trim_split() {
         "#,
     );
     assert_eq!(interp.get("об"), Some(Value::String("привет".to_string())));
-    assert_eq!(
+    assert_struct_eq(
         interp.get("сл"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("a".to_string()),
             Value::String("b".to_string()),
             Value::String("c".to_string()),
-        ]))
+        ]),
     );
     assert_eq!(interp.get("отр"), Some(Value::String("ell".to_string())));
 }
@@ -3236,13 +3290,15 @@ fn test_stdlib_object_keys_values_entries() {
         гыы з = Кент.значения(о);
         "#,
     );
-    if let Some(Value::Array(mut keys)) = interp.get("к") {
+    if let Some(Value::Array(keys)) = interp.get("к") {
+        let mut keys = keys.borrow().clone();
         keys.sort_by_key(|v| v.to_string());
         assert_eq!(keys, vec![Value::String("а".to_string()), Value::String("б".to_string())]);
     } else {
         panic!("Expected Array");
     }
-    if let Some(Value::Array(mut values)) = interp.get("з") {
+    if let Some(Value::Array(values)) = interp.get("з") {
+        let mut values = values.borrow().clone();
         values.sort_by_key(|v| v.to_string());
         assert_eq!(values, vec![Value::Number(1.0), Value::Number(2.0)]);
     } else {
@@ -3274,7 +3330,7 @@ fn test_stdlib_json_parse_array() {
         гыы а = Жсон.разобрать("[1, 2, 3]");
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("а"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -3416,9 +3472,9 @@ fn test_stdlib_array_sort() {
         а.sort((л, п) => л - п);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(1.0),
             Value::Number(2.0),
@@ -3427,7 +3483,7 @@ fn test_stdlib_array_sort() {
             Value::Number(5.0),
             Value::Number(6.0),
             Value::Number(9.0),
-        ]))
+        ]),
     );
 }
 
@@ -3439,17 +3495,17 @@ fn test_stdlib_array_splice() {
         гыы удалённые = а.splice(1, 2, 9, 9);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(9.0),
             Value::Number(9.0),
             Value::Number(4.0),
             Value::Number(5.0),
-        ]))
+        ]),
     );
-    assert_eq!(interp.get("удалённые"), Some(Value::Array(vec![Value::Number(2.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("удалённые"), Value::array(vec![Value::Number(2.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -3460,19 +3516,19 @@ fn test_stdlib_array_to_spliced() {
         гыы б = а.toSpliced(1, 1, 8, 9);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0),]))
+        Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]),
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("б"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(8.0),
             Value::Number(9.0),
             Value::Number(3.0),
             Value::Number(4.0),
-        ]))
+        ]),
     );
 }
 
@@ -3573,13 +3629,13 @@ fn test_kent_group_by() {
         гыы нечётные = по_чётности["нечётные"];
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("чётные"),
-        Some(Value::Array(vec![Value::Number(2.0), Value::Number(4.0), Value::Number(6.0)]))
+        Value::array(vec![Value::Number(2.0), Value::Number(4.0), Value::Number(6.0)]),
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("нечётные"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::Number(3.0), Value::Number(5.0), Value::Number(7.0),]))
+        Value::array(vec![Value::Number(1.0), Value::Number(3.0), Value::Number(5.0), Value::Number(7.0)]),
     );
 }
 
@@ -3635,15 +3691,15 @@ fn test_spread_set_into_array() {
         гыы а = [0, ...н, 4];
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(0.0),
             Value::Number(1.0),
             Value::Number(2.0),
             Value::Number(3.0),
             Value::Number(4.0),
-        ]))
+        ]),
     );
 }
 
@@ -3655,12 +3711,12 @@ fn test_spread_map_into_array() {
         гыы а = [...к];
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![
-            Value::Array(vec![Value::String("а".to_string()), Value::Number(1.0)]),
-            Value::Array(vec![Value::String("б".to_string()), Value::Number(2.0)]),
-        ]))
+        Value::array(vec![
+            Value::array(vec![Value::String("а".to_string()), Value::Number(1.0)]),
+            Value::array(vec![Value::String("б".to_string()), Value::Number(2.0)]),
+        ]),
     );
 }
 
@@ -3671,13 +3727,13 @@ fn test_spread_string_into_array() {
         гыы а = [..."абв"];
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("а"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("а".to_string()),
             Value::String("б".to_string()),
             Value::String("в".to_string()),
-        ]))
+        ]),
     );
 }
 
@@ -3719,13 +3775,13 @@ fn test_for_of_map_yields_pairs() {
         }
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("ключи"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("а".to_string()),
             Value::String("б".to_string()),
             Value::String("в".to_string()),
-        ]))
+        ]),
     );
     assert_eq!(interp.get("суммаЗнч"), Some(Value::Number(6.0)));
 }
@@ -3781,7 +3837,7 @@ fn test_nabor_values() {
         гыы зн = н.values();
         "#,
     );
-    assert_eq!(interp.get("зн"), Some(Value::Array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)])));
+    assert_struct_eq(interp.get("зн"), Value::array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
 }
 
 #[test]
@@ -3890,15 +3946,15 @@ fn test_karta_keys_values_entries_preserve_insertion_order() {
         гыы знч = к.values();
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("клч"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("первый".to_string()),
             Value::String("второй".to_string()),
             Value::String("третий".to_string()),
-        ]))
+        ]),
     );
-    assert_eq!(interp.get("знч"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("знч"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -3912,7 +3968,7 @@ fn test_karta_overwrite_keeps_position() {
         гыы знч = к.values();
         "#,
     );
-    assert_eq!(interp.get("знч"), Some(Value::Array(vec![Value::Number(99.0), Value::Number(2.0)])));
+    assert_struct_eq(interp.get("знч"), Value::array(vec![Value::Number(99.0), Value::Number(2.0)]));
 }
 
 #[test]
@@ -3996,6 +4052,7 @@ fn using_disposes_in_lifo_order() {
     );
     let log = interp.get("лог").unwrap();
     let Value::Array(items) = log else { panic!("expected array") };
+    let items = items.borrow();
     assert_eq!(items.len(), 3);
     assert_eq!(items[0], Value::String("в".to_string()));
     assert_eq!(items[1], Value::String("б".to_string()));
@@ -4223,7 +4280,7 @@ fn generator_collects_yielded_values() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)]));
 }
 
 #[test]
@@ -4240,7 +4297,7 @@ fn generator_yield_without_argument() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Undefined, Value::Undefined])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Undefined, Value::Undefined]));
 }
 
 #[test]
@@ -4262,9 +4319,9 @@ fn generator_yield_delegate_flattens_iterable() {
         }
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         i.get("рез"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::Number(10.0), Value::Number(20.0), Value::Number(2.0),]))
+        Value::array(vec![Value::Number(1.0), Value::Number(10.0), Value::Number(20.0), Value::Number(2.0)]),
     );
 }
 
@@ -4301,7 +4358,7 @@ fn generator_early_return_stops_collection() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(1.0)])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(1.0)]));
 }
 
 #[test]
@@ -4318,9 +4375,9 @@ fn generator_is_lazy_infinite_take() {
         гыы рез = натуральные().взять(4).вМассив();
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         i.get("рез"),
-        Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),]))
+        Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
     );
 }
 
@@ -4361,7 +4418,7 @@ fn generator_yield_in_if_branch() {
         го (гыы х сашаГрей только_чёт()) { рез.втолкнуть(х); }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(2.0), Value::Number(4.0)])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(2.0), Value::Number(4.0)]));
 }
 
 #[test]
@@ -4382,18 +4439,21 @@ fn generator_yield_value_via_next_protocol() {
     let r2 = i.get("р2").unwrap();
     let r3 = i.get("р3").unwrap();
     if let Value::Object(m) = r1 {
+        let m = m.borrow();
         assert_eq!(m.get("значение"), Some(&Value::String("а".to_string())));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!("ожидался объект, получено {r1:?}");
     }
     if let Value::Object(m) = r2 {
+        let m = m.borrow();
         assert_eq!(m.get("значение"), Some(&Value::String("б".to_string())));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!();
     }
     if let Value::Object(m) = r3 {
+        let m = m.borrow();
         assert_eq!(m.get("готово"), Some(&Value::Boolean(true)));
     } else {
         panic!();
@@ -4417,16 +4477,16 @@ fn generator_break_exits_inner_loop() {
         го (гыы х сашаГрей до_пяти()) { рез.втолкнуть(х); }
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         i.get("рез"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(0.0),
             Value::Number(1.0),
             Value::Number(2.0),
             Value::Number(3.0),
             Value::Number(4.0),
             Value::Number(99.0),
-        ]))
+        ]),
     );
 }
 
@@ -4446,9 +4506,9 @@ fn generator_continue_in_while() {
         го (гыы х сашаГрей без_трёх()) { рез.втолкнуть(х); }
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         i.get("рез"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(4.0), Value::Number(5.0),]))
+        Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(4.0), Value::Number(5.0)]),
     );
 }
 
@@ -4470,9 +4530,9 @@ fn generator_try_catch_yields_in_catch() {
         го (гыы х сашаГрей спотыкается()) { рез.втолкнуть(х); }
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         i.get("рез"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::String("бум".to_string()), Value::Number(2.0),]))
+        Value::array(vec![Value::Number(1.0), Value::String("бум".to_string()), Value::Number(2.0)]),
     );
 }
 
@@ -4490,7 +4550,7 @@ fn generator_iter_helpers_compose() {
             .вМассив();
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(4.0), Value::Number(16.0)])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(4.0), Value::Number(16.0)]));
 }
 
 #[test]
@@ -4606,7 +4666,7 @@ fn test_promise_all_resolved() {
         СловоПацана.всех([СловоПацана.решить(1), СловоПацана.решить(2)]).потом((v) => { итог = v; });
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0)])));
+    assert_struct_eq(interp.get("итог"), Value::array(vec![Value::Number(1.0), Value::Number(2.0)]));
 }
 
 #[test]
@@ -4698,7 +4758,7 @@ fn test_iterator_from_array_to_array() {
         гыы рез = и.вМассив();
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -4708,9 +4768,9 @@ fn test_iterator_map_lazy() {
         гыы рез = Итератор.от([1, 2, 3]).преобразовать((х) => х * 10).вМассив();
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("рез"),
-        Some(Value::Array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]))
+        Value::array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]),
     );
 }
 
@@ -4725,7 +4785,7 @@ fn test_iterator_filter_take_drop_chain() {
             .вМассив();
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::Array(vec![Value::Number(4.0), Value::Number(6.0)])));
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(4.0), Value::Number(6.0)]));
 }
 
 #[test]
@@ -4758,15 +4818,15 @@ fn test_iterator_concat() {
         гыы рез = Итератор.склеить([1, 2], [3, 4], [5]).вМассив();
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("рез"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(1.0),
             Value::Number(2.0),
             Value::Number(3.0),
             Value::Number(4.0),
-            Value::Number(5.0)
-        ]))
+            Value::Number(5.0),
+        ]),
     );
 }
 
@@ -4798,18 +4858,21 @@ fn test_iterator_next_protocol() {
     let b = interp.get("б").unwrap();
     let c = interp.get("в").unwrap();
     if let Value::Object(m) = a {
+        let m = m.borrow();
         assert_eq!(m.get("значение"), Some(&Value::Number(7.0)));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!("expected Object");
     }
     if let Value::Object(m) = b {
+        let m = m.borrow();
         assert_eq!(m.get("значение"), Some(&Value::Number(8.0)));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!("expected Object");
     }
     if let Value::Object(m) = c {
+        let m = m.borrow();
         assert_eq!(m.get("значение"), Some(&Value::Undefined));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(true)));
     } else {
@@ -4824,13 +4887,13 @@ fn test_iterator_from_string() {
         гыы рез = Итератор.от("abc").вМассив();
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("рез"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("a".to_string()),
             Value::String("b".to_string()),
-            Value::String("c".to_string())
-        ]))
+            Value::String("c".to_string()),
+        ]),
     );
 }
 
@@ -4867,15 +4930,15 @@ fn test_iterator_spread_into_array() {
         гыы рез = [0, ...Итератор.от([1, 2, 3]).преобразовать((х) => х + 1), 99];
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("рез"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::Number(0.0),
             Value::Number(2.0),
             Value::Number(3.0),
             Value::Number(4.0),
-            Value::Number(99.0)
-        ]))
+            Value::Number(99.0),
+        ]),
     );
 }
 
@@ -4954,7 +5017,7 @@ fn test_for_await_of_break_and_continue() {
         тест().потом((v) => { итог = v; });
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::Array(vec![Value::Number(1.0), Value::Number(3.0)])));
+    assert_struct_eq(interp.get("итог"), Value::array(vec![Value::Number(1.0), Value::Number(3.0)]));
 }
 
 #[test]
@@ -5864,8 +5927,7 @@ fn чутка_fires_in_deadline_order() {
         чутка(() => { лог = втолкнуть(лог, "B"); }, 5);
         "#,
     );
-    let log = interp.get("лог").unwrap();
-    assert_eq!(log, Value::Array(vec![Value::String("B".into()), Value::String("A".into())]));
+    assert_struct_eq(interp.get("лог"), Value::array(vec![Value::String("B".into()), Value::String("A".into())]));
 }
 
 #[test]
@@ -5878,7 +5940,7 @@ fn отменаЧутки_prevents_callback() {
         отменаЧутки(ид);
         "#,
     );
-    assert_eq!(interp.get("лог"), Some(Value::Array(vec![])));
+    assert_struct_eq(interp.get("лог"), Value::array(vec![]));
 }
 
 #[test]
@@ -5907,9 +5969,9 @@ fn сразу_runs_before_macrotask() {
         сразу(() => { лог = втолкнуть(лог, "микро"); });
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("лог"),
-        Some(Value::Array(vec![Value::String("микро".into()), Value::String("макро".into())]))
+        Value::array(vec![Value::String("микро".into()), Value::String("макро".into())]),
     );
 }
 
@@ -5925,9 +5987,9 @@ fn наСледующемТике_has_priority_over_сразу() {
         }, 0);
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("лог"),
-        Some(Value::Array(vec![Value::String("приоритет".into()), Value::String("обычная".into())]))
+        Value::array(vec![Value::String("приоритет".into()), Value::String("обычная".into())]),
     );
 }
 
@@ -6022,7 +6084,7 @@ fn timer_callback_throw_does_not_kill_loop() {
         чутка(() => { лог = втолкнуть(лог, "выжил"); }, 10);
         "#,
     );
-    assert_eq!(interp.get("лог"), Some(Value::Array(vec![Value::String("выжил".into())])));
+    assert_struct_eq(interp.get("лог"), Value::array(vec![Value::String("выжил".into())]));
 }
 
 #[test]
@@ -6073,6 +6135,7 @@ fn async_fn_returns_pending_immediately() {
     );
     let pair = interp.get("пара").unwrap();
     let Value::Array(items) = pair else { panic!("expected array") };
+    let items = items.borrow();
     assert!(matches!(items[0], Value::Promise { .. }), "first element must be a Promise");
     assert_eq!(items[1], Value::String("before".into()));
     assert_eq!(interp.get("маркер"), Some(Value::String("inside".into())));
@@ -6173,6 +6236,7 @@ fn nested_intervals_independent_cancellation() {
     );
     let log = interp.get("лог").unwrap();
     let Value::Array(items) = log else { panic!("expected array") };
+    let items = items.borrow();
     let labels: Vec<&str> = items.iter().map(|v| if let Value::String(s) = v { s.as_str() } else { "?" }).collect();
     assert_eq!(labels.iter().filter(|l| **l == "внешний").count(), 3);
     assert_eq!(labels.iter().filter(|l| **l == "внутренний").count(), 2);
@@ -6220,9 +6284,9 @@ fn promise_all_resolves_after_async_delays() {
             .потом((v) => { итог = v; });
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("итог"),
-        Some(Value::Array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]))
+        Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
     );
 }
 
@@ -6282,7 +6346,7 @@ fn promise_any_all_rejected_emits_aggregate_error() {
         "#,
     );
     assert_eq!(interp.get("имя"), Some(Value::String("ВсёОбосралось".into())));
-    assert_eq!(interp.get("ошибки"), Some(Value::Array(vec![Value::String("a".into()), Value::String("b".into())])));
+    assert_struct_eq(interp.get("ошибки"), Value::array(vec![Value::String("a".into()), Value::String("b".into())]));
 }
 
 #[test]
@@ -6305,13 +6369,13 @@ fn promise_all_settled_collects_all_outcomes() {
         });
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("статусы"),
-        Some(Value::Array(vec![
+        Value::array(vec![
             Value::String("выполнено".into()),
             Value::String("отклонено".into()),
             Value::String("выполнено".into()),
-        ]))
+        ]),
     );
     assert_eq!(interp.get("первое"), Some(Value::Number(1.0)));
     assert_eq!(interp.get("причина"), Some(Value::String("плохо".into())));
@@ -6326,7 +6390,7 @@ fn promise_all_empty_array_resolves_to_empty() {
         СловоПацана.всех([]).потом((v) => { итог = v; });
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::Array(Vec::new())));
+    assert_struct_eq(interp.get("итог"), Value::array(Vec::new()));
 }
 
 #[test]
@@ -6402,9 +6466,9 @@ fn test_sochereit_runs_before_macrotask() {
         сОчередить(() => { лог = втолкнуть(лог, "микро"); });
         "#,
     );
-    assert_eq!(
+    assert_struct_eq(
         interp.get("лог"),
-        Some(Value::Array(vec![Value::String("микро".into()), Value::String("макро".into())]))
+        Value::array(vec![Value::String("микро".into()), Value::String("макро".into())]),
     );
 }
 
@@ -7002,7 +7066,7 @@ fn unlabeled_break_in_generator_still_works() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::Array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(99.0)])));
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(99.0)]));
 }
 
 #[test]
@@ -8168,4 +8232,328 @@ fn dv_with_offset_and_length() {
     );
     assert_eq!(interp.get("дл"), Some(Value::Number(4.0)));
     assert_eq!(interp.get("см"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn ref_semantics_object_alias_sees_mutation() {
+    let interp = run_code(
+        r#"
+        гыы о1 = { х: 0 };
+        гыы о2 = о1;
+        о1.х = 1;
+        гыы рез = о2.х;
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn ref_semantics_array_alias_sees_push() {
+    let interp = run_code(
+        r#"
+        гыы а1 = [1, 2];
+        гыы а2 = а1;
+        а1.втолкнуть(9);
+        гыы дл = длина(а2);
+        гыы посл = а2[2];
+        "#,
+    );
+    assert_eq!(interp.get("дл"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("посл"), Some(Value::Number(9.0)));
+}
+
+#[test]
+fn ref_semantics_nested_mutation_visible_through_alias() {
+    let interp = run_code(
+        r#"
+        гыы о = { вложен: { б: 0 } };
+        гыы алиас = о.вложен;
+        о.вложен.б = 7;
+        гыы рез = алиас.б;
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn ref_semantics_class_instance_is_reference() {
+    let interp = run_code(
+        r#"
+        клёво Точка {
+            конструктор() { тырыпыры.поле = 0; }
+        }
+        гыы а = захуярить Точка();
+        гыы б = а;
+        а.поле = 5;
+        гыы рез = б.поле;
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn eq_array_identity_true_structural_false() {
+    let interp = run_code(
+        r#"
+        гыы а = [1];
+        гыы сам = (а == а);
+        гыы структ = ([1] == [1]);
+        "#,
+    );
+    assert_eq!(interp.get("сам"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn eq_object_identity_true_structural_false() {
+    let interp = run_code(
+        r#"
+        гыы о = { х: 1 };
+        гыы сам = (о == о);
+        гыы структ = ({} == {});
+        "#,
+    );
+    assert_eq!(interp.get("сам"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn eq_switch_case_uses_reference_identity() {
+    let interp = run_code(
+        r#"
+        гыы цель = { к: 1 };
+        гыы другой = { к: 1 };
+        гыы рез = "нет";
+        базарпо (цель) {
+            тема другой: { рез = "структ"; }
+            тема цель: { рез = "идент"; }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("идент".to_string())));
+}
+
+#[test]
+fn svz_index_of_primitive_and_reference() {
+    let interp = run_code(
+        r#"
+        гыы об = { м: 1 };
+        гыы а = [1, об, 3];
+        гыы прим = а.найтиИндекс(3);
+        гыы реф = а.найтиИндекс(об);
+        гыы структ = а.найтиИндекс({ м: 1 });
+        "#,
+    );
+    assert_eq!(interp.get("прим"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("реф"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("структ"), Some(Value::Number(-1.0)));
+}
+
+#[test]
+fn svz_includes_primitive_and_reference() {
+    let interp = run_code(
+        r#"
+        гыы об = { м: 1 };
+        гыы а = [1, об, 3];
+        гыы прим = а.включает(3);
+        гыы реф = а.включает(об);
+        гыы структ = а.включает({ м: 1 });
+        "#,
+    );
+    assert_eq!(interp.get("прим"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("реф"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn svz_set_dedup_primitives_keeps_structural_objects() {
+    let interp = run_code(
+        r#"
+        гыы прим = захуярить Набор([1, 1, 2, 2, 3]);
+        гыы рп = прим.размер;
+        гыы о1 = { х: 1 };
+        гыы о2 = { х: 1 };
+        гыы реф = захуярить Набор([о1, о2, о1]);
+        гыы рр = реф.размер;
+        "#,
+    );
+    assert_eq!(interp.get("рп"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("рр"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn svz_map_key_reference_identity() {
+    let interp = run_code(
+        r#"
+        гыы кл = { ид: 1 };
+        гыы другой = { ид: 1 };
+        гыы м = захуярить Карта();
+        м.поставить(кл, "значение");
+        гыы наш = м.взять(кл);
+        гыы чужой = м.взять(другой);
+        "#,
+    );
+    assert_eq!(interp.get("наш"), Some(Value::String("значение".to_string())));
+    assert_eq!(interp.get("чужой"), Some(Value::Undefined));
+}
+
+#[test]
+fn negative_cycle_display_object_no_panic() {
+    let interp = run_code(
+        r#"
+        гыы о = { };
+        о.сам = о;
+        гыы текст = строка(о);
+        "#,
+    );
+    let text = interp.get("текст").unwrap();
+    let s = match text {
+        Value::String(s) => s,
+        other => panic!("ожидалась строка, получено {other:?}"),
+    };
+    assert!(s.contains("[Циклично]"), "ожидалось [Циклично] в выводе, получено: {s}");
+}
+
+#[test]
+fn negative_cycle_display_array_no_panic() {
+    let interp = run_code(
+        r#"
+        гыы а = [1];
+        а.втолкнуть(а);
+        гыы текст = строка(а);
+        "#,
+    );
+    let text = interp.get("текст").unwrap();
+    let s = match text {
+        Value::String(s) => s,
+        other => panic!("ожидалась строка, получено {other:?}"),
+    };
+    assert!(s.contains("[Циклично]"), "ожидалось [Циклично] в выводе, получено: {s}");
+}
+
+#[test]
+fn negative_cycle_json_stringify_errors_not_panics() {
+    let err = run_code_err(
+        r#"
+        гыы о = { };
+        о.сам = о;
+        Жсон.вСтроку(о);
+        "#,
+    );
+    assert!(err.message.contains("Циклическая"), "ожидалась ошибка о цикле, получено: {}", err.message);
+}
+
+#[test]
+fn snapshot_map_callback_mutating_receiver_uses_snapshot() {
+    let interp = run_code(
+        r#"
+        гыы а = [1, 2, 3];
+        гыы рез = а.преобразовать((х) => {
+            а.втолкнуть(99);
+            отвечаю х * 2;
+        });
+        гыы длр = длина(рез);
+        гыы дла = длина(а);
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(2.0), Value::Number(4.0), Value::Number(6.0)]));
+    assert_eq!(interp.get("длр"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("дла"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn snapshot_sort_comparator_mutating_array_no_panic() {
+    let interp = run_code(
+        r#"
+        гыы а = [3, 1, 2];
+        а.сортировать((х, у) => {
+            а.втолкнуть(0);
+            отвечаю х - у;
+        });
+        гыы перв = а[0];
+        "#,
+    );
+    assert_eq!(interp.get("перв"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn shallow_spread_array_new_outer_shared_inner() {
+    let interp = run_code(
+        r#"
+        гыы вн = { ц: 1 };
+        гыы а = [вн];
+        гыы б = [...а];
+        гыы разные = (б == а);
+        гыы тотЖеВнутр = (б[0] == а[0]);
+        а.втолкнуть(2);
+        гыы длб = длина(б);
+        вн.ц = 5;
+        гыы видно = б[0].ц;
+        "#,
+    );
+    assert_eq!(interp.get("разные"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("тотЖеВнутр"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("длб"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("видно"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn shallow_spread_object_new_outer_shared_inner() {
+    let interp = run_code(
+        r#"
+        гыы вн = { ц: 1 };
+        гыы о = { поле: вн };
+        гыы коп = { ...о };
+        гыы разные = (коп == о);
+        гыы тотЖе = (коп.поле == о.поле);
+        о.новое = 7;
+        гыы естьНовое = ("новое" из коп);
+        вн.ц = 9;
+        гыы видно = коп.поле.ц;
+        "#,
+    );
+    assert_eq!(interp.get("разные"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("тотЖе"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("естьНовое"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("видно"), Some(Value::Number(9.0)));
+}
+
+#[test]
+fn closure_captures_container_by_reference() {
+    let interp = run_code(
+        r#"
+        гыы а = [1];
+        гыы читалка = () => длина(а);
+        а.втолкнуть(2);
+        гыы рез = читалка();
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn set_at_path_missing_intermediate_errors() {
+    let err = run_code_err(
+        r#"
+        гыы о = { };
+        о.нет.глубже = 1;
+        "#,
+    );
+    assert!(!err.message.is_empty());
+}
+
+#[test]
+fn test_structural_eq_helper_handles_cycles() {
+    let interp = run_code(
+        r#"
+        гыы а = { };
+        а.сам = а;
+        гыы б = { };
+        б.сам = б;
+        "#,
+    );
+    let a = interp.get("а").unwrap();
+    let b = interp.get("б").unwrap();
+    assert!(structural_eq(&a, &a));
+    let _ = structural_eq(&a, &b);
 }

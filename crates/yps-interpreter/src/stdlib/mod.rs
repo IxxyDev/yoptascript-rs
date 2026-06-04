@@ -38,7 +38,7 @@ pub fn call_method(
     span: Span,
 ) -> Result<(Value, Option<Value>), RuntimeError> {
     match &receiver {
-        Value::Array(_) => array::call(interp, receiver, method, args, span),
+        Value::Array(_) => array::call(interp, receiver, method, args, span).map(|v| (v, None)),
         Value::String(_) => string::call(interp, receiver, method, args, span),
         Value::Number(_) => number::call_instance(interp, receiver, method, args, span),
         Value::Map(_) => map::call(interp, receiver, method, args, span),
@@ -109,7 +109,7 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("СигналОтмены.") {
         if stripped == "любой" {
             let sigs = match args.into_iter().next().unwrap_or(Value::Undefined) {
-                Value::Array(a) => a,
+                Value::Array(a) => a.borrow().clone(),
                 other => {
                     return Some(Err(RuntimeError::new(
                         format!("'СигналОтмены.любой' ожидает массив, получено '{}'", other.type_name()),
@@ -205,7 +205,7 @@ pub(crate) fn object_of(pairs: &[(&str, Value)]) -> Value {
     for (k, v) in pairs {
         map.insert((*k).to_string(), v.clone());
     }
-    Value::Object(map)
+    Value::object(map)
 }
 
 pub(crate) fn require_args(args: &[Value], min: usize, span: Span, method: &str) -> Result<(), RuntimeError> {
