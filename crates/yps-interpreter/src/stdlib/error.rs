@@ -19,16 +19,16 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     map.insert(symbols::ERROR_NAME_FIELD.to_string(), Value::String(symbols::ERROR_NAME.to_string()));
     map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(message.to_string()));
     if let Some(Value::Object(o)) = opts
-        && let Some(cause) = o.get(symbols::ERROR_CAUSE_FIELD)
+        && let Some(cause) = o.borrow().get(symbols::ERROR_CAUSE_FIELD)
     {
         map.insert(symbols::ERROR_CAUSE_FIELD.to_string(), cause.clone());
     }
-    Ok(Value::Object(map))
+    Ok(Value::object(map))
 }
 
 pub fn is_error(args: &[Value]) -> bool {
     if let Some(Value::Object(map)) = args.first()
-        && let Some(Value::String(name)) = map.get(symbols::ERROR_NAME_FIELD)
+        && let Some(Value::String(name)) = map.borrow().get(symbols::ERROR_NAME_FIELD)
         && name == symbols::ERROR_NAME
     {
         return true;

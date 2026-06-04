@@ -83,7 +83,7 @@ pub fn call_static(
                 let entry = entry.map_err(|e| io_err("ФС.список", path, e, span))?;
                 out.push(Value::String(entry.file_name().to_string_lossy().into_owned()));
             }
-            Ok(Value::Array(out))
+            Ok(Value::array(out))
         }
         "создатьПапку" => {
             require_args(&args, 1, span, "ФС.создатьПапку")?;
@@ -149,8 +149,8 @@ mod tests {
         let v = call("список", vec![Value::String(dir.clone())]).unwrap();
         match v {
             Value::Array(items) => {
-                assert_eq!(items.len(), 1);
-                assert_eq!(items[0], Value::String("один.txt".into()));
+                assert_eq!(items.borrow().len(), 1);
+                assert_eq!(items.borrow()[0], Value::String("один.txt".into()));
             }
             other => panic!("ожидался массив, получено {other:?}"),
         }

@@ -302,8 +302,8 @@ pub enum Value {
     BigInt(i128),
     String(String),
     Boolean(bool),
-    Array(Vec<Value>),
-    Object(HashMap<String, Value>),
+    Array(Rc<RefCell<Vec<Value>>>),
+    Object(Rc<RefCell<HashMap<String, Value>>>),
     Map(Vec<(Value, Value)>),
     Set(Vec<Value>),
     Function {
@@ -387,6 +387,14 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn array(items: Vec<Value>) -> Value {
+        Value::Array(Rc::new(RefCell::new(items)))
+    }
+
+    pub fn object(map: HashMap<String, Value>) -> Value {
+        Value::Object(Rc::new(RefCell::new(map)))
+    }
+
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Undefined | Value::Null => false,
@@ -394,7 +402,7 @@ impl Value {
             Value::Number(n) => *n != 0.0,
             Value::BigInt(n) => *n != 0,
             Value::String(s) => !s.is_empty(),
-            Value::Array(a) => !a.is_empty(),
+            Value::Array(a) => !a.borrow().is_empty(),
             _ => true,
         }
     }
@@ -479,8 +487,8 @@ impl fmt::Debug for Value {
             Value::BigInt(n) => write!(f, "BigInt({n})"),
             Value::String(s) => write!(f, "String({s:?})"),
             Value::Boolean(b) => write!(f, "Boolean({b})"),
-            Value::Array(a) => f.debug_tuple("Array").field(a).finish(),
-            Value::Object(o) => f.debug_tuple("Object").field(o).finish(),
+            Value::Array(a) => f.debug_tuple("Array").field(&*a.borrow()).finish(),
+            Value::Object(o) => f.debug_tuple("Object").field(&*o.borrow()).finish(),
             Value::Map(m) => f.debug_tuple("Map").field(m).finish(),
             Value::Set(s) => f.debug_tuple("Set").field(s).finish(),
             Value::Function { name, params, .. } => {
@@ -538,6 +546,17 @@ impl fmt::Debug for Value {
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut seen: std::collections::HashSet<*const ()> = std::collections::HashSet::new();
+        self.fmt_with_seen(f, &mut seen)
+    }
+}
+
+impl Value {
+    fn fmt_with_seen(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        seen: &mut std::collections::HashSet<*const ()>,
+    ) -> fmt::Result {
         match self {
             Value::Number(n) => {
                 if n.fract() == 0.0 && n.is_finite() {
@@ -552,23 +571,36 @@ impl fmt::Display for Value {
             Value::Undefined => write!(f, "undefined"),
             Value::Null => write!(f, "null"),
             Value::Array(elements) => {
+                let ptr = Rc::as_ptr(elements) as *const ();
+                if !seen.insert(ptr) {
+                    return write!(f, "[Циклично]");
+                }
+                let snapshot = elements.borrow().clone();
                 write!(f, "[")?;
-                for (i, el) in elements.iter().enumerate() {
+                for (i, el) in snapshot.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{el}")?;
+                    el.fmt_with_seen(f, seen)?;
                 }
+                seen.remove(&ptr);
                 write!(f, "]")
             }
             Value::Object(map) => {
+                let ptr = Rc::as_ptr(map) as *const ();
+                if !seen.insert(ptr) {
+                    return write!(f, "[Циклично]");
+                }
+                let snapshot: Vec<(String, Value)> = map.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 write!(f, "{{")?;
-                for (i, (k, v)) in map.iter().enumerate() {
+                for (i, (k, v)) in snapshot.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{k}: {v}")?;
+                    write!(f, "{k}: ")?;
+                    v.fmt_with_seen(f, seen)?;
                 }
+                seen.remove(&ptr);
                 write!(f, "}}")
             }
             Value::Map(entries) => {
@@ -653,6 +685,10 @@ impl fmt::Display for Value {
     }
 }
 
+pub fn same_value_zero(a: &Value, b: &Value) -> bool {
+    a == b
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -660,7 +696,8 @@ impl PartialEq for Value {
             (Value::BigInt(a), Value::BigInt(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
-            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
+            (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Set(a), Value::Set(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),

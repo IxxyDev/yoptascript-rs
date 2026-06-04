@@ -22,7 +22,7 @@ impl Interpreter {
             symbols::DEC_ADD_INITIALIZER.to_string(),
             Value::BuiltinFunction(symbols::ADD_INITIALIZER_BUILTIN.to_string()),
         );
-        Value::Object(ctx)
+        Value::object(ctx)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -310,7 +310,7 @@ impl Interpreter {
 
         self.init_fields(&class_def, &mut instance, span)?;
 
-        let mut instance_val = Value::Object(instance);
+        let mut instance_val = Value::object(instance);
 
         for init in &class_def.instance_initializers {
             let saved = self.env.clone();
@@ -351,7 +351,7 @@ impl Interpreter {
                 if param.is_rest {
                     let rest_start = i.min(args.len());
                     let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                    self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                    self.env.define(param.name.name.clone(), Value::array(rest_values), false);
                     break;
                 }
                 let value = if i < args.len() {
@@ -455,7 +455,7 @@ impl Interpreter {
             if param.is_rest {
                 let rest_start = i.min(args.len());
                 let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::Array(rest_values), false);
+                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
                 break;
             }
             let value = if i < args.len() {
@@ -499,7 +499,7 @@ impl Interpreter {
             let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
                 self.env.push_scope();
-                self.env.define(symbols::THIS.to_string(), Value::Object(instance.clone()), false);
+                self.env.define(symbols::THIS.to_string(), Value::object(instance.clone()), false);
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env = saved_env;
                 match result? {
@@ -531,7 +531,7 @@ impl Interpreter {
                     walker = c.parent.as_deref();
                 }
             }
-            let next = map.get(symbols::PROTO).cloned();
+            let next = map.borrow().get(symbols::PROTO).cloned();
             match next {
                 Some(proto @ Value::Object(_)) => current = proto,
                 _ => return false,
@@ -555,11 +555,15 @@ impl Interpreter {
 
     pub(super) fn has_dispose_method(value: &Value, env: &Environment) -> bool {
         if let Value::Object(map) = value {
-            if let Some(Value::Function { .. }) = map.get(symbols::DISPOSE_METHOD) {
+            if let Some(Value::Function { .. }) = map.borrow().get(symbols::DISPOSE_METHOD) {
                 return true;
             }
-            if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG)
-                && let Some(Value::Class(cls)) = env.get(class_name)
+            let class_name = match map.borrow().get(symbols::CLASS_TAG) {
+                Some(Value::String(cn)) => Some(cn.clone()),
+                _ => None,
+            };
+            if let Some(class_name) = class_name
+                && let Some(Value::Class(cls)) = env.get(&class_name)
                 && Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD).is_some()
             {
                 return true;
@@ -570,7 +574,8 @@ impl Interpreter {
 
     pub(super) fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
         if let Value::Object(map) = &resource {
-            if let Some(Value::Function { params, body, env, .. }) = map.get(symbols::DISPOSE_METHOD).cloned() {
+            let dispose_fn = map.borrow().get(symbols::DISPOSE_METHOD).cloned();
+            if let Some(Value::Function { params, body, env, .. }) = dispose_fn {
                 self.call_method_with_this(
                     Rc::from("<dispose>"),
                     &params,
@@ -582,7 +587,8 @@ impl Interpreter {
                 )?;
                 return Ok(());
             }
-            if let Some(Value::String(class_name)) = map.get(symbols::CLASS_TAG).cloned()
+            let class_tag = map.borrow().get(symbols::CLASS_TAG).cloned();
+            if let Some(Value::String(class_name)) = class_tag
                 && let Some(Value::Class(cls)) = self.env.get(&class_name)
                 && let Some(method) = Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD)
             {

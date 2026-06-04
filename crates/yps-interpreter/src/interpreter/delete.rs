@@ -18,11 +18,9 @@ impl Interpreter {
                 )?;
                 path.reverse();
                 if path.len() == 1
-                    && let Some(Value::Object(map)) = self.env.get(&root_name).as_mut()
+                    && let Some(Value::Object(map)) = self.env.get(&root_name)
                 {
-                    let mut map = map.clone();
-                    map.remove(&property.name);
-                    self.env.set(&root_name, Value::Object(map));
+                    map.borrow_mut().remove(&property.name);
                 }
                 Ok(Value::Boolean(true))
             }
@@ -35,9 +33,7 @@ impl Interpreter {
                     match self.env.get(&root_name) {
                         Some(Value::Object(map)) => {
                             let key = idx.to_string();
-                            let mut map = map.clone();
-                            map.remove(&key);
-                            self.env.set(&root_name, Value::Object(map));
+                            map.borrow_mut().remove(&key);
                         }
                         Some(Value::Array(arr)) => {
                             if let Value::Number(n) = idx
@@ -46,10 +42,9 @@ impl Interpreter {
                                 && n.fract() == 0.0
                             {
                                 let i = n as usize;
-                                if i < arr.len() {
-                                    let mut new_arr = arr.clone();
-                                    new_arr[i] = Value::Undefined;
-                                    self.env.set(&root_name, Value::Array(new_arr));
+                                let mut guard = arr.borrow_mut();
+                                if i < guard.len() {
+                                    guard[i] = Value::Undefined;
                                 }
                             }
                         }

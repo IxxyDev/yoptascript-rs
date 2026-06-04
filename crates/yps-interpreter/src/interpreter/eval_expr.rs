@@ -160,17 +160,15 @@ impl Interpreter {
                     if matches!(obj, Value::Object(_))
                         && let Value::Function { params, body, env, .. } = &func
                     {
-                        let result = self.call_method_returning_this(
+                        return self.call_method_with_this(
                             Rc::from(property.name.as_str()),
                             params,
                             body,
                             env,
                             arg_values,
-                            obj,
+                            Some(obj),
                             *span,
-                        )?;
-                        self.write_back_object(object, result.1, *span)?;
-                        return Ok(result.0);
+                        );
                     }
                     self.call_function(func, arg_values, *span)
                 } else if let Expr::Super { span: super_span } = callee.as_ref() {
@@ -276,12 +274,12 @@ impl Interpreter {
                 let len = Value::Number(quasis.len() as f64);
                 strings_map.insert("длина".to_string(), len.clone());
                 strings_map.insert("length".to_string(), len);
-                let raw_arr = Value::Array(raw_vec);
+                let raw_arr = Value::array(raw_vec);
                 strings_map.insert("сырьё".to_string(), raw_arr.clone());
                 strings_map.insert("raw".to_string(), raw_arr);
 
                 let mut args = Vec::with_capacity(expressions.len() + 1);
-                args.push(Value::Object(strings_map));
+                args.push(Value::object(strings_map));
                 for e in expressions {
                     args.push(self.eval_expr(e)?);
                 }
@@ -327,7 +325,7 @@ impl Interpreter {
                         for (k, v) in exports {
                             map.insert(k, v);
                         }
-                        Ok(Self::make_fulfilled_promise(Value::Object(map)))
+                        Ok(Self::make_fulfilled_promise(Value::object(map)))
                     }
                     Err(err) => Ok(Self::make_rejected_promise(Value::String(err.message))),
                 }
@@ -353,10 +351,10 @@ impl Interpreter {
                     if let Expr::Spread { expr, span } = el {
                         let val = self.eval_expr(expr)?;
                         match val {
-                            Value::Array(arr) => values.extend(arr),
+                            Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                             Value::Set(s) => values.extend(s),
                             Value::Map(entries) => {
-                                values.extend(entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])));
+                                values.extend(entries.into_iter().map(|(k, v)| Value::array(vec![k, v])));
                             }
                             Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                             Value::TypedArray { buffer, offset, length, kind } => {
@@ -376,7 +374,7 @@ impl Interpreter {
                         values.push(self.eval_expr(el)?);
                     }
                 }
-                Ok(Value::Array(values))
+                Ok(Value::array(values))
             }
             Literal::Object { entries, span } => {
                 let mut map = HashMap::new();
@@ -397,8 +395,8 @@ impl Interpreter {
                             let val = self.eval_expr(expr)?;
                             match val {
                                 Value::Object(src) => {
-                                    for (k, v) in src {
-                                        map.insert(k, v);
+                                    for (k, v) in src.borrow().iter() {
+                                        map.insert(k.clone(), v.clone());
                                     }
                                 }
                                 other => {
@@ -447,7 +445,7 @@ impl Interpreter {
                         }
                     }
                 }
-                Ok(Value::Object(map))
+                Ok(Value::object(map))
             }
             Literal::RegExp { pattern, flags, span } => {
                 let compiled = crate::stdlib::regexp::compile(pattern, flags, *span)?;
@@ -558,7 +556,7 @@ impl Interpreter {
             BinaryOp::In => match right {
                 Value::Object(map) => {
                     let key = left.to_string();
-                    Ok(Value::Boolean(map.contains_key(&key)))
+                    Ok(Value::Boolean(map.borrow().contains_key(&key)))
                 }
                 Value::Array(arr) => {
                     let key = match &left {
@@ -567,7 +565,7 @@ impl Interpreter {
                             return Err(RuntimeError::new("Индекс массива должен быть числом", span));
                         }
                     };
-                    Ok(Value::Boolean(key < arr.len()))
+                    Ok(Value::Boolean(key < arr.borrow().len()))
                 }
                 _ => Err(RuntimeError::new(
                     format!("Правая сторона 'из' должна быть объектом или массивом, получено '{}'", right.type_name()),

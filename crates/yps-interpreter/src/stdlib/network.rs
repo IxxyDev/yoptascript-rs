@@ -130,8 +130,8 @@ fn fetch(url: &str, opts: Value, span: Span) -> Result<Value, RuntimeError> {
     let mut out = HashMap::new();
     out.insert("статус".to_string(), Value::Number(code as f64));
     out.insert("тело".to_string(), Value::String(body));
-    out.insert("заголовки".to_string(), Value::Object(headers));
-    Ok(Value::Object(out))
+    out.insert("заголовки".to_string(), Value::object(headers));
+    Ok(Value::object(out))
 }
 
 type FetchOpts = (String, Vec<(String, String)>, String);
@@ -141,7 +141,8 @@ fn extract_opts(opts: Value, span: Span) -> Result<FetchOpts, RuntimeError> {
     let mut headers: Vec<(String, String)> = Vec::new();
     let mut body = String::new();
     if let Value::Object(map) = opts {
-        if let Some(v) = map.get("метод") {
+        let method_val = map.borrow().get("метод").cloned();
+        if let Some(v) = method_val {
             match v {
                 Value::String(s) => method = s.to_ascii_uppercase(),
                 other => {
@@ -152,7 +153,8 @@ fn extract_opts(opts: Value, span: Span) -> Result<FetchOpts, RuntimeError> {
                 }
             }
         }
-        if let Some(v) = map.get("тело") {
+        let body_val = map.borrow().get("тело").cloned();
+        if let Some(v) = body_val {
             match v {
                 Value::String(s) => body = s.clone(),
                 Value::Undefined | Value::Null => {}
@@ -164,8 +166,9 @@ fn extract_opts(opts: Value, span: Span) -> Result<FetchOpts, RuntimeError> {
                 }
             }
         }
-        if let Some(Value::Object(h)) = map.get("заголовки") {
-            for (k, v) in h {
+        let headers_val = map.borrow().get("заголовки").cloned();
+        if let Some(Value::Object(h)) = headers_val {
+            for (k, v) in h.borrow().iter() {
                 let vs = match v {
                     Value::String(s) => s.clone(),
                     other => other.to_string(),

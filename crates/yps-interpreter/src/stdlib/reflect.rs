@@ -50,7 +50,7 @@ pub fn call_static(
             let func = args[0].clone();
             let args_val = args[2].clone();
             let call_args = match args_val {
-                Value::Array(a) => a,
+                Value::Array(a) => a.borrow().clone(),
                 Value::Undefined | Value::Null => vec![],
                 other => {
                     return Err(RuntimeError::new(
@@ -65,7 +65,7 @@ pub fn call_static(
             require_args(&args, 2, span, "Отражение.построить")?;
             let constructor = args[0].clone();
             let call_args = match args[1].clone() {
-                Value::Array(a) => a,
+                Value::Array(a) => a.borrow().clone(),
                 Value::Undefined | Value::Null => vec![],
                 other => {
                     return Err(RuntimeError::new(
@@ -83,10 +83,11 @@ pub fn call_static(
 fn reflect_get(interp: &mut Interpreter, obj: Value, key: &str, span: Span) -> Result<Value, RuntimeError> {
     match &obj {
         Value::Object(map) => {
-            if let Some(val) = map.get(key) {
+            if let Some(val) = map.borrow().get(key) {
                 return Ok(val.clone());
             }
-            if let Some(proto) = map.get(symbols::PROTO).cloned() {
+            let proto = map.borrow().get(symbols::PROTO).cloned();
+            if let Some(proto) = proto {
                 match proto {
                     Value::Class(_) | Value::Null => return Ok(Value::Undefined),
                     _ => return reflect_get(interp, proto, key, span),
@@ -96,10 +97,10 @@ fn reflect_get(interp: &mut Interpreter, obj: Value, key: &str, span: Span) -> R
         }
         Value::Array(arr) => {
             if key == "length" || key == "длина" {
-                return Ok(Value::Number(arr.len() as f64));
+                return Ok(Value::Number(arr.borrow().len() as f64));
             }
             if let Ok(idx) = key.parse::<usize>() {
-                return Ok(arr.get(idx).cloned().unwrap_or(Value::Undefined));
+                return Ok(arr.borrow().get(idx).cloned().unwrap_or(Value::Undefined));
             }
             Ok(Value::Undefined)
         }
@@ -109,13 +110,13 @@ fn reflect_get(interp: &mut Interpreter, obj: Value, key: &str, span: Span) -> R
 
 fn reflect_has(obj: Value, key: &str, span: Span) -> Result<Value, RuntimeError> {
     match obj {
-        Value::Object(map) => Ok(Value::Boolean(map.contains_key(key))),
+        Value::Object(map) => Ok(Value::Boolean(map.borrow().contains_key(key))),
         Value::Array(arr) => {
             if key == "length" || key == "длина" {
                 return Ok(Value::Boolean(true));
             }
             if let Ok(idx) = key.parse::<usize>() {
-                return Ok(Value::Boolean(idx < arr.len()));
+                return Ok(Value::Boolean(idx < arr.borrow().len()));
             }
             Ok(Value::Boolean(false))
         }
@@ -129,7 +130,7 @@ fn reflect_has(obj: Value, key: &str, span: Span) -> Result<Value, RuntimeError>
 fn reflect_get_prototype_of(obj: Value, span: Span) -> Result<Value, RuntimeError> {
     match obj {
         Value::Object(map) => {
-            if let Some(proto) = map.get(symbols::PROTO) {
+            if let Some(proto) = map.borrow().get(symbols::PROTO) {
                 return Ok(proto.clone());
             }
             Ok(Value::Null)
@@ -146,16 +147,17 @@ fn reflect_own_keys(obj: Value, span: Span) -> Result<Value, RuntimeError> {
     match obj {
         Value::Object(map) => {
             let keys: Vec<Value> = map
+                .borrow()
                 .keys()
                 .filter(|k| !symbols::is_internal_key(k) && !k.starts_with('#'))
                 .map(|k| Value::String(k.clone()))
                 .collect();
-            Ok(Value::Array(keys))
+            Ok(Value::array(keys))
         }
         Value::Array(arr) => {
-            let mut keys: Vec<Value> = (0..arr.len()).map(|i| Value::String(i.to_string())).collect();
+            let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string())).collect();
             keys.push(Value::String("length".to_string()));
-            Ok(Value::Array(keys))
+            Ok(Value::array(keys))
         }
         _ => Err(RuntimeError::new(
             format!("'Отражение.собственныеКлючи' ожидает объект или массив, получено '{}'", obj.type_name()),

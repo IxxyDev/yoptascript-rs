@@ -120,11 +120,11 @@ impl Interpreter {
             Stmt::ForIn { variable, iterable, body, span, .. } => {
                 let val = self.eval_expr(iterable)?;
                 let items: Vec<Value> = match val {
-                    Value::Array(elements) => elements,
+                    Value::Array(elements) => elements.borrow().clone(),
                     Value::TypedArray { buffer, offset, length, kind } => {
                         crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
                     }
-                    Value::Object(map) => map.keys().map(|k| Value::String(k.clone())).collect(),
+                    Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone())).collect(),
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),
@@ -209,7 +209,7 @@ impl Interpreter {
                                         Value::String(symbols::ERROR_NAME.to_string()),
                                     );
                                     map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
-                                    Value::Object(map)
+                                    Value::object(map)
                                 };
                                 self.env.define(param.name.clone(), bound, false);
                             }
@@ -293,7 +293,7 @@ impl Interpreter {
                             for (k, v) in exports.iter() {
                                 map.insert(k.clone(), v.clone());
                             }
-                            self.env.define(local.name.clone(), Value::Object(map), true);
+                            self.env.define(local.name.clone(), Value::object(map), true);
                         }
                     }
                 }
@@ -378,8 +378,8 @@ impl Interpreter {
                 self.destructure_pattern(inner, value, is_const, span)
             }
             Pattern::Array { elements, rest, .. } => {
-                let items = match &value {
-                    Value::Array(arr) => arr.clone(),
+                let items: Vec<Value> = match &value {
+                    Value::Array(arr) => arr.borrow().clone(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Невозможно деструктурировать {} как массив", value.type_name()),
@@ -398,14 +398,14 @@ impl Interpreter {
                 if let Some(rest_pat) = rest {
                     let start = elements.len();
                     let rest_items = if start < items.len() { items[start..].to_vec() } else { Vec::new() };
-                    self.destructure_pattern(rest_pat, Value::Array(rest_items), is_const, span)?;
+                    self.destructure_pattern(rest_pat, Value::array(rest_items), is_const, span)?;
                 }
 
                 Ok(())
             }
             Pattern::Object { properties, rest, .. } => {
-                let mut map = match value {
-                    Value::Object(map) => map,
+                let map: std::collections::HashMap<String, Value> = match value {
+                    Value::Object(map) => map.borrow().clone(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Невозможно деструктурировать {} как объект", value.type_name()),
@@ -428,10 +428,11 @@ impl Interpreter {
                 }
 
                 if let Some(rest_pat) = rest {
+                    let mut rest_map = map;
                     for key in &used_keys {
-                        map.remove(key);
+                        rest_map.remove(key);
                     }
-                    self.destructure_pattern(rest_pat, Value::Object(map), is_const, span)?;
+                    self.destructure_pattern(rest_pat, Value::object(rest_map), is_const, span)?;
                 }
 
                 Ok(())
@@ -479,10 +480,10 @@ impl Interpreter {
             return Ok(None);
         }
         let items: Vec<Value> = match val {
-            Value::Array(elements) => elements,
+            Value::Array(elements) => elements.borrow().clone(),
             Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
             Value::Set(s) => s,
-            Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::Array(vec![k, v])).collect(),
+            Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::array(vec![k, v])).collect(),
             Value::TypedArray { buffer, offset, length, kind } => {
                 crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
             }
