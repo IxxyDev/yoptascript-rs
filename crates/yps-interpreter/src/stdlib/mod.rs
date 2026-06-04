@@ -1,6 +1,7 @@
 pub mod abort;
 pub mod array;
 pub mod console;
+pub mod data_view;
 pub mod date;
 pub mod error;
 pub mod fs;
@@ -13,11 +14,13 @@ pub mod number;
 pub mod object;
 pub mod process;
 pub mod promise;
+pub mod reflect;
 pub mod regexp;
 pub mod set;
 pub mod stdio;
 pub mod string;
 pub mod symbol;
+pub mod typed_array;
 
 use std::collections::HashMap;
 
@@ -45,6 +48,8 @@ pub fn call_method(
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
         Value::RegExp { .. } => regexp::call(interp, receiver, method, args, span),
+        Value::TypedArray { .. } => typed_array::call(interp, receiver, method, args, span),
+        Value::DataView { .. } => data_view::call(interp, receiver, method, args, span),
         Value::AbortController { .. } | Value::AbortSignal { .. } => abort::call(interp, receiver, method, args, span),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
@@ -85,6 +90,9 @@ pub fn call_static_namespaced(
     }
     if let Some(stripped) = namespaced.strip_prefix("Итератор.") {
         return Some(iterator::call_static(interp, stripped, args, span));
+    }
+    if let Some(stripped) = namespaced.strip_prefix("Отражение.") {
+        return Some(reflect::call_static(interp, stripped, args, span));
     }
     if let Some(stripped) = namespaced.strip_prefix("Косяк.") {
         return Some(error::call_static(interp, stripped, args, span));
@@ -143,6 +151,15 @@ pub fn call_static_namespaced(
     if namespaced == "СловоПацана" {
         return Some(promise::construct(interp, args, span));
     }
+    if namespaced == "ОбластьБайтов" {
+        return Some(typed_array::construct_array_buffer(args, span));
+    }
+    if namespaced == "ОбзорБайтов" {
+        return Some(data_view::construct(args, span));
+    }
+    if let Some(kind) = typed_array::kind_from_name(namespaced) {
+        return Some(typed_array::construct(kind, args, span));
+    }
     None
 }
 
@@ -164,6 +181,18 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("ФС".to_string(), fs::build_object()),
         ("Процесс".to_string(), process::build_object()),
         ("Сеть".to_string(), network::build_object()),
+        ("Отражение".to_string(), reflect::build_object()),
+        ("ОбластьБайтов".to_string(), Value::BuiltinFunction("ОбластьБайтов".to_string())),
+        ("Ц8Массив".to_string(), Value::BuiltinFunction("Ц8Массив".to_string())),
+        ("Ц8ОграниченныйМассив".to_string(), Value::BuiltinFunction("Ц8ОграниченныйМассив".to_string())),
+        ("Ч8Массив".to_string(), Value::BuiltinFunction("Ч8Массив".to_string())),
+        ("Ц16Массив".to_string(), Value::BuiltinFunction("Ц16Массив".to_string())),
+        ("Ч16Массив".to_string(), Value::BuiltinFunction("Ч16Массив".to_string())),
+        ("Ц32Массив".to_string(), Value::BuiltinFunction("Ц32Массив".to_string())),
+        ("Ч32Массив".to_string(), Value::BuiltinFunction("Ч32Массив".to_string())),
+        ("Др32Массив".to_string(), Value::BuiltinFunction("Др32Массив".to_string())),
+        ("Др64Массив".to_string(), Value::BuiltinFunction("Др64Массив".to_string())),
+        ("ОбзорБайтов".to_string(), Value::BuiltinFunction("ОбзорБайтов".to_string())),
     ]
 }
 
