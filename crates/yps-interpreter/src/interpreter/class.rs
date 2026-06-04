@@ -290,7 +290,7 @@ impl Interpreter {
         Ok(None)
     }
 
-    pub(super) fn construct_instance(
+    pub(crate) fn construct_instance(
         &mut self,
         class_val: Value,
         args: Vec<Value>,
