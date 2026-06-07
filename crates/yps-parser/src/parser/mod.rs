@@ -14,6 +14,7 @@ pub struct Parser<'a> {
     source: &'a SourceFile,
     position: usize,
     diagnostics: Vec<Diagnostic>,
+    unexpected_eof: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -22,10 +23,10 @@ impl<'a> Parser<'a> {
             matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)),
             "Parser::new требует, чтобы tokens заканчивался TokenKind::Eof"
         );
-        Self { tokens, source, position: 0, diagnostics: Vec::new() }
+        Self { tokens, source, position: 0, diagnostics: Vec::new(), unexpected_eof: false }
     }
 
-    pub fn parse_program(mut self) -> (Program, Vec<Diagnostic>) {
+    pub fn parse_program_extended(mut self) -> (Program, Vec<Diagnostic>, bool) {
         let mut items = Vec::new();
 
         while !self.is_at_end() {
@@ -42,7 +43,13 @@ impl<'a> Parser<'a> {
         }
 
         let program = Program { items };
-        (program, self.diagnostics)
+        let unexpected_eof = self.unexpected_eof;
+        (program, self.diagnostics, unexpected_eof)
+    }
+
+    pub fn parse_program(self) -> (Program, Vec<Diagnostic>) {
+        let (program, diagnostics, _) = self.parse_program_extended();
+        (program, diagnostics)
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ()> {
@@ -1859,6 +1866,12 @@ impl<'a> Parser<'a> {
     }
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) {
+        if self.diagnostics.is_empty()
+            && let Some(eof_tok) = self.tokens.last()
+            && span.start >= eof_tok.span.start
+        {
+            self.unexpected_eof = true;
+        }
         self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span });
     }
 
@@ -4057,5 +4070,61 @@ mod tests {
     fn synchronize_does_not_hang_on_missing_semi_in_arrow_block() {
         let (_, diags) = parse_program_from_source("ф(() => { z = 1 });\n");
         assert!(!diags.is_empty(), "ожидалась диагностика на пропущенную ';' в теле стрелки");
+    }
+
+    fn parse_extended(src: &str) -> (Program, Vec<Diagnostic>, bool) {
+        let source = SourceFile::new("<test>".to_string(), src.to_string());
+        let lexer = yps_lexer::Lexer::new(&source);
+        let (tokens, _) = lexer.tokenize();
+        Parser::new(&tokens, &source).parse_program_extended()
+    }
+
+    #[test]
+    fn unexpected_eof_unclosed_block() {
+        let (_, diags, eof) = parse_extended("гыы x = {");
+        assert!(!diags.is_empty());
+        assert!(eof, "незакрытый блок должен давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_unclosed_paren() {
+        let (_, diags, eof) = parse_extended("вилкойвглаз (x");
+        assert!(!diags.is_empty());
+        assert!(eof, "незакрытая скобка должна давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_mid_error() {
+        let (_, diags, eof) = parse_extended("гыы x = ;");
+        assert!(!diags.is_empty());
+        assert!(!eof, "ошибка в середине не должна давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_valid() {
+        let (_, diags, eof) = parse_extended("гыы x = 1;");
+        assert!(diags.is_empty());
+        assert!(!eof, "валидная программа не должна давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_bigint_overflow() {
+        let (_, diags, eof) = parse_extended("99999999999999999999999999999999999999999999n");
+        assert!(!diags.is_empty(), "ожидалась диагностика BigInt");
+        assert!(!eof, "BigInt-переполнение не должно давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_asso_without_func() {
+        let (_, diags, eof) = parse_extended("ассо");
+        assert!(!diags.is_empty());
+        assert!(!eof, "'ассо' без продолжения не должно давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn unexpected_eof_true_for_unclosed_if_block() {
+        let (_, diags, eof) = parse_extended("вилкойвглаз (х > 5) {");
+        assert!(!diags.is_empty());
+        assert!(eof, "незакрытый блок if должен давать unexpected_eof=true");
     }
 }
