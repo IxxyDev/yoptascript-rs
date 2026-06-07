@@ -99,14 +99,41 @@ impl Interpreter {
     }
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
+        self.run_internal(program, false).map(|_| ())
+    }
+
+    pub fn run_repl(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
+        let result = self.run_internal(program, true);
+        self.clear_pending_tasks();
+        result
+    }
+
+    fn clear_pending_tasks(&mut self) {
+        self.microtasks.clear();
+        self.macrotasks.clear();
+    }
+
+    fn run_internal(&mut self, program: &Program, capture_last: bool) -> Result<Option<Value>, RuntimeError> {
         self.call_stack.clear();
         self.hoist_functions(&program.items);
+        let mut last: Option<Value> = None;
         for stmt in &program.items {
+            if capture_last {
+                if let yps_parser::ast::Stmt::Expr { expr, .. } = stmt {
+                    self.pending_label.take();
+                    let val = self.eval_expr(expr)?;
+                    self.drain_microtasks(Span { start: 0, end: 0 })?;
+                    last = Some(val);
+                    continue;
+                } else {
+                    last = None;
+                }
+            }
             let cf_opt = self.exec_stmt(stmt)?;
             self.drain_microtasks(Span { start: 0, end: 0 })?;
             if let Some(cf) = cf_opt {
                 match cf {
-                    ControlFlow::Return(_) => return Ok(()),
+                    ControlFlow::Return(_) => return Ok(last),
                     ControlFlow::Break(label) => {
                         return Err(RuntimeError::new(
                             label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
@@ -129,7 +156,7 @@ impl Interpreter {
             }
         }
         self.drive_event_loop(Span { start: 0, end: 0 })?;
-        Ok(())
+        Ok(last)
     }
 }
 
