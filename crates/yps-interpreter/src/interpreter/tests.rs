@@ -8622,3 +8622,34 @@ fn run_repl_ghost_timer_does_not_fire_after_error() {
     let result = interp.run_repl(&prog_check).unwrap();
     assert_eq!(result, Some(Value::Number(0.0)));
 }
+
+#[test]
+fn named_function_expr_supports_recursion() {
+    let interp = run_code(
+        r#"
+        гыы ф = йопта фиб(н) { вилкойвглаз (н < 2) { отвечаю н; } отвечаю фиб(н - 1) + фиб(н - 2); };
+        гыы рез = ф(10);
+        "#,
+    );
+    assert_eq!(interp.get("рез").unwrap(), Value::Number(55.0));
+    assert!(interp.get("фиб").is_none());
+}
+
+#[test]
+fn named_function_expr_display_uses_name() {
+    let interp = run_code("гыы ф = йопта фиб(н) { отвечаю н; };");
+    let func = interp.get("ф").unwrap();
+    assert_eq!(func.to_string(), "[функция фиб]");
+}
+
+#[test]
+fn anon_function_expr_still_works() {
+    let interp = run_code(
+        r#"
+        гыы ф = йопта(х) { отвечаю х * 2; };
+        гыы рез = ф(21);
+        "#,
+    );
+    assert_eq!(interp.get("рез").unwrap(), Value::Number(42.0));
+    assert_eq!(interp.get("ф").unwrap().to_string(), "[анонимная функция]");
+}
