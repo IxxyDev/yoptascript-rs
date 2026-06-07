@@ -1240,7 +1240,20 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let name = self.parse_identifier()?;
+        let (params, body) = self.parse_function_params_and_body()?;
+        let end = body.span.end;
 
+        Ok(Stmt::FunctionDecl {
+            name,
+            params: params.into(),
+            body: Rc::new(body),
+            is_generator,
+            is_async,
+            span: Span { start, end },
+        })
+    }
+
+    fn parse_function_params_and_body(&mut self) -> Result<(Vec<Param>, Block), ()> {
         if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let span = self.current().span;
             self.push_error(span, "Ожидалась '(' после имени функции");
@@ -1258,16 +1271,23 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let body = self.parse_block()?;
+        Ok((params, body))
+    }
+
+    fn parse_function_expr(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.parse_function_expr_inner(start, false)
+    }
+
+    fn parse_function_expr_inner(&mut self, start: usize, is_async: bool) -> Result<Expr, ()> {
+        self.advance();
+
+        let name =
+            if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
+        let (params, body) = self.parse_function_params_and_body()?;
         let end = body.span.end;
 
-        Ok(Stmt::FunctionDecl {
-            name,
-            params: params.into(),
-            body: Rc::new(body),
-            is_generator,
-            is_async,
-            span: Span { start, end },
-        })
+        Ok(Expr::FunctionExpr { name, params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
     }
 
     fn parse_async_stmt(&mut self) -> Result<Stmt, ()> {
@@ -1284,15 +1304,7 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
         if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Yopta)) {
-            let stmt = self.parse_function_decl_inner(false, true)?;
-            match stmt {
-                Stmt::FunctionDecl { name, params, body, is_generator, is_async, span } => {
-                    let _ = name;
-                    let _ = is_generator;
-                    Ok(Expr::ArrowFunction { params, body, is_async, span: Span { start, end: span.end } })
-                }
-                _ => unreachable!(),
-            }
+            self.parse_function_expr_inner(start, true)
         } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let saved_pos = self.position;
             let saved_diag_len = self.diagnostics.len();
@@ -2034,6 +2046,7 @@ impl<'a> Parser<'a> {
                 Expr::Await { argument: Box::new(expr), span: Span { start, end } }
             }
             TokenKind::Keyword(KeywordKind::Async) => self.parse_async_expr()?,
+            TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_expr()?,
             TokenKind::Keyword(KeywordKind::New) => self.parse_new_expr()?,
             TokenKind::Keyword(KeywordKind::Import)
                 if matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen)) =>
@@ -3946,9 +3959,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parser_does_not_hang_on_yopta_in_call_arg() {
-        let (_, diags) = parse_program_from_source("сказать(йопта(v) {});");
-        assert!(!diags.is_empty(), "ожидались диагностики, парсер должен сообщить об ошибке");
+    fn test_parser_accepts_yopta_function_expr_in_call_arg() {
+        let (prog, diags) = parse_program_from_source("сказать(йопта(v) {});");
+        assert!(
+            diags.is_empty(),
+            "function expression в аргументе должен парситься без ошибок: {:?}",
+            diag_messages(&diags)
+        );
+        assert_eq!(prog.items.len(), 1);
     }
 
     #[test]
@@ -4126,5 +4144,49 @@ mod tests {
         let (_, diags, eof) = parse_extended("вилкойвглаз (х > 5) {");
         assert!(!diags.is_empty());
         assert!(eof, "незакрытый блок if должен давать unexpected_eof=true");
+    }
+
+    #[test]
+    fn function_expr_anon_in_call_arg() {
+        let (prog, diags) = parse_program_from_source("чутка(йопта() { сказать(1); }, 10);");
+        assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+        assert_eq!(prog.items.len(), 1);
+        let Stmt::Expr { expr: Expr::Call { args, .. }, .. } = &prog.items[0] else {
+            panic!("Ожидался Stmt::Expr с вызовом, получено {:?}", prog.items[0]);
+        };
+        assert_eq!(args.len(), 2);
+        assert!(matches!(&args[0], Expr::FunctionExpr { name: None, .. }));
+    }
+
+    #[test]
+    fn function_expr_anon_in_var_decl() {
+        let (prog, diags) = parse_program_from_source("гыы ф = йопта() { отвечаю 1; };");
+        assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+        assert_eq!(prog.items.len(), 1);
+        let Stmt::VarDecl { init, .. } = &prog.items[0] else {
+            panic!("Ожидался Stmt::VarDecl, получено {:?}", prog.items[0]);
+        };
+        assert!(matches!(init, Expr::FunctionExpr { name: None, .. }));
+    }
+
+    #[test]
+    fn function_expr_named_in_var_decl() {
+        let (prog, diags) = parse_program_from_source("гыы ф = йопта имя() { отвечаю 1; };");
+        assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+        assert_eq!(prog.items.len(), 1);
+        let Stmt::VarDecl { init, .. } = &prog.items[0] else {
+            panic!("Ожидался Stmt::VarDecl, получено {:?}", prog.items[0]);
+        };
+        let Expr::FunctionExpr { name: Some(name), .. } = init else {
+            panic!("Ожидался именованный FunctionExpr, получено {init:?}");
+        };
+        assert_eq!(name.name, "имя");
+    }
+
+    #[test]
+    fn function_decl_top_level_still_works() {
+        let (prog, diags) = parse_program_from_source("йопта ф() { отвечаю 1; }");
+        assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+        assert!(matches!(prog.items[0], crate::ast::Stmt::FunctionDecl { .. }));
     }
 }

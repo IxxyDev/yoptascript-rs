@@ -818,6 +818,19 @@ impl Printer<'_> {
                     self.write(")");
                 }
             }
+            Expr::FunctionExpr { name, params, body, is_async, .. } => {
+                if *is_async {
+                    self.write("ассо ");
+                }
+                self.write("йопта");
+                if let Some(name) = name {
+                    self.write(" ");
+                    self.write(&name.name);
+                }
+                self.print_params(params);
+                self.write(" ");
+                self.print_block(body);
+            }
             Expr::Spread { expr, .. } => {
                 self.write("...");
                 self.print_expr(expr, 0);
@@ -996,7 +1009,10 @@ fn is_ident_named(pattern: &Pattern, name: &str) -> bool {
 }
 
 fn stmt_expr_needs_parens(expr: &Expr) -> bool {
-    matches!(starting_expr(expr), Expr::Literal(Literal::Object { .. }) | Expr::ArrowFunction { .. })
+    matches!(
+        starting_expr(expr),
+        Expr::Literal(Literal::Object { .. }) | Expr::ArrowFunction { .. } | Expr::FunctionExpr { .. }
+    )
 }
 
 fn starting_expr(expr: &Expr) -> &Expr {

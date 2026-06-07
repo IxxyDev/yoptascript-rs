@@ -558,4 +558,36 @@ mod suite {
         let out = format_source(src).unwrap();
         assert!(!out.already_formatted, "флаг already_formatted должен быть false для неканонического ввода");
     }
+
+    #[test]
+    fn function_expr_anon_prints_canonically() {
+        let src = "гыы ф = йопта(х) { отвечаю х; };\n";
+        let out = parse_and_format(src);
+        assert_eq!(out, "гыы ф = йопта(х) {\n    отвечаю х;\n};\n");
+        assert!(programs_equivalent_str(src, &out));
+    }
+
+    #[test]
+    fn function_expr_named_prints_name() {
+        let src = "гыы ф = йопта фиб(н) { отвечаю н; };\n";
+        let out = parse_and_format(src);
+        assert_eq!(out, "гыы ф = йопта фиб(н) {\n    отвечаю н;\n};\n");
+        assert!(programs_equivalent_str(src, &out));
+    }
+
+    #[test]
+    fn function_expr_async_prints_asso_prefix() {
+        let src = "гыы ф = ассо йопта(х) { отвечаю х; };\n";
+        let out = parse_and_format(src);
+        assert_eq!(out, "гыы ф = ассо йопта(х) {\n    отвечаю х;\n};\n");
+        assert!(programs_equivalent_str(src, &out));
+    }
+
+    #[test]
+    fn function_expr_in_call_arg_round_trips() {
+        let src = "чутка(йопта() { сказать(1); }, 10);\n";
+        let out = parse_and_format(src);
+        assert!(programs_equivalent_str(src, &out));
+        assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для function expression в аргументе");
+    }
 }
