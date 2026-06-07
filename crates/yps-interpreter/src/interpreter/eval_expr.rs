@@ -4,6 +4,7 @@ use std::rc::Rc;
 use yps_lexer::Span;
 use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, TemplatePart, UnaryOp};
 
+use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
 use crate::value::Value;
@@ -247,6 +248,30 @@ impl Interpreter {
                 };
                 Ok(func)
             }
+            Expr::FunctionExpr { name, params, body, is_async, .. } => match name {
+                Some(ident) => {
+                    let mut fn_env = Environment::from_snapshot(self.env.snapshot());
+                    fn_env.push_scope();
+                    let func = Value::Function {
+                        name: Rc::from(ident.name.as_str()),
+                        params: params.clone(),
+                        body: body.clone(),
+                        env: fn_env.snapshot(),
+                        is_generator: false,
+                        is_async: *is_async,
+                    };
+                    fn_env.define(ident.name.clone(), func.clone(), false);
+                    Ok(func)
+                }
+                None => Ok(Value::Function {
+                    name: Rc::from(""),
+                    params: params.clone(),
+                    body: body.clone(),
+                    env: self.env.snapshot(),
+                    is_generator: false,
+                    is_async: *is_async,
+                }),
+            },
             Expr::Await { argument, span } => {
                 let val = self.eval_expr(argument)?;
                 self.do_await(val, *span)

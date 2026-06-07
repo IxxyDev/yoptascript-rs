@@ -27,6 +27,8 @@ Run a single test: `cargo test -p yps-interpreter test_name`
 
 Run the CLI: `cargo run -p yps-cli -- examples/hello.yop`
 
+Run the REPL: `cargo run -p yps-cli` or `cargo run -p yps-cli -- repl`
+
 Format a `.yop` file: `cargo run -p yps-cli -- fmt examples/hello.yop [--write|-w] [--check]`
 
 ## Architecture
