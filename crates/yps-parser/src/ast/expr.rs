@@ -47,6 +47,8 @@ pub enum Expr {
 
     ArrowFunction { params: Rc<[Param]>, body: Rc<Block>, is_async: bool, span: Span },
 
+    FunctionExpr { name: Option<Identifier>, params: Rc<[Param]>, body: Rc<Block>, is_async: bool, span: Span },
+
     TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
 
     TaggedTemplate { tag: Box<Expr>, quasis: Vec<TemplateQuasi>, expressions: Vec<Expr>, span: Span },
@@ -95,6 +97,7 @@ impl Expr {
             | Self::OptionalCall { span, .. }
             | Self::Conditional { span, .. }
             | Self::ArrowFunction { span, .. }
+            | Self::FunctionExpr { span, .. }
             | Self::TemplateLiteral { span, .. }
             | Self::TaggedTemplate { span, .. }
             | Self::Spread { span, .. }

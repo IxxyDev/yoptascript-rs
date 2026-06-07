@@ -4,20 +4,40 @@ use std::io::{self, Write as IoWrite};
 use std::path::PathBuf;
 use std::process;
 
-use yps_interpreter::Interpreter;
-use yps_lexer::{Lexer, SourceFile};
+use yps_interpreter::{Interpreter, RuntimeError};
+use yps_lexer::{Diagnostic, Lexer, SourceFile};
 use yps_parser::Parser;
+
+mod repl;
+
+pub(crate) fn print_diagnostics(source: &SourceFile, diagnostics: &[Diagnostic], name: &str) {
+    for d in diagnostics {
+        let (line, col) = source.position(d.span.start);
+        eprintln!("{name}:{line}:{col}: {:?}: {}", d.severity, d.message);
+    }
+}
+
+pub(crate) fn print_runtime_error(source: &SourceFile, e: &RuntimeError, name: &str) {
+    let (line_n, col) = source.position(e.span.start);
+    eprintln!("{name}:{line_n}:{col}: {e}");
+    for frame in &e.stack {
+        let (fl, fc) = source.position(frame.span.start);
+        eprintln!("  в {}:{name}:{fl}:{fc}", frame.name);
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Использование: yps <файл.yop> | yps fmt <файл.yop> [--write|-w] [--check]");
-        process::exit(1);
+        repl::run_repl();
+        return;
     }
 
     if args[1] == "fmt" {
         run_fmt(&args[2..]);
+    } else if args[1] == "repl" {
+        repl::run_repl();
     } else {
         run_interpret(&args[1]);
     }
@@ -117,10 +137,7 @@ fn run_interpret(filename: &str) {
     let (tokens, lex_diagnostics) = lexer.tokenize();
 
     if !lex_diagnostics.is_empty() {
-        for d in &lex_diagnostics {
-            let (line, col) = source.position(d.span.start);
-            eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
-        }
+        print_diagnostics(&source, &lex_diagnostics, filename);
         process::exit(1);
     }
 
@@ -128,10 +145,7 @@ fn run_interpret(filename: &str) {
     let (program, parse_diagnostics) = parser.parse_program();
 
     if !parse_diagnostics.is_empty() {
-        for d in &parse_diagnostics {
-            let (line, col) = source.position(d.span.start);
-            eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
-        }
+        print_diagnostics(&source, &parse_diagnostics, filename);
         process::exit(1);
     }
 
@@ -140,12 +154,7 @@ fn run_interpret(filename: &str) {
         interpreter.set_base_path(parent);
     }
     if let Err(e) = interpreter.run(&program) {
-        let (line, col) = source.position(e.span.start);
-        eprintln!("{filename}:{line}:{col}: {e}");
-        for frame in &e.stack {
-            let (fl, fc) = source.position(frame.span.start);
-            eprintln!("  в {}:{filename}:{fl}:{fc}", frame.name);
-        }
+        print_runtime_error(&source, &e, filename);
         process::exit(1);
     }
 }

@@ -75,6 +75,11 @@ impl MacrotaskQueue {
         id
     }
 
+    pub fn clear(&mut self) {
+        self.heap.clear();
+        self.cancelled.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.heap.iter().all(|t| self.cancelled.contains(&t.id))
     }
