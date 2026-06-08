@@ -22,6 +22,10 @@ pub const ADD_INITIALIZER_BUILTIN: &str = "__добавитьИнициализ�
 
 pub const GETTER_PREFIX: &str = "__get_";
 pub const SETTER_PREFIX: &str = "__set_";
+
+pub const TO_PRIMITIVE_METHOD: &str = "вПримитив";
+pub const VALUE_OF_METHOD: &str = "вЧисло";
+pub const TO_STRING_METHOD: &str = "вСтроку";
 const ACCESSOR_SUFFIX: &str = "__";
 
 #[must_use]

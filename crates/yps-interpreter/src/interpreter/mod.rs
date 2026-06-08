@@ -16,6 +16,7 @@ pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(),
 mod assign;
 mod call;
 mod class;
+pub(crate) mod coercion;
 mod delete;
 mod eval_expr;
 mod event_loop;
@@ -34,16 +35,18 @@ pub struct Interpreter {
     pub(super) env: Environment,
     pub(super) pending_initializers: Vec<Value>,
     pub(super) base_path: Option<PathBuf>,
-    pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
+    pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, module_loader::ModuleState>>>,
     pub(super) current_exports: HashMap<String, Value>,
     pub(super) microtasks: VecDeque<Microtask>,
     pub(super) macrotasks: MacrotaskQueue,
     pub(super) await_depth: usize,
     pub(super) pending_label: Option<String>,
     pub(super) call_stack: Vec<Frame>,
+    pub(super) coercion_depth: usize,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
+pub(super) const MAX_COERCION_DEPTH: usize = 100;
 
 impl Default for Interpreter {
     fn default() -> Self {
@@ -72,6 +75,7 @@ impl Interpreter {
             await_depth: 0,
             pending_label: None,
             call_stack: Vec::new(),
+            coercion_depth: 0,
         }
     }
 

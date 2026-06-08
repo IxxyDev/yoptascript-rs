@@ -10,6 +10,7 @@ use crate::symbols;
 use crate::value::Value;
 
 use super::Interpreter;
+use super::coercion::{self, PrimitiveHint};
 
 impl Interpreter {
     pub(super) fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -506,7 +507,7 @@ impl Interpreter {
     }
 
     pub(super) fn eval_binary(
-        &self,
+        &mut self,
         op: BinaryOp,
         left: Value,
         right: Value,
@@ -537,16 +538,7 @@ impl Interpreter {
         }
 
         match op {
-            BinaryOp::Add => match (&left, &right) {
-                (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
-                (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
-                (Value::String(a), _) => Ok(Value::String(format!("{a}{right}"))),
-                (_, Value::String(b)) => Ok(Value::String(format!("{left}{b}"))),
-                _ => Err(RuntimeError::new(
-                    format!("Нельзя сложить '{}' и '{}'", left.type_name(), right.type_name()),
-                    span,
-                )),
-            },
+            BinaryOp::Add => self.add_values(&left, &right, span),
             BinaryOp::Sub => self.numeric_op(&left, &right, span, |a, b| a - b),
             BinaryOp::Mul => self.numeric_op(&left, &right, span, |a, b| a * b),
             BinaryOp::Div => {
@@ -559,8 +551,10 @@ impl Interpreter {
             }
             BinaryOp::Mod => self.numeric_op(&left, &right, span, |a, b| a % b),
             BinaryOp::Exp => self.numeric_op(&left, &right, span, |a, b| a.powf(b)),
-            BinaryOp::Equals | BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
-            BinaryOp::NotEquals | BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
+            BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
+            BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
+            BinaryOp::Equals => Ok(Value::Boolean(self.abstract_equals(&left, &right, span)?)),
+            BinaryOp::NotEquals => Ok(Value::Boolean(!self.abstract_equals(&left, &right, span)?)),
             BinaryOp::Less => self.compare_op(&left, &right, span, |a, b| a < b),
             BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
@@ -614,6 +608,125 @@ impl Interpreter {
         }
     }
 
+    fn abstract_equals(&mut self, left: &Value, right: &Value, span: Span) -> Result<bool, RuntimeError> {
+        match (left, right) {
+            (Value::Null | Value::Undefined, Value::Null | Value::Undefined) => Ok(true),
+
+            (Value::Number(a), Value::Number(b)) => Ok(a == b),
+            (Value::BigInt(a), Value::BigInt(b)) => Ok(a == b),
+            (Value::String(a), Value::String(b)) => Ok(a == b),
+            (Value::Boolean(a), Value::Boolean(b)) => Ok(a == b),
+            (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => Ok(a == b),
+
+            (Value::Number(a), Value::String(b)) => Ok(*a == coercion::string_to_number(b)),
+            (Value::String(a), Value::Number(b)) => Ok(coercion::string_to_number(a) == *b),
+
+            (Value::BigInt(a), Value::String(b)) => Ok(bigint_eq_str(*a, b)),
+            (Value::String(a), Value::BigInt(b)) => Ok(bigint_eq_str(*b, a)),
+
+            (Value::BigInt(a), Value::Number(b)) => Ok(bigint_eq_number(*a, *b)),
+            (Value::Number(a), Value::BigInt(b)) => Ok(bigint_eq_number(*b, *a)),
+
+            (Value::Boolean(_), _) => {
+                let coerced = Value::Number(coercion::to_number(left));
+                self.abstract_equals(&coerced, right, span)
+            }
+            (_, Value::Boolean(_)) => {
+                let coerced = Value::Number(coercion::to_number(right));
+                self.abstract_equals(left, &coerced, span)
+            }
+
+            (Value::Number(_) | Value::String(_) | Value::BigInt(_) | Value::Symbol { .. }, _)
+                if is_object_like(right) =>
+            {
+                let prim = self.to_primitive(right, PrimitiveHint::Default, span)?;
+                self.abstract_equals(left, &prim, span)
+            }
+            (_, Value::Number(_) | Value::String(_) | Value::BigInt(_) | Value::Symbol { .. })
+                if is_object_like(left) =>
+            {
+                let prim = self.to_primitive(left, PrimitiveHint::Default, span)?;
+                self.abstract_equals(&prim, right, span)
+            }
+
+            _ => Ok(left == right),
+        }
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
+        if !matches!(value, Value::Object(_)) {
+            return Ok(coercion::to_primitive_builtin(value, hint));
+        }
+
+        if self.coercion_depth >= super::MAX_COERCION_DEPTH {
+            return Err(RuntimeError::new("Превышена глубина коэрции в примитив", span));
+        }
+        self.coercion_depth += 1;
+        let result = self.object_to_primitive(value, hint, span);
+        self.coercion_depth -= 1;
+        result
+    }
+
+    fn object_to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
+        if let Some(res) = self.try_call_object_method(value, symbols::TO_PRIMITIVE_METHOD, hint_arg(hint), span)? {
+            if coercion::is_primitive(&res) {
+                return Ok(res);
+            }
+            return Err(RuntimeError::new("'вПримитив' вернул не примитив", span));
+        }
+
+        let order: [&str; 2] = match hint {
+            PrimitiveHint::String => [symbols::TO_STRING_METHOD, symbols::VALUE_OF_METHOD],
+            PrimitiveHint::Number | PrimitiveHint::Default => [symbols::VALUE_OF_METHOD, symbols::TO_STRING_METHOD],
+        };
+
+        let mut had_method = false;
+        for method in order {
+            if let Some(res) = self.try_call_object_method(value, method, Vec::new(), span)? {
+                had_method = true;
+                if coercion::is_primitive(&res) {
+                    return Ok(res);
+                }
+            }
+        }
+
+        if had_method {
+            return Err(RuntimeError::new("Не удалось привести объект к примитиву", span));
+        }
+
+        Ok(coercion::to_primitive_builtin(value, hint))
+    }
+
+    fn try_call_object_method(
+        &mut self,
+        receiver: &Value,
+        method: &str,
+        args: Vec<Value>,
+        span: Span,
+    ) -> Result<Option<Value>, RuntimeError> {
+        let Value::Object(map) = receiver else {
+            return Ok(None);
+        };
+        let func = map.borrow().get(method).cloned();
+        let Some(Value::Function { name, params, body, env, .. }) = func else {
+            return Ok(None);
+        };
+        let res = self.call_method_with_this(name, &params, &body, &env, args, Some(receiver.clone()), span)?;
+        Ok(Some(res))
+    }
+
+    fn add_values(&mut self, left: &Value, right: &Value, span: Span) -> Result<Value, RuntimeError> {
+        let lp = self.to_primitive(left, PrimitiveHint::Default, span)?;
+        let rp = self.to_primitive(right, PrimitiveHint::Default, span)?;
+        if matches!(lp, Value::String(_)) || matches!(rp, Value::String(_)) {
+            let mut s = coercion::to_ecma_string(&lp);
+            s.push_str(&coercion::to_ecma_string(&rp));
+            return Ok(Value::String(s));
+        }
+        Ok(Value::Number(coercion::to_number(&lp) + coercion::to_number(&rp)))
+    }
+
     fn bigint_op(op: BinaryOp, a: i128, b: i128, span: Span) -> Result<Value, RuntimeError> {
         let checked = match op {
             BinaryOp::Add => a.checked_add(b),
@@ -644,5 +757,32 @@ impl Interpreter {
             _ => unreachable!("bigint_op: неподдерживаемая операция"),
         };
         checked.map(Value::BigInt).ok_or_else(|| RuntimeError::new("Переполнение бигцелого", span))
+    }
+}
+
+fn is_object_like(value: &Value) -> bool {
+    !coercion::is_primitive(value) && !matches!(value, Value::Null | Value::Undefined)
+}
+
+fn hint_arg(hint: PrimitiveHint) -> Vec<Value> {
+    let s = match hint {
+        PrimitiveHint::Number => "число",
+        PrimitiveHint::String => "строка",
+        PrimitiveHint::Default => "умолчание",
+    };
+    vec![Value::String(s.to_string())]
+}
+
+fn bigint_eq_number(a: i128, b: f64) -> bool {
+    if !b.is_finite() || b.fract() != 0.0 {
+        return false;
+    }
+    (a as f64) == b && (b as i128) == a
+}
+
+fn bigint_eq_str(a: i128, s: &str) -> bool {
+    match s.trim().parse::<i128>() {
+        Ok(n) => n == a,
+        Err(_) => false,
     }
 }

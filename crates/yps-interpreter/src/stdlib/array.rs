@@ -89,7 +89,7 @@ pub fn call(
             let target = &args[0];
             let start = if args.len() > 1 { as_number(&args[1], span, "indexOf")? as usize } else { 0 };
             let snapshot = rc.borrow().clone();
-            let idx = snapshot.iter().enumerate().skip(start).find(|(_, v)| same_value_zero(v, target)).map(|(i, _)| i);
+            let idx = snapshot.iter().enumerate().skip(start).find(|(_, v)| *v == target).map(|(i, _)| i);
             Ok(Value::Number(idx.map(|i| i as f64).unwrap_or(-1.0)))
         }
         "includes" | "включает" => {
@@ -403,4 +403,24 @@ fn flatten(arr: Vec<Value>, depth: isize) -> Vec<Value> {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    fn eval(src: &str) -> crate::value::Value {
+        let source = yps_lexer::SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        let (program, _) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        crate::interpreter::Interpreter::new().run_repl(&program).unwrap().unwrap()
+    }
+
+    #[test]
+    fn nan_includes_nan() {
+        assert_eq!(eval("[нихуя].включает(нихуя);"), crate::value::Value::Boolean(true));
+    }
+
+    #[test]
+    fn nan_index_of_nan_is_minus_one() {
+        assert_eq!(eval("[нихуя].найтиИндекс(нихуя);"), crate::value::Value::Number(-1.0));
+    }
 }
