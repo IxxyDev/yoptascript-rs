@@ -686,7 +686,10 @@ impl Value {
 }
 
 pub fn same_value_zero(a: &Value, b: &Value) -> bool {
-    a == b
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x == y || (x.is_nan() && y.is_nan()),
+        _ => a == b,
+    }
 }
 
 impl PartialEq for Value {
