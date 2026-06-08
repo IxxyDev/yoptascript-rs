@@ -1,0 +1,5 @@
+valueOf+0: 42
+valueOf==42: true
+toString-concat: привет
+default-valueOf: 8
+вПримитив-приоритет: 100

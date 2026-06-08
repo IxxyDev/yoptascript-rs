@@ -1,14 +1,15 @@
-#![allow(dead_code)]
-
 use crate::value::Value;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PrimitiveHint {
+    #[allow(dead_code)]
     Number,
+    #[allow(dead_code)]
     String,
     Default,
 }
 
+#[allow(dead_code)]
 pub(crate) fn to_boolean(value: &Value) -> bool {
     value.is_truthy()
 }
@@ -82,6 +83,7 @@ pub(crate) fn to_ecma_string(value: &Value) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn to_property_key(value: &Value) -> String {
     to_ecma_string(value)
 }

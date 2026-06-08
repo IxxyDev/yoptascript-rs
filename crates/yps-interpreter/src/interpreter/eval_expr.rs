@@ -654,8 +654,66 @@ impl Interpreter {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn to_primitive(&mut self, value: &Value, hint: PrimitiveHint, _span: Span) -> Result<Value, RuntimeError> {
+    fn to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
+        if !matches!(value, Value::Object(_)) {
+            return Ok(coercion::to_primitive_builtin(value, hint));
+        }
+
+        if self.coercion_depth >= super::MAX_COERCION_DEPTH {
+            return Err(RuntimeError::new("Превышена глубина коэрции в примитив", span));
+        }
+        self.coercion_depth += 1;
+        let result = self.object_to_primitive(value, hint, span);
+        self.coercion_depth -= 1;
+        result
+    }
+
+    fn object_to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
+        if let Some(res) = self.try_call_object_method(value, symbols::TO_PRIMITIVE_METHOD, hint_arg(hint), span)? {
+            if coercion::is_primitive(&res) {
+                return Ok(res);
+            }
+            return Err(RuntimeError::new("'вПримитив' вернул не примитив", span));
+        }
+
+        let order: [&str; 2] = match hint {
+            PrimitiveHint::String => [symbols::TO_STRING_METHOD, symbols::VALUE_OF_METHOD],
+            PrimitiveHint::Number | PrimitiveHint::Default => [symbols::VALUE_OF_METHOD, symbols::TO_STRING_METHOD],
+        };
+
+        let mut had_method = false;
+        for method in order {
+            if let Some(res) = self.try_call_object_method(value, method, Vec::new(), span)? {
+                had_method = true;
+                if coercion::is_primitive(&res) {
+                    return Ok(res);
+                }
+            }
+        }
+
+        if had_method {
+            return Err(RuntimeError::new("Не удалось привести объект к примитиву", span));
+        }
+
         Ok(coercion::to_primitive_builtin(value, hint))
+    }
+
+    fn try_call_object_method(
+        &mut self,
+        receiver: &Value,
+        method: &str,
+        args: Vec<Value>,
+        span: Span,
+    ) -> Result<Option<Value>, RuntimeError> {
+        let Value::Object(map) = receiver else {
+            return Ok(None);
+        };
+        let func = map.borrow().get(method).cloned();
+        let Some(Value::Function { name, params, body, env, .. }) = func else {
+            return Ok(None);
+        };
+        let res = self.call_method_with_this(name, &params, &body, &env, args, Some(receiver.clone()), span)?;
+        Ok(Some(res))
     }
 
     fn add_values(&mut self, left: &Value, right: &Value, span: Span) -> Result<Value, RuntimeError> {
@@ -704,6 +762,15 @@ impl Interpreter {
 
 fn is_object_like(value: &Value) -> bool {
     !coercion::is_primitive(value) && !matches!(value, Value::Null | Value::Undefined)
+}
+
+fn hint_arg(hint: PrimitiveHint) -> Vec<Value> {
+    let s = match hint {
+        PrimitiveHint::Number => "число",
+        PrimitiveHint::String => "строка",
+        PrimitiveHint::Default => "умолчание",
+    };
+    vec![Value::String(s.to_string())]
 }
 
 fn bigint_eq_number(a: i128, b: f64) -> bool {
