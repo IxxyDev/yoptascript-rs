@@ -507,7 +507,7 @@ impl Interpreter {
     }
 
     pub(super) fn eval_binary(
-        &self,
+        &mut self,
         op: BinaryOp,
         left: Value,
         right: Value,
@@ -608,7 +608,7 @@ impl Interpreter {
         }
     }
 
-    fn abstract_equals(&self, left: &Value, right: &Value, span: Span) -> Result<bool, RuntimeError> {
+    fn abstract_equals(&mut self, left: &Value, right: &Value, span: Span) -> Result<bool, RuntimeError> {
         match (left, right) {
             (Value::Null | Value::Undefined, Value::Null | Value::Undefined) => Ok(true),
 
@@ -653,11 +653,12 @@ impl Interpreter {
         }
     }
 
-    fn to_primitive(&self, value: &Value, hint: PrimitiveHint, _span: Span) -> Result<Value, RuntimeError> {
+    #[allow(clippy::wrong_self_convention)]
+    fn to_primitive(&mut self, value: &Value, hint: PrimitiveHint, _span: Span) -> Result<Value, RuntimeError> {
         Ok(coercion::to_primitive_builtin(value, hint))
     }
 
-    fn add_values(&self, left: &Value, right: &Value, span: Span) -> Result<Value, RuntimeError> {
+    fn add_values(&mut self, left: &Value, right: &Value, span: Span) -> Result<Value, RuntimeError> {
         let lp = self.to_primitive(left, PrimitiveHint::Default, span)?;
         let rp = self.to_primitive(right, PrimitiveHint::Default, span)?;
         if matches!(lp, Value::String(_)) || matches!(rp, Value::String(_)) {
