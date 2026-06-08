@@ -2,18 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn cli_binary() -> PathBuf {
-    let mut dir = std::env::current_exe().expect("current_exe");
-    dir.pop();
-    if dir.ends_with("deps") {
-        dir.pop();
-    }
-    let candidate = dir.join(if cfg!(windows) { "yps-cli.exe" } else { "yps-cli" });
-    assert!(
-        candidate.exists(),
-        "не найден бинарь yps-cli по пути {}: соберите `cargo build -p yps-cli`",
-        candidate.display()
-    );
-    candidate
+    PathBuf::from(env!("CARGO_BIN_EXE_yps-cli"))
 }
 
 fn conformance_dir() -> PathBuf {
