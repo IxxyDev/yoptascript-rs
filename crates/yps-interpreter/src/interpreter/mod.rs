@@ -16,6 +16,7 @@ pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(),
 mod assign;
 mod call;
 mod class;
+pub(crate) mod coercion;
 mod delete;
 mod eval_expr;
 mod event_loop;

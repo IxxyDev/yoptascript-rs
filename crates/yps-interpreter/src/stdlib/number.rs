@@ -69,12 +69,7 @@ pub fn call_static(
 }
 
 fn coerce_to_f64(v: &Value) -> Option<f64> {
-    match v {
-        Value::Number(n) => Some(*n),
-        Value::Boolean(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::String(s) => s.trim().parse::<f64>().ok(),
-        _ => None,
-    }
+    crate::interpreter::coercion::coerce_to_f64_opt(v)
 }
 
 fn parse_int(s: &str, radix: u32) -> Value {
