@@ -71,8 +71,6 @@ impl Interpreter {
             }
         }
 
-        self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(HashMap::new()));
-
         let code = std::fs::read_to_string(&resolved).map_err(|e| {
             RuntimeError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span)
         })?;
@@ -98,8 +96,14 @@ impl Interpreter {
         sub.module_cache = Rc::clone(&self.module_cache);
         sub.base_path = resolved.parent().map(Path::to_path_buf);
 
-        let exports = sub.run_module(&program, &resolved)?;
-        Ok(exports)
+        self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(HashMap::new()));
+        match sub.run_module(&program, &resolved) {
+            Ok(exports) => Ok(exports),
+            Err(e) => {
+                self.module_cache.borrow_mut().remove(&resolved);
+                Err(e)
+            }
+        }
     }
 
     pub fn run_module(&mut self, program: &Program, path: &Path) -> Result<HashMap<String, Value>, RuntimeError> {
