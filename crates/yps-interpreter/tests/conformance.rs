@@ -78,6 +78,7 @@ conformance_cases! {
     coercion_equality => "coercion_equality",
     coercion_add => "coercion_add",
     coercion_stringify => "coercion_stringify",
+    strict_callsites => "strict_callsites",
     example_hello => "example_hello",
     example_hoisting => "example_hoisting",
     example_labeled_loops => "example_labeled_loops",
