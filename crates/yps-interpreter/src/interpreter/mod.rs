@@ -42,9 +42,11 @@ pub struct Interpreter {
     pub(super) await_depth: usize,
     pub(super) pending_label: Option<String>,
     pub(super) call_stack: Vec<Frame>,
+    pub(super) coercion_depth: usize,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
+pub(super) const MAX_COERCION_DEPTH: usize = 100;
 
 impl Default for Interpreter {
     fn default() -> Self {
@@ -73,6 +75,7 @@ impl Interpreter {
             await_depth: 0,
             pending_label: None,
             call_stack: Vec::new(),
+            coercion_depth: 0,
         }
     }
 
