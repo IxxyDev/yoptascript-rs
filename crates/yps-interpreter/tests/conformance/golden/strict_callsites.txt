@@ -1,0 +1,5 @@
+свитч: число1
+includes(1): true
+includes-строка: false
+indexOf(2): 1
+indexOf-строка: -1

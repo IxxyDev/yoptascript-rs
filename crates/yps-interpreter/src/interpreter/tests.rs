@@ -1397,14 +1397,16 @@ fn typeof_undefined() {
 }
 
 #[test]
-fn null_not_equal_undefined() {
+fn null_abstract_equal_undefined() {
     let interp = run_code(
         r#"
         йопта ф() {}
         гыы р = ф() == ноль;
+        гыы с = ф() === ноль;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("р"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("с"), Some(Value::Boolean(false)));
 }
 
 #[test]
@@ -8652,4 +8654,118 @@ fn anon_function_expr_still_works() {
     );
     assert_eq!(interp.get("рез").unwrap(), Value::Number(42.0));
     assert_eq!(interp.get("ф").unwrap().to_string(), "[анонимная функция]");
+}
+
+fn eval_bool(src: &str) -> bool {
+    let interp = run_code(&format!("гыы рез = {src};"));
+    match interp.get("рез").unwrap() {
+        Value::Boolean(b) => b,
+        other => panic!("ожидалось булево, получено {other:?}"),
+    }
+}
+
+#[test]
+fn abstract_equals_number_string() {
+    assert!(eval_bool("1 == \"1\""));
+    assert!(!eval_bool("1 === \"1\""));
+    assert!(eval_bool("\"1\" == 1"));
+}
+
+#[test]
+fn abstract_equals_null_undefined() {
+    assert!(eval_bool("ноль == неибу"));
+    assert!(!eval_bool("ноль === неибу"));
+    assert!(eval_bool("неибу == ноль"));
+    assert!(!eval_bool("ноль == 0"));
+    assert!(!eval_bool("неибу == 0"));
+}
+
+#[test]
+fn abstract_equals_boolean() {
+    assert!(eval_bool("правда == 1"));
+    assert!(eval_bool("0 == лож"));
+    assert!(eval_bool("лож == 0"));
+    assert!(!eval_bool("правда == 2"));
+    assert!(eval_bool("\"\" == 0"));
+}
+
+#[test]
+fn abstract_equals_object_to_primitive() {
+    let interp = run_code(
+        r#"
+        гыы об = {};
+        гыы рез = ("" + об) == "[object Object]";
+        "#,
+    );
+    assert_eq!(interp.get("рез").unwrap(), Value::Boolean(true));
+}
+
+#[test]
+fn abstract_not_equals() {
+    assert!(!eval_bool("1 != \"1\""));
+    assert!(eval_bool("1 !== \"1\""));
+}
+
+#[test]
+fn add_string_concat_via_ecma_string() {
+    let interp = run_code(
+        r#"
+        гыы об = {};
+        гыы мас = [1, 2, 3];
+        гыы со = "об=" + об;
+        гыы см = "мас=" + мас;
+        гыы нп = "" + ноль;
+        гыы уп = "" + неибу;
+        "#,
+    );
+    assert_eq!(interp.get("со").unwrap(), Value::String("об=[object Object]".to_string()));
+    assert_eq!(interp.get("см").unwrap(), Value::String("мас=1,2,3".to_string()));
+    assert_eq!(interp.get("нп").unwrap(), Value::String("null".to_string()));
+    assert_eq!(interp.get("уп").unwrap(), Value::String("undefined".to_string()));
+}
+
+#[test]
+fn add_numeric_and_mixed() {
+    let interp = run_code(
+        r#"
+        гыы а = 1 + 2;
+        гыы б = 10 + 5 + "px";
+        гыы в = "px" + 10 + 5;
+        "#,
+    );
+    assert_eq!(interp.get("а").unwrap(), Value::Number(3.0));
+    assert_eq!(interp.get("б").unwrap(), Value::String("15px".to_string()));
+    assert_eq!(interp.get("в").unwrap(), Value::String("px105".to_string()));
+}
+
+#[test]
+fn switch_uses_strict_equality_not_abstract() {
+    let interp = run_code(
+        r#"
+        гыы рез = "нет";
+        базарпо (1) {
+            тема "1": { рез = "строка"; }
+            тема 1: { рез = "число"; }
+            нуичо { рез = "дефолт"; }
+        }
+        "#,
+    );
+    assert_eq!(interp.get("рез").unwrap(), Value::String("число".to_string()));
+}
+
+#[test]
+fn array_includes_index_use_strict_not_abstract() {
+    let interp = run_code(
+        r#"
+        гыы мас = [1, 2, 3];
+        гыы вкл_число = мас.включает(1);
+        гыы вкл_строка = мас.включает("1");
+        гыы идкс_число = мас.найтиИндекс(2);
+        гыы идкс_строка = мас.найтиИндекс("2");
+        "#,
+    );
+    assert_eq!(interp.get("вкл_число").unwrap(), Value::Boolean(true));
+    assert_eq!(interp.get("вкл_строка").unwrap(), Value::Boolean(false));
+    assert_eq!(interp.get("идкс_число").unwrap(), Value::Number(1.0));
+    assert_eq!(interp.get("идкс_строка").unwrap(), Value::Number(-1.0));
 }
