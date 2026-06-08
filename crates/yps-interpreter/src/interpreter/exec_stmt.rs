@@ -550,3 +550,25 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    fn eval(src: &str) -> crate::value::Value {
+        let source = yps_lexer::SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        let (program, _) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        crate::interpreter::Interpreter::new().run_repl(&program).unwrap().unwrap()
+    }
+
+    #[test]
+    fn switch_nan_no_match() {
+        let src = r#"
+            гыы r = "нет";
+            базарпо (нихуя) {
+                тема (нихуя): r = "есть";
+            }
+            r;
+        "#;
+        assert_eq!(eval(src), crate::value::Value::String("нет".to_string()));
+    }
+}
