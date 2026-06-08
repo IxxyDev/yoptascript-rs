@@ -559,8 +559,10 @@ impl Interpreter {
             }
             BinaryOp::Mod => self.numeric_op(&left, &right, span, |a, b| a % b),
             BinaryOp::Exp => self.numeric_op(&left, &right, span, |a, b| a.powf(b)),
-            BinaryOp::Equals | BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
-            BinaryOp::NotEquals | BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
+            BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
+            BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
+            BinaryOp::Equals => Ok(Value::Boolean(self.abstract_equals(&left, &right, span)?)),
+            BinaryOp::NotEquals => Ok(Value::Boolean(!self.abstract_equals(&left, &right, span)?)),
             BinaryOp::Less => self.compare_op(&left, &right, span, |a, b| a < b),
             BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
             BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
@@ -612,6 +614,10 @@ impl Interpreter {
             | BinaryOp::DivAssign
             | BinaryOp::ExpAssign => unreachable!("handled in eval_expr"),
         }
+    }
+
+    fn abstract_equals(&self, left: &Value, right: &Value, _span: Span) -> Result<bool, RuntimeError> {
+        Ok(left == right)
     }
 
     fn bigint_op(op: BinaryOp, a: i128, b: i128, span: Span) -> Result<Value, RuntimeError> {
