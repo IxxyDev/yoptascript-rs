@@ -56,15 +56,11 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             if args.len() != 1 {
                 return Err(RuntimeError::new("'число' принимает 1 аргумент", span));
             }
-            match &args[0] {
-                Value::Number(n) => Ok(Value::Number(*n)),
-                Value::String(s) => match s.parse::<f64>() {
-                    Ok(n) => Ok(Value::Number(n)),
-                    Err(_) => Ok(Value::Null),
-                },
-                Value::Boolean(b) => Ok(Value::Number(if *b { 1.0 } else { 0.0 })),
-                _ => Ok(Value::Null),
-            }
+            let n = match &args[0] {
+                Value::BigInt(b) => *b as f64,
+                other => crate::interpreter::coercion::to_number(other),
+            };
+            Ok(Value::Number(n))
         }
         "БигЦелое" => {
             if args.len() != 1 {
@@ -204,4 +200,36 @@ fn is_kosyak(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         return Err(RuntimeError::new("'этоКосяк' ожидает 1 аргумент", span));
     }
     Ok(Value::Boolean(stdlib::error::is_error(&args)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn chislo(v: Value) -> f64 {
+        match call_builtin("число", vec![v], span()).unwrap() {
+            Value::Number(n) => n,
+            other => panic!("ожидалось число, получено {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chislo_sleduet_ecma_tonumber() {
+        assert_eq!(chislo(Value::Number(3.5)), 3.5);
+        assert_eq!(chislo(Value::String("42".into())), 42.0);
+        assert_eq!(chislo(Value::String("  7  ".into())), 7.0);
+        assert_eq!(chislo(Value::String(String::new())), 0.0);
+        assert_eq!(chislo(Value::String("0x10".into())), 16.0);
+        assert_eq!(chislo(Value::String("Infinity".into())), f64::INFINITY);
+        assert!(chislo(Value::String("мусор".into())).is_nan());
+        assert_eq!(chislo(Value::Null), 0.0);
+        assert!(chislo(Value::Undefined).is_nan());
+        assert_eq!(chislo(Value::Boolean(true)), 1.0);
+        assert_eq!(chislo(Value::Boolean(false)), 0.0);
+        assert_eq!(chislo(Value::BigInt(10)), 10.0);
+    }
 }
