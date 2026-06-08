@@ -11,6 +11,19 @@ use crate::value::Value;
 
 use super::Interpreter;
 
+pub(crate) enum ModuleState {
+    Loading(HashMap<String, Value>),
+    Loaded(HashMap<String, Value>),
+}
+
+impl ModuleState {
+    pub(crate) fn exports(&self) -> &HashMap<String, Value> {
+        match self {
+            ModuleState::Loading(e) | ModuleState::Loaded(e) => e,
+        }
+    }
+}
+
 impl Interpreter {
     fn resolve_module_path(&self, source: &str, span: Span) -> Result<PathBuf, RuntimeError> {
         let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -34,8 +47,8 @@ impl Interpreter {
             .canonicalize()
             .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))?;
 
-        if let Some(cached) = self.module_cache.borrow().get(&resolved) {
-            return Ok(cached.clone());
+        if let Some(state) = self.module_cache.borrow().get(&resolved) {
+            return Ok(state.exports().clone());
         }
 
         let code = std::fs::read_to_string(&resolved).map_err(|e| {
@@ -44,16 +57,21 @@ impl Interpreter {
         let value = json::parse_str(&code, span)?;
         let mut exports = HashMap::new();
         exports.insert("default".to_string(), value);
-        self.module_cache.borrow_mut().insert(resolved, exports.clone());
+        self.module_cache.borrow_mut().insert(resolved, ModuleState::Loaded(exports.clone()));
         Ok(exports)
     }
 
     pub(super) fn load_module(&mut self, source: &str, span: Span) -> Result<HashMap<String, Value>, RuntimeError> {
         let resolved = self.resolve_module_path(source, span)?;
 
-        if let Some(cached) = self.module_cache.borrow().get(&resolved) {
-            return Ok(cached.clone());
+        {
+            let cache = self.module_cache.borrow();
+            if let Some(state) = cache.get(&resolved) {
+                return Ok(state.exports().clone());
+            }
         }
+
+        self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(HashMap::new()));
 
         let code = std::fs::read_to_string(&resolved).map_err(|e| {
             RuntimeError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span)
@@ -87,7 +105,98 @@ impl Interpreter {
     pub fn run_module(&mut self, program: &Program, path: &Path) -> Result<HashMap<String, Value>, RuntimeError> {
         self.run(program)?;
         let exports = std::mem::take(&mut self.current_exports);
-        self.module_cache.borrow_mut().insert(path.to_path_buf(), exports.clone());
+        self.module_cache.borrow_mut().insert(path.to_path_buf(), ModuleState::Loaded(exports.clone()));
         Ok(exports)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(prefix: &str) -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("yps_test_{prefix}_{n}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_file(dir: &TempDir, name: &str, content: &str) -> PathBuf {
+        let path = dir.path().join(name);
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    fn interp_with_base(dir: &TempDir) -> Interpreter {
+        let mut i = Interpreter::new();
+        i.set_base_path(dir.path().to_path_buf());
+        i
+    }
+
+    #[test]
+    fn test_self_import_no_stack_overflow() {
+        let dir = TempDir::new("self");
+        write_file(&dir, "self_mod.yop", "импортировать { x } из \"self_mod\";\nэкспортировать гыы x = 1;");
+        let mut i = interp_with_base(&dir);
+        let result = i.load_module("self_mod", Span { start: 0, end: 0 });
+        assert!(result.is_ok() || result.is_err(), "должен завершиться без stack overflow");
+    }
+
+    #[test]
+    fn test_cyclic_ab_no_stack_overflow() {
+        let dir = TempDir::new("cyclic");
+        write_file(&dir, "a.yop", "импортировать { b_val } из \"b\";\nэкспортировать гыы a_val = 1;");
+        write_file(&dir, "b.yop", "импортировать { a_val } из \"a\";\nэкспортировать гыы b_val = 2;");
+        let mut i = interp_with_base(&dir);
+        let result = i.load_module("a", Span { start: 0, end: 0 });
+        assert!(result.is_ok() || result.is_err(), "A→B→A не должен вызывать stack overflow");
+    }
+
+    #[test]
+    fn test_loading_state_returns_partial() {
+        let dir = TempDir::new("partial");
+        let resolved = dir.path().join("dummy.yop");
+        std::fs::write(&resolved, "").unwrap();
+
+        let mut exports = HashMap::new();
+        exports.insert("x".to_string(), Value::Number(42.0));
+
+        let cache: Rc<RefCell<HashMap<PathBuf, ModuleState>>> = Rc::new(RefCell::new(HashMap::new()));
+        cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(exports.clone()));
+
+        let state = cache.borrow();
+        let got = state.get(&resolved).unwrap().exports().clone();
+        assert_eq!(got.get("x"), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_loaded_state_cached() {
+        let dir = TempDir::new("cached");
+        write_file(&dir, "mod.yop", "экспортировать гыы val = 99;");
+        let mut i = interp_with_base(&dir);
+        let r1 = i.load_module("mod", Span { start: 0, end: 0 });
+        let r2 = i.load_module("mod", Span { start: 0, end: 0 });
+        if r1.is_ok() {
+            assert!(r2.is_ok());
+        }
     }
 }

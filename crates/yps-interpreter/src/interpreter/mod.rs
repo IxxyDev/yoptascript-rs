@@ -34,7 +34,7 @@ pub struct Interpreter {
     pub(super) env: Environment,
     pub(super) pending_initializers: Vec<Value>,
     pub(super) base_path: Option<PathBuf>,
-    pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, HashMap<String, Value>>>>,
+    pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, module_loader::ModuleState>>>,
     pub(super) current_exports: HashMap<String, Value>,
     pub(super) microtasks: VecDeque<Microtask>,
     pub(super) macrotasks: MacrotaskQueue,
