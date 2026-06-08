@@ -14,7 +14,7 @@ use super::{ControlFlow, Interpreter};
 
 impl Interpreter {
     pub(super) fn numeric_op(
-        &self,
+        &mut self,
         left: &Value,
         right: &Value,
         span: Span,
@@ -30,7 +30,7 @@ impl Interpreter {
     }
 
     pub(super) fn compare_op(
-        &self,
+        &mut self,
         left: &Value,
         right: &Value,
         span: Span,
