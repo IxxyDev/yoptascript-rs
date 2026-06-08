@@ -3,7 +3,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{builtin, object_of, require_args};
-use crate::value::Value;
+use crate::value::{Value, same_value_zero};
 
 pub fn build_static() -> Value {
     object_of(&[("отПар", builtin("Карта.отПар"))])
@@ -148,7 +148,7 @@ pub fn call(
 }
 
 fn find_index(entries: &[(Value, Value)], key: &Value) -> Option<usize> {
-    entries.iter().position(|(k, _)| k == key)
+    entries.iter().position(|(k, _)| same_value_zero(k, key))
 }
 
 fn entries_to_map(entries: &[Value], span: Span) -> Result<Value, RuntimeError> {
@@ -169,4 +169,19 @@ fn entries_to_map(entries: &[Value], span: Span) -> Result<Value, RuntimeError> 
         }
     }
     Ok(Value::Map(out))
+}
+
+#[cfg(test)]
+mod tests {
+    fn eval(src: &str) -> crate::value::Value {
+        let source = yps_lexer::SourceFile::new("test".to_string(), src.to_string());
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        let (program, _) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        crate::interpreter::Interpreter::new().run_repl(&program).unwrap().unwrap()
+    }
+
+    #[test]
+    fn map_nan_key_found() {
+        assert_eq!(eval("Карта([[нихуя, 42]]).взять(нихуя);"), crate::value::Value::Number(42.0));
+    }
 }
