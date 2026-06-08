@@ -10,7 +10,7 @@ use crate::symbols;
 use crate::value::Value;
 
 use super::Interpreter;
-use super::coercion::{self, PrimitiveHint};
+use super::coercion;
 
 impl Interpreter {
     pub(super) fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -639,13 +639,13 @@ impl Interpreter {
             (Value::Number(_) | Value::String(_) | Value::BigInt(_) | Value::Symbol { .. }, _)
                 if is_object_like(right) =>
             {
-                let prim = self.to_primitive(right, PrimitiveHint::Default, span)?;
+                let prim = self.to_primitive(right, span)?;
                 self.abstract_equals(left, &prim, span)
             }
             (_, Value::Number(_) | Value::String(_) | Value::BigInt(_) | Value::Symbol { .. })
                 if is_object_like(left) =>
             {
-                let prim = self.to_primitive(left, PrimitiveHint::Default, span)?;
+                let prim = self.to_primitive(left, span)?;
                 self.abstract_equals(&prim, right, span)
             }
 
@@ -654,35 +654,31 @@ impl Interpreter {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
+    fn to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
         if !matches!(value, Value::Object(_)) {
-            return Ok(coercion::to_primitive_builtin(value, hint));
+            return Ok(coercion::to_primitive_builtin(value));
         }
 
         if self.coercion_depth >= super::MAX_COERCION_DEPTH {
             return Err(RuntimeError::new("Превышена глубина коэрции в примитив", span));
         }
         self.coercion_depth += 1;
-        let result = self.object_to_primitive(value, hint, span);
+        let result = self.object_to_primitive(value, span);
         self.coercion_depth -= 1;
         result
     }
 
-    fn object_to_primitive(&mut self, value: &Value, hint: PrimitiveHint, span: Span) -> Result<Value, RuntimeError> {
-        if let Some(res) = self.try_call_object_method(value, symbols::TO_PRIMITIVE_METHOD, hint_arg(hint), span)? {
+    fn object_to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
+        let to_primitive_arg = vec![Value::String("умолчание".to_string())];
+        if let Some(res) = self.try_call_object_method(value, symbols::TO_PRIMITIVE_METHOD, to_primitive_arg, span)? {
             if coercion::is_primitive(&res) {
                 return Ok(res);
             }
             return Err(RuntimeError::new("'вПримитив' вернул не примитив", span));
         }
 
-        let order: [&str; 2] = match hint {
-            PrimitiveHint::String => [symbols::TO_STRING_METHOD, symbols::VALUE_OF_METHOD],
-            PrimitiveHint::Number | PrimitiveHint::Default => [symbols::VALUE_OF_METHOD, symbols::TO_STRING_METHOD],
-        };
-
         let mut had_method = false;
-        for method in order {
+        for method in [symbols::VALUE_OF_METHOD, symbols::TO_STRING_METHOD] {
             if let Some(res) = self.try_call_object_method(value, method, Vec::new(), span)? {
                 had_method = true;
                 if coercion::is_primitive(&res) {
@@ -695,7 +691,7 @@ impl Interpreter {
             return Err(RuntimeError::new("Не удалось привести объект к примитиву", span));
         }
 
-        Ok(coercion::to_primitive_builtin(value, hint))
+        Ok(coercion::to_primitive_builtin(value))
     }
 
     fn try_call_object_method(
@@ -717,8 +713,8 @@ impl Interpreter {
     }
 
     fn add_values(&mut self, left: &Value, right: &Value, span: Span) -> Result<Value, RuntimeError> {
-        let lp = self.to_primitive(left, PrimitiveHint::Default, span)?;
-        let rp = self.to_primitive(right, PrimitiveHint::Default, span)?;
+        let lp = self.to_primitive(left, span)?;
+        let rp = self.to_primitive(right, span)?;
         if matches!(lp, Value::String(_)) || matches!(rp, Value::String(_)) {
             let mut s = coercion::to_ecma_string(&lp);
             s.push_str(&coercion::to_ecma_string(&rp));
@@ -762,15 +758,6 @@ impl Interpreter {
 
 fn is_object_like(value: &Value) -> bool {
     !coercion::is_primitive(value) && !matches!(value, Value::Null | Value::Undefined)
-}
-
-fn hint_arg(hint: PrimitiveHint) -> Vec<Value> {
-    let s = match hint {
-        PrimitiveHint::Number => "число",
-        PrimitiveHint::String => "строка",
-        PrimitiveHint::Default => "умолчание",
-    };
-    vec![Value::String(s.to_string())]
 }
 
 fn bigint_eq_number(a: i128, b: f64) -> bool {

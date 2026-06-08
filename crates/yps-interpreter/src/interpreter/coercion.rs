@@ -1,19 +1,5 @@
 use crate::value::Value;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PrimitiveHint {
-    #[allow(dead_code)]
-    Number,
-    #[allow(dead_code)]
-    String,
-    Default,
-}
-
-#[allow(dead_code)]
-pub(crate) fn to_boolean(value: &Value) -> bool {
-    value.is_truthy()
-}
-
 pub(crate) fn to_number(value: &Value) -> f64 {
     match value {
         Value::Number(n) => *n,
@@ -83,11 +69,6 @@ pub(crate) fn to_ecma_string(value: &Value) -> String {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn to_property_key(value: &Value) -> String {
-    to_ecma_string(value)
-}
-
 pub(crate) fn coerce_to_f64_opt(value: &Value) -> Option<f64> {
     match value {
         Value::Number(n) => Some(*n),
@@ -123,14 +104,11 @@ pub(crate) fn is_primitive(value: &Value) -> bool {
     )
 }
 
-pub(crate) fn to_primitive_builtin(value: &Value, hint: PrimitiveHint) -> Value {
+pub(crate) fn to_primitive_builtin(value: &Value) -> Value {
     if is_primitive(value) {
         return value.clone();
     }
-    match hint {
-        PrimitiveHint::String => Value::String(to_ecma_string(value)),
-        PrimitiveHint::Number | PrimitiveHint::Default => Value::String(to_ecma_string(value)),
-    }
+    Value::String(to_ecma_string(value))
 }
 
 #[cfg(test)]
@@ -204,15 +182,13 @@ mod tests {
     }
 
     #[test]
-    fn to_boolean_matches_truthiness() {
-        assert!(to_boolean(&Value::Number(1.0)));
-        assert!(!to_boolean(&Value::Number(0.0)));
-        assert!(!to_boolean(&Value::String(String::new())));
-        assert!(to_boolean(&Value::String("x".to_string())));
+    fn to_primitive_builtin_passes_primitive_through() {
+        assert_eq!(to_primitive_builtin(&Value::Number(5.0)), Value::Number(5.0));
     }
 
     #[test]
-    fn to_primitive_builtin_passes_primitive_through() {
-        assert_eq!(to_primitive_builtin(&Value::Number(5.0), PrimitiveHint::Number), Value::Number(5.0));
+    fn to_primitive_builtin_object_stringifies() {
+        let obj = Value::Object(Rc::new(RefCell::new(HashMap::new())));
+        assert_eq!(to_primitive_builtin(&obj), Value::String("[object Object]".to_string()));
     }
 }
