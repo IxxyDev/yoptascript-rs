@@ -21,6 +21,7 @@ mod delete;
 mod eval_expr;
 mod event_loop;
 mod exec_stmt;
+mod gc;
 pub(crate) mod generator;
 mod member;
 mod module_loader;
@@ -49,6 +50,7 @@ pub struct Interpreter {
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
 pub(super) const MAX_COERCION_DEPTH: usize = 100;
 pub(super) const MAX_CALL_DEPTH: usize = 1000;
+pub(super) const GC_THRESHOLD: usize = 256;
 pub(super) const STACK_RED_ZONE: usize = 256 * 1024;
 pub(super) const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
@@ -113,7 +115,15 @@ impl Interpreter {
     pub fn run_repl(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
         let result = self.run_internal(program, true);
         self.clear_pending_tasks();
+        if self.live_frames() > GC_THRESHOLD {
+            let extra_roots: Vec<Value> = result.iter().flatten().cloned().collect();
+            self.collect_cycles_with_roots(&extra_roots);
+        }
         result
+    }
+
+    pub fn live_frames(&self) -> usize {
+        self.env.registry().prune_and_count()
     }
 
     fn clear_pending_tasks(&mut self) {

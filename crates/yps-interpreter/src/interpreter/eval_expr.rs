@@ -263,7 +263,7 @@ impl Interpreter {
             }
             Expr::FunctionExpr { name, params, body, is_async, .. } => match name {
                 Some(ident) => {
-                    let mut fn_env = Environment::from_snapshot(self.env.snapshot());
+                    let mut fn_env = Environment::from_snapshot(self.env.snapshot(), self.env.registry());
                     fn_env.push_scope();
                     let func = Value::Function {
                         name: Rc::from(ident.name.as_str()),
