@@ -16,17 +16,20 @@ I was contributing to [Biome](https://github.com/biomejs/biome) (a Rust-based li
 
 ## Architecture
 
-A Cargo workspace with four crates:
+A Cargo workspace with five crates:
 
 ```
 crates/
 ├── yps-lexer        # Tokenizer: source → token stream
 ├── yps-parser       # Recursive descent parser: tokens → AST
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
-└── yps-cli          # Command-line entry point
+├── yps-fmt          # AST-based formatter with round-trip self-check
+└── yps-cli          # Command-line entry point (run, repl, fmt)
 ```
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter → result`
+
+The formatter (`yps fmt`) pretty-prints a `.yop` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
 
 Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, cargo-deny, pre-commit hooks, GitHub Actions CI, Justfile for task automation.
 
@@ -65,6 +68,12 @@ cargo build --release
 # Run a YoptaScript file
 cargo run -p yps-cli -- path/to/program.yop
 
+# Start the REPL
+cargo run -p yps-cli
+
+# Format a .yop file (--write to apply, --check for CI)
+cargo run -p yps-cli -- fmt path/to/program.yop
+
 # Or use the Justfile shortcuts
 just run path/to/program.yop
 just test
@@ -80,6 +89,7 @@ just lint
 - [x] Async / Promises (`СловоПацана`)
 - [x] Module system (`спиздить` / `предъява`)
 - [x] Standard library: `Матан`, `Помойка`, `Строка`, `Кент`, `Хуйня`, `Жсон`, `Карта`, `Набор`, `Симбол`, `Косяк`
+- [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
 
 This is an active learning project — see open issues for what's next.
 
@@ -87,7 +97,7 @@ This is an active learning project — see open issues for what's next.
 
 ```
 .
-├── crates/             # Workspace members (lexer, parser, interpreter, cli)
+├── crates/             # Workspace members (lexer, parser, interpreter, fmt, cli)
 ├── examples/           # Sample .yop programs
 ├── docs/               # Language documentation
 ├── DICTIONARY.md       # Keyword mapping (JS ↔ YoptaScript)
