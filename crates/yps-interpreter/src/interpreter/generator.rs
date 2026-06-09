@@ -126,18 +126,22 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     g.frames.pop();
                     continue;
                 }
-                let stmt = stmts[*idx].clone();
+                let stmts_rc = Rc::clone(stmts);
+                let i = *idx;
                 *idx += 1;
-                if let Some(step) = step_block_stmt(interp, g, &stmt, span)? {
+                if let Some(step) = step_block_stmt(interp, g, &stmts_rc[i], span)? {
                     return Ok(step);
                 }
             }
             GenFrame::While { condition, body, phase } => match *phase {
                 LoopPhase::CheckCond => {
-                    let cond = interp.eval_expr(&condition.clone())?;
+                    let cond_rc = Rc::clone(condition);
+                    let body_rc = Rc::clone(body);
+                    let cond = interp.eval_expr(&cond_rc)?;
                     if cond.is_truthy() {
-                        let body_rc = body.clone();
-                        *phase = LoopPhase::AfterBody;
+                        if let Some(GenFrame::While { phase, .. }) = g.frames.last_mut() {
+                            *phase = LoopPhase::AfterBody;
+                        }
                         push_body(g, &body_rc);
                     } else {
                         g.frames.pop();
@@ -149,29 +153,33 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
             },
             GenFrame::DoWhile { condition, body, phase } => match *phase {
                 LoopPhase::AfterBody => {
-                    let cond = interp.eval_expr(&condition.clone())?;
+                    let cond_rc = Rc::clone(condition);
+                    let body_rc = Rc::clone(body);
+                    let cond = interp.eval_expr(&cond_rc)?;
                     if cond.is_truthy() {
-                        let body_rc = body.clone();
                         push_body(g, &body_rc);
                     } else {
                         g.frames.pop();
                     }
                 }
                 LoopPhase::CheckCond => {
-                    let body_rc = body.clone();
+                    let body_rc = Rc::clone(body);
                     *phase = LoopPhase::AfterBody;
                     push_body(g, &body_rc);
                 }
             },
             GenFrame::For { condition, update, body, phase } => match *phase {
                 LoopPhase::CheckCond => {
-                    let truthy = match condition {
-                        Some(c) => interp.eval_expr(&c.clone())?.is_truthy(),
+                    let cond_rc = condition.as_ref().map(Rc::clone);
+                    let body_rc = Rc::clone(body);
+                    let truthy = match cond_rc {
+                        Some(c) => interp.eval_expr(&c)?.is_truthy(),
                         None => true,
                     };
                     if truthy {
-                        let body_rc = body.clone();
-                        *phase = LoopPhase::AfterBody;
+                        if let Some(GenFrame::For { phase, .. }) = g.frames.last_mut() {
+                            *phase = LoopPhase::AfterBody;
+                        }
                         push_body(g, &body_rc);
                     } else {
                         g.frames.pop();
@@ -179,10 +187,12 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
                 LoopPhase::AfterBody => {
-                    if let Some(u) = update {
-                        interp.eval_expr(&u.clone())?;
+                    if let Some(u) = update.as_ref().map(Rc::clone) {
+                        interp.eval_expr(&u)?;
                     }
-                    *phase = LoopPhase::CheckCond;
+                    if let Some(GenFrame::For { phase, .. }) = g.frames.last_mut() {
+                        *phase = LoopPhase::CheckCond;
+                    }
                 }
             },
             GenFrame::ForIter { var_name, iter, body } => {
@@ -276,12 +286,15 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
     }
 }
 
-fn push_body(g: &mut GenState, body: &Rc<Stmt>) {
-    let stmts: Rc<[Stmt]> = match body.as_ref() {
+fn push_body(g: &mut GenState, body: &Rc<[Stmt]>) {
+    g.frames.push(GenFrame::Block { stmts: Rc::clone(body), idx: 0 });
+}
+
+fn body_stmts(body: &Stmt) -> Rc<[Stmt]> {
+    match body {
         Stmt::Block(b) => Rc::from(b.stmts.as_slice()),
         other => Rc::from(vec![other.clone()].as_slice()),
-    };
-    g.frames.push(GenFrame::Block { stmts, idx: 0 });
+    }
 }
 
 fn step_block_stmt(
@@ -364,26 +377,24 @@ fn step_block_stmt(
         Stmt::If { condition, then_branch, else_branch, .. } => {
             let cond = interp.eval_expr(condition)?;
             if cond.is_truthy() {
-                let body = Rc::new((**then_branch).clone());
-                push_body(g, &body);
+                push_body(g, &body_stmts(then_branch));
             } else if let Some(eb) = else_branch {
-                let body = Rc::new((**eb).clone());
-                push_body(g, &body);
+                push_body(g, &body_stmts(eb));
             }
             Ok(None)
         }
         Stmt::While { condition, body, .. } => {
             g.frames.push(GenFrame::While {
-                condition: condition.clone(),
-                body: Rc::new((**body).clone()),
+                condition: Rc::new(condition.clone()),
+                body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
             });
             Ok(None)
         }
         Stmt::DoWhile { body, condition, .. } => {
             g.frames.push(GenFrame::DoWhile {
-                condition: condition.clone(),
-                body: Rc::new((**body).clone()),
+                condition: Rc::new(condition.clone()),
+                body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
             });
             Ok(None)
@@ -394,9 +405,9 @@ fn step_block_stmt(
                 interp.exec_stmt(init_stmt)?;
             }
             g.frames.push(GenFrame::For {
-                condition: condition.clone(),
-                update: update.clone(),
-                body: Rc::new((**body).clone()),
+                condition: condition.clone().map(Rc::new),
+                update: update.clone().map(Rc::new),
+                body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
             });
             Ok(None)
@@ -406,11 +417,7 @@ fn step_block_stmt(
             let iter_rc = value_to_iterator(val, *fs)?;
             interp.env.push_scope();
             interp.env.define(variable.name.clone(), Value::Undefined, false);
-            g.frames.push(GenFrame::ForIter {
-                var_name: variable.name.clone(),
-                iter: iter_rc,
-                body: Rc::new((**body).clone()),
-            });
+            g.frames.push(GenFrame::ForIter { var_name: variable.name.clone(), iter: iter_rc, body: body_stmts(body) });
             Ok(None)
         }
         Stmt::ForIn { variable, iterable, body, span: fs } => {
@@ -426,11 +433,7 @@ fn step_block_stmt(
             let iter_rc = Rc::new(RefCell::new(IteratorState::Array { values: keys, index: 0 }));
             interp.env.push_scope();
             interp.env.define(variable.name.clone(), Value::Undefined, false);
-            g.frames.push(GenFrame::ForIter {
-                var_name: variable.name.clone(),
-                iter: iter_rc,
-                body: Rc::new((**body).clone()),
-            });
+            g.frames.push(GenFrame::ForIter { var_name: variable.name.clone(), iter: iter_rc, body: body_stmts(body) });
             Ok(None)
         }
         Stmt::Return { value, .. } => {
@@ -457,8 +460,7 @@ fn step_block_stmt(
             Ok(None)
         }
         Stmt::Labeled { body, .. } => {
-            let body = Rc::new((**body).clone());
-            push_body(g, &body);
+            push_body(g, &body_stmts(body));
             Ok(None)
         }
         Stmt::Break { label, .. } => {

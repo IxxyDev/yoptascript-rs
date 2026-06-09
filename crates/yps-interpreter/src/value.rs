@@ -52,25 +52,25 @@ pub enum GenFrame {
         idx: usize,
     },
     While {
-        condition: Expr,
-        body: Rc<Stmt>,
+        condition: Rc<Expr>,
+        body: Rc<[Stmt]>,
         phase: LoopPhase,
     },
     DoWhile {
-        condition: Expr,
-        body: Rc<Stmt>,
+        condition: Rc<Expr>,
+        body: Rc<[Stmt]>,
         phase: LoopPhase,
     },
     For {
-        condition: Option<Expr>,
-        update: Option<Expr>,
-        body: Rc<Stmt>,
+        condition: Option<Rc<Expr>>,
+        update: Option<Rc<Expr>>,
+        body: Rc<[Stmt]>,
         phase: LoopPhase,
     },
     ForIter {
         var_name: String,
         iter: Rc<RefCell<IteratorState>>,
-        body: Rc<Stmt>,
+        body: Rc<[Stmt]>,
     },
     Delegate {
         inner: Rc<RefCell<IteratorState>>,
