@@ -611,3 +611,50 @@ fn test_signal_promise_cached_no_listener_leak() {
     let count = state.borrow().listeners.len();
     assert!(count <= 2, "ожидалось <=2 слушателей, было {count}");
 }
+
+#[test]
+fn timer_accepts_promise_capability_as_callback() {
+    let interp = run_code(
+        r#"
+        гыы ок = лож;
+        гыы п = захуярить СловоПацана((решить, _) => {
+            чутка(решить, 1);
+        });
+        сидетьНахуй п;
+        ок = правда;
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn srazu_accepts_promise_capability_as_callback() {
+    let interp = run_code(
+        r#"
+        гыы ок = лож;
+        гыы п = захуярить СловоПацана((решить, _) => {
+            сразу(решить);
+        });
+        сидетьНахуй п;
+        ок = правда;
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn abort_listener_accepts_promise_capability_as_callback() {
+    let interp = run_code(
+        r#"
+        гыы ок = лож;
+        гыы к = захуярить КонтроллёрОтмены();
+        гыы п = захуярить СловоПацана((решить, _) => {
+            к.сигнал.подписатьсяНаОтмену(решить);
+        });
+        к.отменить("стоп");
+        сидетьНахуй п;
+        ок = правда;
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+}

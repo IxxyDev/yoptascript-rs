@@ -455,6 +455,21 @@ impl Value {
         }
     }
 
+    pub fn is_callable(&self) -> bool {
+        matches!(
+            self,
+            Value::Function { .. }
+                | Value::BuiltinFunction(_)
+                | Value::PromiseCapability { .. }
+                | Value::PromiseThenHandler { .. }
+                | Value::PromiseFinallyHandler { .. }
+                | Value::PromiseAggregateHandler { .. }
+                | Value::AbortUnsubscribe { .. }
+                | Value::AbortListener { .. }
+                | Value::Proxy { .. }
+        )
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",

@@ -12,7 +12,7 @@ use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, V
 pub fn construct(interp: &mut Interpreter, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     require_args(&args, 1, span, "СловоПацана")?;
     let executor = args.into_iter().next().unwrap();
-    if !matches!(executor, Value::Function { .. } | Value::BuiltinFunction(_)) {
+    if !executor.is_callable() {
         return Err(RuntimeError::new("'СловоПацана' ожидает функцию-исполнитель", span));
     }
     let (promise, resolve, reject) = Interpreter::make_pending_promise();
