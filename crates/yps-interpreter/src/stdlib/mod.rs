@@ -14,6 +14,7 @@ pub mod number;
 pub mod object;
 pub mod process;
 pub mod promise;
+pub mod proxy;
 pub mod reflect;
 pub mod regexp;
 pub mod set;
@@ -148,6 +149,9 @@ pub fn call_static_namespaced(
     if namespaced == "Симбол" {
         return Some(symbol::construct(args, span));
     }
+    if namespaced == "Посредник" {
+        return Some(proxy::construct(args, span));
+    }
     if namespaced == "СловоПацана" {
         return Some(promise::construct(interp, args, span));
     }
@@ -182,6 +186,7 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Процесс".to_string(), process::build_object()),
         ("Сеть".to_string(), network::build_object()),
         ("Отражение".to_string(), reflect::build_object()),
+        ("Посредник".to_string(), Value::BuiltinFunction("Посредник".to_string())),
         ("ОбластьБайтов".to_string(), Value::BuiltinFunction("ОбластьБайтов".to_string())),
         ("Ц8Массив".to_string(), Value::BuiltinFunction("Ц8Массив".to_string())),
         ("Ц8ОграниченныйМассив".to_string(), Value::BuiltinFunction("Ц8ОграниченныйМассив".to_string())),

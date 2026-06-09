@@ -10,6 +10,11 @@ impl Interpreter {
     pub(super) fn eval_delete(&mut self, expr: &Expr, span: Span) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Member { object, property, .. } => {
+                let obj = self.eval_expr(object)?;
+                if let Some((target, handler)) = obj.proxy_parts() {
+                    let removed = self.proxy_delete(&target, &handler, &property.name, span)?;
+                    return Ok(Value::Boolean(removed));
+                }
                 let mut path = Vec::new();
                 let root_name = self.collect_access_path(
                     &Expr::Member { object: object.clone(), property: property.clone(), span },
@@ -26,6 +31,12 @@ impl Interpreter {
             }
             Expr::Index { object, index, .. } => {
                 let idx = self.eval_expr(index)?;
+                let obj = self.eval_expr(object)?;
+                if let Some((target, handler)) = obj.proxy_parts() {
+                    let key = idx.to_string();
+                    let removed = self.proxy_delete(&target, &handler, &key, span)?;
+                    return Ok(Value::Boolean(removed));
+                }
                 let mut path = Vec::new();
                 let root_name = self.collect_access_path(object, &mut path, span)?;
                 path.reverse();

@@ -81,7 +81,13 @@ impl Interpreter {
                 Self::set_at_path(root, &path, value.clone(), span)?;
                 Ok(value)
             }
-            Expr::Index { .. } => {
+            Expr::Index { object, index, .. } => {
+                let obj = self.eval_expr(object)?;
+                if let Some((ptarget, handler)) = obj.proxy_parts() {
+                    let key = self.eval_expr(index)?.to_string();
+                    self.proxy_set(&ptarget, &handler, &key, value.clone(), obj, span)?;
+                    return Ok(value);
+                }
                 let mut path = Vec::new();
                 let root_name = self.collect_access_path(target, &mut path, span)?;
                 path.reverse();
@@ -107,6 +113,10 @@ impl Interpreter {
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
         let obj = self.eval_expr(object_expr)?;
+        if let Some((target, handler)) = obj.proxy_parts() {
+            self.proxy_set(&target, &handler, property, value.clone(), obj, span)?;
+            return Ok(Some(value));
+        }
         match &obj {
             Value::Object(map) => {
                 let setter_key = symbols::setter_key(property);

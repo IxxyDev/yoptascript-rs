@@ -117,6 +117,14 @@ impl Interpreter {
             Expr::Call { callee, args, span } => {
                 if let Expr::Member { object, property, .. } = callee.as_ref() {
                     let obj = self.eval_expr(object)?;
+                    let obj = match obj.proxy_parts() {
+                        Some((target, handler))
+                            if crate::stdlib::proxy::trap(&handler, crate::stdlib::proxy::GET).is_none() =>
+                        {
+                            (*target).clone()
+                        }
+                        _ => obj,
+                    };
                     if let Expr::Super { .. } = object.as_ref()
                         && let Value::Class(cls) = &obj
                         && let Some((ref params, ref body, ref env)) = cls.constructor
@@ -376,6 +384,10 @@ impl Interpreter {
                 for el in elements {
                     if let Expr::Spread { expr, span } = el {
                         let val = self.eval_expr(expr)?;
+                        let val = match val.proxy_parts() {
+                            Some((target, _)) => (*target).clone(),
+                            None => val,
+                        };
                         match val {
                             Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                             Value::Set(s) => values.extend(s),
@@ -419,6 +431,10 @@ impl Interpreter {
                         }
                         ObjectEntry::Spread(expr) => {
                             let val = self.eval_expr(expr)?;
+                            let val = match val.proxy_parts() {
+                                Some((target, _)) => (*target).clone(),
+                                None => val,
+                            };
                             match val {
                                 Value::Object(src) => {
                                     for (k, v) in src.borrow().iter() {
@@ -573,6 +589,10 @@ impl Interpreter {
                 Ok(Value::Boolean(self.instance_of_check(&left, &right_class)))
             }
             BinaryOp::In => match right {
+                Value::Proxy { target, handler } => {
+                    let key = left.to_string();
+                    Ok(Value::Boolean(self.proxy_has(&target, &handler, &key, span)?))
+                }
                 Value::Object(map) => {
                     let key = left.to_string();
                     Ok(Value::Boolean(map.borrow().contains_key(&key)))

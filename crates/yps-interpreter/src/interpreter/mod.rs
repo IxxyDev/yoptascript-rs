@@ -25,6 +25,7 @@ pub(crate) mod generator;
 mod member;
 mod module_loader;
 mod promise_rt;
+mod proxy;
 mod types;
 
 use event_loop::MacrotaskQueue;
