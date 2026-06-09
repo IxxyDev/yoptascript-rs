@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Always respond in Russian. Never write comments in code.
 
+Git commit messages and pull request titles/descriptions MUST be in English. Russian-keyword language identifiers (e.g. `йопта`, `Косяк`, `хапнуть`) may appear inline when they name code, but the prose around them is English. Phase numbers (e.g. "Phase 15", "15B") are internal planning labels — never put them in commit messages or PR titles.
+
 ## Project Overview
 
 YoptaScript-rs is a Rust implementation of YoptaScript — an esoteric programming language with Russian slang keywords. The project implements a full pipeline: lexer → parser → tree-walking interpreter.
