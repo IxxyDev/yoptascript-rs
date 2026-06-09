@@ -9230,3 +9230,74 @@ fn string_pad_with_multibyte_fill_respects_byte_limit() {
     let err = run_code_err(r#""х".дополнитьСлева(30000000, "ф");"#);
     assert!(err.message.contains("лимит длины"), "ожидалась ошибка о лимите длины строки, получено: {}", err.message);
 }
+
+#[test]
+fn generator_reentrant_next_errors_instead_of_panic() {
+    let i = run_code(
+        r#"
+        ясенХуй сам = ноль;
+        пиздюли г() { поебалу сам.следующий(); }
+        сам = г();
+        гыы поймали = лож;
+        хапнуть { сам.следующий(); } гоп (е) { поймали = правда; }
+        "#,
+    );
+    assert_eq!(i.get("поймали"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn promise_catch_receives_thrown_object_from_then() {
+    let i = run_code(
+        r#"
+        гыы тип_е = "";
+        гыы код = 0;
+        СловоПацана.решить(1)
+            .потом((з) => { кидай { код: 7 }; })
+            .ловить((е) => { тип_е = тип(е); код = е.код; });
+        "#,
+    );
+    assert_eq!(i.get("тип_е"), Some(Value::String("объект".to_string())));
+    assert_eq!(i.get("код"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn promise_try_rejects_with_thrown_value() {
+    let i = run_code(
+        r#"
+        гыы код = 0;
+        СловоПацана.попробовать(() => { кидай { код: 5 }; }).ловить((е) => { код = е.код; });
+        "#,
+    );
+    assert_eq!(i.get("код"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn throw_in_promise_executor_rejects_promise() {
+    let i = run_code(
+        r#"
+        гыы код = 0;
+        участковый п = захуярить СловоПацана((реш, отв) => { кидай { код: 42 }; });
+        п.ловить((е) => { код = е.код; });
+        "#,
+    );
+    assert_eq!(i.get("код"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn promise_rejects_engine_error_as_object_like_catch() {
+    let i = run_code(
+        r#"
+        гыы имя = "";
+        гыы сообщение = "";
+        СловоПацана.решить(1)
+            .потом((з) => { несуществуетТакого(); })
+            .ловить((е) => { имя = е.name; сообщение = е.message; });
+        "#,
+    );
+    assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
+    let msg = match i.get("сообщение") {
+        Some(Value::String(s)) => s,
+        other => panic!("ожидалась строка, получено {other:?}"),
+    };
+    assert!(msg.contains("не определена"), "{msg}");
+}
