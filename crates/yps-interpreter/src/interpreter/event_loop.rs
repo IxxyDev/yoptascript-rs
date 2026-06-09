@@ -129,7 +129,7 @@ impl Default for MacrotaskQueue {
 
 fn take_callback(value: Option<Value>, fn_name: &str, span: Span) -> Result<Value, RuntimeError> {
     let v = value.ok_or_else(|| RuntimeError::new(format!("'{fn_name}' ожидает функцию"), span))?;
-    if !matches!(v, Value::Function { .. } | Value::BuiltinFunction(_)) {
+    if !v.is_callable() {
         return Err(RuntimeError::new(format!("'{fn_name}' ожидает функцию, получено '{}'", v.type_name()), span));
     }
     Ok(v)

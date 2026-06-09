@@ -206,7 +206,7 @@ pub fn call(
             match method {
                 "подписатьсяНаОтмену" => {
                     let cb = args.into_iter().next().unwrap_or(Value::Undefined);
-                    if !matches!(cb, Value::Function { .. } | Value::BuiltinFunction(_)) {
+                    if !cb.is_callable() {
                         return Err(RuntimeError::new(
                             format!("'подписатьсяНаОтмену' ожидает функцию, получено '{}'", cb.type_name()),
                             span,
