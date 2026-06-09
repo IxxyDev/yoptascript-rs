@@ -1,6 +1,6 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use crate::value::Value;
 
@@ -12,9 +12,59 @@ pub struct EnvFrame {
     parent: Option<Rc<RefCell<EnvFrame>>>,
 }
 
+impl EnvFrame {
+    pub(crate) fn gc_values(&self) -> impl Iterator<Item = &Value> {
+        self.bindings.values().chain(self.disposables.iter())
+    }
+
+    pub(crate) fn gc_parent(&self) -> Option<Rc<RefCell<EnvFrame>>> {
+        self.parent.clone()
+    }
+
+    pub(crate) fn gc_clear(&mut self) {
+        self.bindings.clear();
+        self.constants.clear();
+        self.disposables.clear();
+        self.parent = None;
+    }
+}
+
+#[derive(Debug)]
+pub struct FrameRegistry {
+    frames: RefCell<Vec<Weak<RefCell<EnvFrame>>>>,
+    prune_at: Cell<usize>,
+}
+
+impl FrameRegistry {
+    fn new() -> Rc<Self> {
+        Rc::new(Self { frames: RefCell::new(Vec::new()), prune_at: Cell::new(1024) })
+    }
+
+    fn register(&self, frame: &Rc<RefCell<EnvFrame>>) {
+        let mut frames = self.frames.borrow_mut();
+        frames.push(Rc::downgrade(frame));
+        if frames.len() >= self.prune_at.get() {
+            frames.retain(|w| w.strong_count() > 0);
+            self.prune_at.set((frames.len() * 2).max(1024));
+        }
+    }
+
+    pub(crate) fn prune_and_count(&self) -> usize {
+        let mut frames = self.frames.borrow_mut();
+        frames.retain(|w| w.strong_count() > 0);
+        self.prune_at.set((frames.len() * 2).max(1024));
+        frames.len()
+    }
+
+    pub(crate) fn live_frames(&self) -> Vec<Rc<RefCell<EnvFrame>>> {
+        self.frames.borrow().iter().filter_map(|w| w.upgrade()).collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     current: Rc<RefCell<EnvFrame>>,
+    registry: Rc<FrameRegistry>,
 }
 
 impl Default for Environment {
@@ -25,14 +75,15 @@ impl Default for Environment {
 
 impl Environment {
     pub fn new() -> Self {
-        Self {
-            current: Rc::new(RefCell::new(EnvFrame {
-                bindings: HashMap::new(),
-                constants: HashSet::new(),
-                disposables: Vec::new(),
-                parent: None,
-            })),
-        }
+        let registry = FrameRegistry::new();
+        let current = Rc::new(RefCell::new(EnvFrame {
+            bindings: HashMap::new(),
+            constants: HashSet::new(),
+            disposables: Vec::new(),
+            parent: None,
+        }));
+        registry.register(&current);
+        Self { current, registry }
     }
 
     pub fn push_scope(&mut self) {
@@ -43,6 +94,7 @@ impl Environment {
             parent: Some(Rc::clone(&self.current)),
         };
         self.current = Rc::new(RefCell::new(new_frame));
+        self.registry.register(&self.current);
     }
 
     pub fn pop_scope(&mut self) {
@@ -56,8 +108,12 @@ impl Environment {
         Rc::clone(&self.current)
     }
 
-    pub fn from_snapshot(frame: Rc<RefCell<EnvFrame>>) -> Self {
-        Self { current: frame }
+    pub(crate) fn registry(&self) -> Rc<FrameRegistry> {
+        Rc::clone(&self.registry)
+    }
+
+    pub(crate) fn from_snapshot(frame: Rc<RefCell<EnvFrame>>, registry: Rc<FrameRegistry>) -> Self {
+        Self { current: frame, registry }
     }
 
     pub fn define(&mut self, name: String, value: Value, is_const: bool) {

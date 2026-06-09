@@ -178,7 +178,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         let saved_env = self.env.clone();
-        self.env = Environment::from_snapshot(Rc::clone(env));
+        self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
         self.env.push_scope();
         self.env.define(symbols::THIS.to_string(), this_val.clone(), false);
         if let Some(param) = params.first() {

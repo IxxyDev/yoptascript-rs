@@ -84,7 +84,7 @@ impl Interpreter {
                 }
 
                 let saved_env = self.env.clone();
-                self.env = Environment::from_snapshot(env);
+                self.env = Environment::from_snapshot(env, self.env.registry());
                 self.env.push_scope();
 
                 for (i, param) in params.iter().enumerate() {
@@ -124,7 +124,7 @@ impl Interpreter {
                     self.enqueue_microtask(Box::new(move |interp, sp| {
                         let caller_env = interp.env.clone();
                         let saved_stack = std::mem::take(&mut interp.call_stack);
-                        interp.env = Environment::from_snapshot(async_env);
+                        interp.env = Environment::from_snapshot(async_env, interp.env.registry());
                         interp.push_frame(name_for_async, sp);
                         let mut result = interp.exec_block_stmts(&body_for_task.stmts);
                         if let Err(e) = &mut result {
@@ -246,7 +246,7 @@ impl Interpreter {
             return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
         }
         let saved_env = self.env.clone();
-        self.env = Environment::from_snapshot(Rc::clone(env));
+        self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
         self.env.push_scope();
 
         if let Some(this) = &this_val {

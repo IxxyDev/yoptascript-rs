@@ -326,7 +326,7 @@ impl Interpreter {
 
         if let Some((ref params, ref body, ref env)) = class_def.constructor {
             let saved_env = self.env.clone();
-            self.env = Environment::from_snapshot(Rc::clone(env));
+            self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
             self.env.push_scope();
 
             self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
@@ -433,7 +433,7 @@ impl Interpreter {
         };
 
         let saved_env = self.env.clone();
-        self.env = Environment::from_snapshot(env);
+        self.env = Environment::from_snapshot(env, self.env.registry());
         self.env.push_scope();
         self.env.define(symbols::THIS.to_string(), child_instance.clone(), false);
         if let Some(grandparent) = &parent_def.parent {
