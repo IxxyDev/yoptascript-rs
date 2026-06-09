@@ -1,7 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+
+use indexmap::{IndexMap, IndexSet};
 
 pub struct AbortState {
     pub aborted: bool,
@@ -304,8 +307,8 @@ pub enum Value {
     Boolean(bool),
     Array(Rc<RefCell<Vec<Value>>>),
     Object(Rc<RefCell<HashMap<String, Value>>>),
-    Map(Vec<(Value, Value)>),
-    Set(Vec<Value>),
+    Map(Rc<RefCell<IndexMap<MapKey, Value>>>),
+    Set(Rc<RefCell<IndexSet<MapKey>>>),
     Function {
         name: Rc<str>,
         params: Rc<[Param]>,
@@ -397,6 +400,14 @@ impl Value {
 
     pub fn object(map: HashMap<String, Value>) -> Value {
         Value::Object(Rc::new(RefCell::new(map)))
+    }
+
+    pub fn map(entries: IndexMap<MapKey, Value>) -> Value {
+        Value::Map(Rc::new(RefCell::new(entries)))
+    }
+
+    pub fn set(items: IndexSet<MapKey>) -> Value {
+        Value::Set(Rc::new(RefCell::new(items)))
     }
 
     pub(crate) fn proxy_parts(&self) -> Option<(Rc<Value>, Rc<Value>)> {
@@ -517,8 +528,14 @@ impl fmt::Debug for Value {
             Value::Boolean(b) => write!(f, "Boolean({b})"),
             Value::Array(a) => f.debug_tuple("Array").field(&*a.borrow()).finish(),
             Value::Object(o) => f.debug_tuple("Object").field(&*o.borrow()).finish(),
-            Value::Map(m) => f.debug_tuple("Map").field(m).finish(),
-            Value::Set(s) => f.debug_tuple("Set").field(s).finish(),
+            Value::Map(m) => {
+                let entries: Vec<(Value, Value)> = m.borrow().iter().map(|(k, v)| (k.0.clone(), v.clone())).collect();
+                f.debug_tuple("Map").field(&entries).finish()
+            }
+            Value::Set(s) => {
+                let items: Vec<Value> = s.borrow().iter().map(|k| k.0.clone()).collect();
+                f.debug_tuple("Set").field(&items).finish()
+            }
             Value::Function { name, params, .. } => {
                 let param_names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();
                 write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
@@ -635,23 +652,38 @@ impl Value {
                 write!(f, "}}")
             }
             Value::Map(entries) => {
+                let ptr = Rc::as_ptr(entries) as *const ();
+                if !seen.insert(ptr) {
+                    return write!(f, "[Циклично]");
+                }
+                let snapshot: Vec<(Value, Value)> =
+                    entries.borrow().iter().map(|(k, v)| (k.0.clone(), v.clone())).collect();
                 write!(f, "Карта(")?;
-                for (i, (k, v)) in entries.iter().enumerate() {
+                for (i, (k, v)) in snapshot.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{k} => {v}")?;
+                    k.fmt_with_seen(f, seen)?;
+                    write!(f, " => ")?;
+                    v.fmt_with_seen(f, seen)?;
                 }
+                seen.remove(&ptr);
                 write!(f, ")")
             }
             Value::Set(items) => {
+                let ptr = Rc::as_ptr(items) as *const ();
+                if !seen.insert(ptr) {
+                    return write!(f, "[Циклично]");
+                }
+                let snapshot: Vec<Value> = items.borrow().iter().map(|k| k.0.clone()).collect();
                 write!(f, "Набор(")?;
-                for (i, v) in items.iter().enumerate() {
+                for (i, v) in snapshot.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{v}")?;
+                    v.fmt_with_seen(f, seen)?;
                 }
+                seen.remove(&ptr);
                 write!(f, ")")
             }
             Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
@@ -724,6 +756,155 @@ pub fn same_value_zero(a: &Value, b: &Value) -> bool {
     }
 }
 
+#[derive(Clone)]
+pub struct MapKey(pub Value);
+
+impl MapKey {
+    pub fn into_value(self) -> Value {
+        self.0
+    }
+
+    pub fn as_value(&self) -> &Value {
+        &self.0
+    }
+}
+
+impl PartialEq for MapKey {
+    fn eq(&self, other: &Self) -> bool {
+        same_value_zero(&self.0, &other.0)
+    }
+}
+
+impl Eq for MapKey {}
+
+fn hash_rc_ptr<T, H: Hasher>(rc: &Rc<T>, state: &mut H) {
+    (Rc::as_ptr(rc) as *const () as usize).hash(state);
+}
+
+impl Hash for MapKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self.0 {
+            Value::Number(n) => {
+                let canonical = if n.is_nan() {
+                    f64::NAN.to_bits()
+                } else if *n == 0.0 {
+                    0.0f64.to_bits()
+                } else {
+                    n.to_bits()
+                };
+                0u8.hash(state);
+                canonical.hash(state);
+            }
+            Value::BigInt(n) => {
+                1u8.hash(state);
+                n.hash(state);
+            }
+            Value::String(s) => {
+                2u8.hash(state);
+                s.hash(state);
+            }
+            Value::Boolean(b) => {
+                3u8.hash(state);
+                b.hash(state);
+            }
+            Value::Symbol { id, .. } => {
+                4u8.hash(state);
+                id.hash(state);
+            }
+            Value::RegExp { pattern, flags, .. } => {
+                5u8.hash(state);
+                pattern.hash(state);
+                flags.hash(state);
+            }
+            Value::Array(rc) => {
+                6u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Object(rc) => {
+                7u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Map(rc) => {
+                8u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Set(rc) => {
+                9u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Class(rc) => {
+                10u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Promise { state: rc } => {
+                11u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Iterator(rc) => {
+                12u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::Date(rc) => {
+                13u8.hash(state);
+                (Rc::as_ptr(rc) as *const () as usize).hash(state);
+            }
+            Value::ArrayBuffer(rc) => {
+                14u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::TypedArray { buffer, offset, length, kind } => {
+                15u8.hash(state);
+                hash_rc_ptr(buffer, state);
+                offset.hash(state);
+                length.hash(state);
+                (*kind as u8).hash(state);
+            }
+            Value::DataView { buffer, offset, length } => {
+                16u8.hash(state);
+                hash_rc_ptr(buffer, state);
+                offset.hash(state);
+                length.hash(state);
+            }
+            Value::AbortController { state: rc } => {
+                17u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::AbortSignal { state: rc } => {
+                18u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::AbortListener { target } => {
+                19u8.hash(state);
+                hash_rc_ptr(target, state);
+            }
+            Value::AbortUnsubscribe { state: rc, token } => {
+                20u8.hash(state);
+                hash_rc_ptr(rc, state);
+                token.hash(state);
+            }
+            Value::Proxy { target, handler } => {
+                21u8.hash(state);
+                hash_rc_ptr(target, state);
+                hash_rc_ptr(handler, state);
+            }
+            Value::Undefined => 22u8.hash(state),
+            Value::Null => 23u8.hash(state),
+            Value::Function { env, .. } => {
+                24u8.hash(state);
+                hash_rc_ptr(env, state);
+            }
+            Value::BuiltinFunction(name) => {
+                25u8.hash(state);
+                name.hash(state);
+            }
+            other => {
+                26u8.hash(state);
+                std::mem::discriminant(other).hash(state);
+            }
+        }
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -733,8 +914,8 @@ impl PartialEq for Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
-            (Value::Map(a), Value::Map(b)) => a == b,
-            (Value::Set(a), Value::Set(b)) => a == b,
+            (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
+            (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),

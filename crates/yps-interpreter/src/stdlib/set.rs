@@ -1,31 +1,26 @@
+use indexmap::IndexSet;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::require_args;
-use crate::value::{Value, same_value_zero};
-
-fn svz_contains(slice: &[Value], target: &Value) -> bool {
-    slice.iter().any(|v| same_value_zero(v, target))
-}
+use crate::value::{MapKey, Value};
 
 pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     if args.is_empty() {
-        return Ok(Value::Set(Vec::new()));
+        return Ok(Value::set(IndexSet::new()));
     }
     match &args[0] {
         Value::Array(items) => {
             let items = items.borrow();
-            let mut out: Vec<Value> = Vec::with_capacity(items.len());
+            let mut out: IndexSet<MapKey> = IndexSet::with_capacity(items.len());
             for v in items.iter() {
-                if !svz_contains(&out, v) {
-                    out.push(v.clone());
-                }
+                out.insert(MapKey(v.clone()));
             }
-            Ok(Value::Set(out))
+            Ok(Value::set(out))
         }
-        Value::Set(s) => Ok(Value::Set(s.clone())),
-        Value::Undefined | Value::Null => Ok(Value::Set(Vec::new())),
+        Value::Set(s) => Ok(Value::set(s.borrow().clone())),
+        Value::Undefined | Value::Null => Ok(Value::set(IndexSet::new())),
         other => {
             Err(RuntimeError::new(format!("'Набор' ожидает массив или набор, получено '{}'", other.type_name()), span))
         }
@@ -38,115 +33,119 @@ pub fn call(
     method: &str,
     args: Vec<Value>,
     span: Span,
-) -> Result<(Value, Option<Value>), RuntimeError> {
-    let items = match receiver {
+) -> Result<Value, RuntimeError> {
+    let set = match receiver {
         Value::Set(s) => s,
         _ => unreachable!(),
     };
     match method {
         "add" | "добавить" => {
             require_args(&args, 1, span, "add")?;
-            let mut items = items;
             let val = args.into_iter().next().unwrap();
-            if !svz_contains(&items, &val) {
-                items.push(val);
-            }
-            Ok((Value::Set(items.clone()), Some(Value::Set(items))))
+            set.borrow_mut().insert(MapKey(val));
+            Ok(Value::Set(set))
         }
         "has" | "имеет" => {
             require_args(&args, 1, span, "has")?;
-            Ok((Value::Boolean(svz_contains(&items, &args[0])), None))
+            Ok(Value::Boolean(set.borrow().contains(&MapKey(args[0].clone()))))
         }
         "delete" | "удалить" => {
             require_args(&args, 1, span, "delete")?;
-            let mut items = items;
-            let removed = if let Some(idx) = items.iter().position(|v| same_value_zero(v, &args[0])) {
-                items.remove(idx);
-                true
-            } else {
-                false
-            };
-            Ok((Value::Boolean(removed), Some(Value::Set(items))))
+            let removed = set.borrow_mut().shift_remove(&MapKey(args[0].clone()));
+            Ok(Value::Boolean(removed))
         }
-        "clear" | "очистить" => Ok((Value::Undefined, Some(Value::Set(Vec::new())))),
-        "size" | "размер" => Ok((Value::Number(items.len() as f64), None)),
-        "values" | "значения" => Ok((Value::array(items), None)),
+        "clear" | "очистить" => {
+            set.borrow_mut().clear();
+            Ok(Value::Undefined)
+        }
+        "size" | "размер" => Ok(Value::Number(set.borrow().len() as f64)),
+        "values" | "значения" => {
+            let vals: Vec<Value> = set.borrow().iter().map(|k| k.0.clone()).collect();
+            Ok(Value::array(vals))
+        }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();
-            for v in &items {
-                interp.call_function(callback.clone(), vec![v.clone()], span)?;
+            let snapshot: Vec<Value> = set.borrow().iter().map(|k| k.0.clone()).collect();
+            for v in snapshot {
+                interp.call_function(callback.clone(), vec![v], span)?;
             }
-            Ok((Value::Undefined, Some(Value::Set(items))))
+            Ok(Value::Undefined)
         }
-        "union" | "объединение" => set_op(items, args, span, |a, b| a || b),
-        "intersection" | "пересечение" => set_op(items, args, span, |a, b| a && b),
+        "union" | "объединение" => set_op(&set, args, span, |a, b| a || b),
+        "intersection" | "пересечение" => set_op(&set, args, span, |a, b| a && b),
         "difference" | "разница" => {
             require_args(&args, 1, span, "difference")?;
             let other = extract_set_like(&args[0], span)?;
-            let result: Vec<Value> = items.into_iter().filter(|v| !svz_contains(&other, v)).collect();
-            Ok((Value::Set(result), None))
+            let result: IndexSet<MapKey> = set.borrow().iter().filter(|v| !other.contains(*v)).cloned().collect();
+            Ok(Value::set(result))
         }
         "symmetricDifference" | "симметричнаяРазница" => {
             require_args(&args, 1, span, "symmetricDifference")?;
             let other = extract_set_like(&args[0], span)?;
-            let mut result: Vec<Value> = items.iter().filter(|v| !svz_contains(&other, v)).cloned().collect();
+            let items = set.borrow();
+            let mut result: IndexSet<MapKey> = items.iter().filter(|v| !other.contains(*v)).cloned().collect();
             for v in &other {
-                if !svz_contains(&items, v) && !svz_contains(&result, v) {
-                    result.push(v.clone());
+                if !items.contains(v) {
+                    result.insert(v.clone());
                 }
             }
-            Ok((Value::Set(result), None))
+            Ok(Value::set(result))
         }
         "isSubsetOf" | "подмножествоОт" => {
             require_args(&args, 1, span, "isSubsetOf")?;
             let other = extract_set_like(&args[0], span)?;
-            Ok((Value::Boolean(items.iter().all(|v| svz_contains(&other, v))), None))
+            Ok(Value::Boolean(set.borrow().iter().all(|v| other.contains(v))))
         }
         "isSupersetOf" | "надмножествоОт" => {
             require_args(&args, 1, span, "isSupersetOf")?;
             let other = extract_set_like(&args[0], span)?;
-            Ok((Value::Boolean(other.iter().all(|v| svz_contains(&items, v))), None))
+            let items = set.borrow();
+            Ok(Value::Boolean(other.iter().all(|v| items.contains(v))))
         }
         "isDisjointFrom" | "непересекаетсяС" => {
             require_args(&args, 1, span, "isDisjointFrom")?;
             let other = extract_set_like(&args[0], span)?;
-            Ok((Value::Boolean(!items.iter().any(|v| svz_contains(&other, v))), None))
+            Ok(Value::Boolean(!set.borrow().iter().any(|v| other.contains(v))))
         }
         _ => Err(RuntimeError::new(format!("У набора нет метода '{method}'"), span)),
     }
 }
 
-fn set_op<F>(items: Vec<Value>, args: Vec<Value>, span: Span, keep: F) -> Result<(Value, Option<Value>), RuntimeError>
+fn set_op<F>(
+    set: &std::rc::Rc<std::cell::RefCell<IndexSet<MapKey>>>,
+    args: Vec<Value>,
+    span: Span,
+    keep: F,
+) -> Result<Value, RuntimeError>
 where
     F: Fn(bool, bool) -> bool,
 {
     require_args(&args, 1, span, "set операция")?;
     let other = extract_set_like(&args[0], span)?;
-    let mut result: Vec<Value> = Vec::new();
-    for v in &items {
-        if keep(true, svz_contains(&other, v)) {
-            result.push(v.clone());
+    let items = set.borrow();
+    let mut result: IndexSet<MapKey> = IndexSet::new();
+    for v in items.iter() {
+        if keep(true, other.contains(v)) {
+            result.insert(v.clone());
         }
     }
     for v in &other {
-        if !svz_contains(&items, v) && keep(false, true) && !svz_contains(&result, v) {
-            result.push(v.clone());
+        if !items.contains(v) && keep(false, true) {
+            result.insert(v.clone());
         }
     }
-    Ok((Value::Set(result), None))
+    Ok(Value::set(result))
 }
 
-fn extract_set_like(v: &Value, span: Span) -> Result<Vec<Value>, RuntimeError> {
+fn extract_set_like(v: &Value, span: Span) -> Result<IndexSet<MapKey>, RuntimeError> {
     match v {
-        Value::Set(s) => Ok(s.clone()),
+        Value::Set(s) => Ok(s.borrow().clone()),
         Value::Array(a) => {
             let a = a.borrow();
-            let mut out: Vec<Value> = Vec::with_capacity(a.len());
+            let mut out: IndexSet<MapKey> = IndexSet::with_capacity(a.len());
             for el in a.iter() {
-                if !svz_contains(&out, el) {
-                    out.push(el.clone());
-                }
+                out.insert(MapKey(el.clone()));
             }
             Ok(out)
         }

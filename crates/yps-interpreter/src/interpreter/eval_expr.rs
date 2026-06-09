@@ -394,9 +394,14 @@ impl Interpreter {
                         };
                         match val {
                             Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
-                            Value::Set(s) => values.extend(s),
+                            Value::Set(s) => values.extend(s.borrow().iter().map(|k| k.as_value().clone())),
                             Value::Map(entries) => {
-                                values.extend(entries.into_iter().map(|(k, v)| Value::array(vec![k, v])));
+                                values.extend(
+                                    entries
+                                        .borrow()
+                                        .iter()
+                                        .map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])),
+                                );
                             }
                             Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                             Value::TypedArray { buffer, offset, length, kind } => {
