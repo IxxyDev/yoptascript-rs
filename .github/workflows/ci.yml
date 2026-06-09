@@ -9,7 +9,7 @@ env:
   RUST_MIN_STACK: 16777216
 
 jobs:
-  lint-test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -26,7 +26,37 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
       - run: cargo test --workspace --all-features --all-targets
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - run: cargo check --workspace --all-features --all-targets
 
   audit:
     runs-on: ubuntu-latest
@@ -39,7 +69,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    needs: lint-test
+    needs: [lint, test]
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
