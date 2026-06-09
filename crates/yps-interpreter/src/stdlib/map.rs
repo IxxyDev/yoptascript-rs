@@ -1,9 +1,10 @@
+use indexmap::IndexMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{builtin, object_of, require_args};
-use crate::value::{Value, same_value_zero};
+use crate::value::{MapKey, Value};
 
 pub fn build_static() -> Value {
     object_of(&[("отПар", builtin("Карта.отПар"))])
@@ -11,12 +12,12 @@ pub fn build_static() -> Value {
 
 pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     if args.is_empty() {
-        return Ok(Value::Map(Vec::new()));
+        return Ok(Value::map(IndexMap::new()));
     }
     match &args[0] {
         Value::Array(entries) => entries_to_map(&entries.borrow(), span),
-        Value::Map(m) => Ok(Value::Map(m.clone())),
-        Value::Undefined | Value::Null => Ok(Value::Map(Vec::new())),
+        Value::Map(m) => Ok(Value::map(m.borrow().clone())),
+        Value::Undefined | Value::Null => Ok(Value::map(IndexMap::new())),
         other => Err(RuntimeError::new(
             format!("'Карта' ожидает массив пар или карту, получено '{}'", other.type_name()),
             span,
@@ -35,7 +36,7 @@ pub fn call_static(
             require_args(&args, 1, span, "Карта.отПар")?;
             match &args[0] {
                 Value::Array(entries) => entries_to_map(&entries.borrow(), span),
-                Value::Map(m) => Ok(Value::Map(m.clone())),
+                Value::Map(m) => Ok(Value::map(m.borrow().clone())),
                 other => Err(RuntimeError::new(
                     format!("'Карта.отПар' ожидает массив пар, получено '{}'", other.type_name()),
                     span,
@@ -52,123 +53,100 @@ pub fn call(
     method: &str,
     args: Vec<Value>,
     span: Span,
-) -> Result<(Value, Option<Value>), RuntimeError> {
-    let entries = match receiver {
+) -> Result<Value, RuntimeError> {
+    let map = match receiver {
         Value::Map(m) => m,
         _ => unreachable!(),
     };
     match method {
         "set" | "поставить" => {
             require_args(&args, 2, span, "set")?;
-            let mut entries = entries;
             let mut iter = args.into_iter();
             let key = iter.next().unwrap();
             let val = iter.next().unwrap();
-            if let Some(idx) = find_index(&entries, &key) {
-                entries[idx].1 = val;
-            } else {
-                entries.push((key, val));
-            }
-            Ok((Value::Map(entries.clone()), Some(Value::Map(entries))))
+            map.borrow_mut().insert(MapKey(key), val);
+            Ok(Value::Map(map))
         }
         "get" | "взять" => {
             require_args(&args, 1, span, "get")?;
-            let key = &args[0];
-            let val = find_index(&entries, key).map(|i| entries[i].1.clone()).unwrap_or(Value::Undefined);
-            Ok((val, None))
+            let val = map.borrow().get(&MapKey(args[0].clone())).cloned().unwrap_or(Value::Undefined);
+            Ok(val)
         }
         "has" | "имеет" => {
             require_args(&args, 1, span, "has")?;
-            Ok((Value::Boolean(find_index(&entries, &args[0]).is_some()), None))
+            Ok(Value::Boolean(map.borrow().contains_key(&MapKey(args[0].clone()))))
         }
         "delete" | "удалить" => {
             require_args(&args, 1, span, "delete")?;
-            let mut entries = entries;
-            let removed = if let Some(idx) = find_index(&entries, &args[0]) {
-                entries.remove(idx);
-                true
-            } else {
-                false
-            };
-            Ok((Value::Boolean(removed), Some(Value::Map(entries))))
+            let removed = map.borrow_mut().shift_remove(&MapKey(args[0].clone())).is_some();
+            Ok(Value::Boolean(removed))
         }
-        "clear" | "очистить" => Ok((Value::Undefined, Some(Value::Map(Vec::new())))),
-        "size" | "размер" => Ok((Value::Number(entries.len() as f64), None)),
+        "clear" | "очистить" => {
+            map.borrow_mut().clear();
+            Ok(Value::Undefined)
+        }
+        "size" | "размер" => Ok(Value::Number(map.borrow().len() as f64)),
         "keys" | "ключи" => {
-            let keys: Vec<Value> = entries.into_iter().map(|(k, _)| k).collect();
-            Ok((Value::array(keys), None))
+            let keys: Vec<Value> = map.borrow().keys().map(|k| k.0.clone()).collect();
+            Ok(Value::array(keys))
         }
         "values" | "значения" => {
-            let vals: Vec<Value> = entries.into_iter().map(|(_, v)| v).collect();
-            Ok((Value::array(vals), None))
+            let vals: Vec<Value> = map.borrow().values().cloned().collect();
+            Ok(Value::array(vals))
         }
         "entries" | "записи" => {
-            let pairs: Vec<Value> = entries.into_iter().map(|(k, v)| Value::array(vec![k, v])).collect();
-            Ok((Value::array(pairs), None))
+            let pairs: Vec<Value> =
+                map.borrow().iter().map(|(k, v)| Value::array(vec![k.0.clone(), v.clone()])).collect();
+            Ok(Value::array(pairs))
         }
         "getOrInsert" | "взятьИлиВставить" => {
             require_args(&args, 2, span, "getOrInsert")?;
-            let mut entries = entries;
             let mut iter = args.into_iter();
             let key = iter.next().unwrap();
             let default = iter.next().unwrap();
-            let val = if let Some(idx) = find_index(&entries, &key) {
-                entries[idx].1.clone()
-            } else {
-                entries.push((key, default.clone()));
-                default
-            };
-            Ok((val, Some(Value::Map(entries))))
+            let mut borrowed = map.borrow_mut();
+            let val = borrowed.entry(MapKey(key)).or_insert(default).clone();
+            Ok(val)
         }
         "getOrInsertComputed" | "взятьИлиВычислить" => {
             require_args(&args, 2, span, "getOrInsertComputed")?;
-            let mut entries = entries;
             let mut iter = args.into_iter();
             let key = iter.next().unwrap();
             let callback = iter.next().unwrap();
-            let val = if let Some(idx) = find_index(&entries, &key) {
-                entries[idx].1.clone()
-            } else {
-                let computed = interp.call_function(callback, vec![key.clone()], span)?;
-                entries.push((key, computed.clone()));
-                computed
-            };
-            Ok((val, Some(Value::Map(entries))))
+            if let Some(existing) = map.borrow().get(&MapKey(key.clone())) {
+                return Ok(existing.clone());
+            }
+            let computed = interp.call_function(callback, vec![key.clone()], span)?;
+            map.borrow_mut().entry(MapKey(key)).or_insert(computed.clone());
+            Ok(computed)
         }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();
-            for (k, v) in &entries {
-                interp.call_function(callback.clone(), vec![v.clone(), k.clone()], span)?;
+            let snapshot: Vec<(Value, Value)> = map.borrow().iter().map(|(k, v)| (k.0.clone(), v.clone())).collect();
+            for (k, v) in snapshot {
+                interp.call_function(callback.clone(), vec![v, k], span)?;
             }
-            Ok((Value::Undefined, Some(Value::Map(entries))))
+            Ok(Value::Undefined)
         }
         _ => Err(RuntimeError::new(format!("У карты нет метода '{method}'"), span)),
     }
 }
 
-fn find_index(entries: &[(Value, Value)], key: &Value) -> Option<usize> {
-    entries.iter().position(|(k, _)| same_value_zero(k, key))
-}
-
 fn entries_to_map(entries: &[Value], span: Span) -> Result<Value, RuntimeError> {
-    let mut out: Vec<(Value, Value)> = Vec::with_capacity(entries.len());
+    let mut out: IndexMap<MapKey, Value> = IndexMap::with_capacity(entries.len());
     for entry in entries {
         match entry {
             Value::Array(pair) if pair.borrow().len() >= 2 => {
                 let pair = pair.borrow();
                 let key = pair[0].clone();
                 let val = pair[1].clone();
-                if let Some(idx) = find_index(&out, &key) {
-                    out[idx].1 = val;
-                } else {
-                    out.push((key, val));
-                }
+                out.insert(MapKey(key), val);
             }
             _ => return Err(RuntimeError::new("Каждая запись Карты должна быть [ключ, значение]", span)),
         }
     }
-    Ok(Value::Map(out))
+    Ok(Value::map(out))
 }
 
 #[cfg(test)]

@@ -704,8 +704,13 @@ fn value_to_iterator(val: Value, span: Span) -> Result<Rc<RefCell<IteratorState>
         Value::Iterator(rc) => return Ok(rc),
         Value::Array(values) => IteratorState::Array { values: values.borrow().clone(), index: 0 },
         Value::String(s) => IteratorState::Chars { chars: s.chars().collect(), index: 0 },
-        Value::Set(items) => IteratorState::Array { values: items, index: 0 },
-        Value::Map(entries) => IteratorState::MapEntries { entries, index: 0 },
+        Value::Set(items) => {
+            IteratorState::Array { values: items.borrow().iter().map(|k| k.as_value().clone()).collect(), index: 0 }
+        }
+        Value::Map(entries) => IteratorState::MapEntries {
+            entries: entries.borrow().iter().map(|(k, v)| (k.as_value().clone(), v.clone())).collect(),
+            index: 0,
+        },
         Value::TypedArray { buffer, offset, length, kind } => IteratorState::Array {
             values: crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind),
             index: 0,

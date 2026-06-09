@@ -323,3 +323,74 @@ fn test_structural_eq_helper_handles_cycles() {
     assert!(structural_eq(&a, &a));
     let _ = structural_eq(&a, &b);
 }
+
+#[test]
+fn ref_semantics_map_alias_sees_mutation() {
+    let interp = run_code(
+        r#"
+        гыы а = захуярить Карта();
+        гыы б = а;
+        б.set("к", 1);
+        гыы виден = а.get("к");
+        "#,
+    );
+    assert_eq!(interp.get("виден"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn ref_semantics_set_alias_sees_mutation() {
+    let interp = run_code(
+        r#"
+        гыы а = захуярить Набор();
+        гыы б = а;
+        б.add(7);
+        гыы виден = а.has(7);
+        "#,
+    );
+    assert_eq!(interp.get("виден"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn ref_semantics_map_mutated_inside_function_visible_outside() {
+    let interp = run_code(
+        r#"
+        йопта пополнить(м) {
+            м.set("х", 42);
+        }
+        гыы а = захуярить Карта();
+        пополнить(а);
+        гыы виден = а.get("х");
+        "#,
+    );
+    assert_eq!(interp.get("виден"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn eq_map_identity_true_structural_false() {
+    let interp = run_code(
+        r#"
+        гыы а = захуярить Карта();
+        гыы б = а;
+        гыы в = захуярить Карта();
+        гыы ид = а == б;
+        гыы структ = а == в;
+        "#,
+    );
+    assert_eq!(interp.get("ид"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn eq_set_identity_true_structural_false() {
+    let interp = run_code(
+        r#"
+        гыы а = захуярить Набор();
+        гыы б = а;
+        гыы в = захуярить Набор();
+        гыы ид = а == б;
+        гыы структ = а == в;
+        "#,
+    );
+    assert_eq!(interp.get("ид"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
+}

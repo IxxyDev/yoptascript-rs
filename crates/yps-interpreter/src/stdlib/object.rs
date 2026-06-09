@@ -117,8 +117,10 @@ pub fn call_static(
             let callback = iter.next().unwrap();
             let items: Vec<Value> = match collection {
                 Value::Array(a) => a.borrow().clone(),
-                Value::Set(s) => s,
-                Value::Map(entries) => entries.into_iter().map(|(k, v)| Value::array(vec![k, v])).collect(),
+                Value::Set(s) => s.borrow().iter().map(|k| k.as_value().clone()).collect(),
+                Value::Map(entries) => {
+                    entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect()
+                }
                 Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
                 other => {
                     return Err(RuntimeError::new(

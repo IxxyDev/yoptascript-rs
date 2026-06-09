@@ -55,13 +55,18 @@ fn structural_eq_inner(a: &Value, b: &Value, seen: &mut std::collections::HashSe
             res
         }
         (Value::Map(x), Value::Map(y)) => {
-            x.len() == y.len()
-                && x.iter()
-                    .zip(y.iter())
-                    .all(|((k1, v1), (k2, v2))| structural_eq_inner(k1, k2, seen) && structural_eq_inner(v1, v2, seen))
+            let xb = x.borrow();
+            let yb = y.borrow();
+            xb.len() == yb.len()
+                && xb.iter().zip(yb.iter()).all(|((k1, v1), (k2, v2))| {
+                    structural_eq_inner(k1.as_value(), k2.as_value(), seen) && structural_eq_inner(v1, v2, seen)
+                })
         }
         (Value::Set(x), Value::Set(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| structural_eq_inner(p, q, seen))
+            let xb = x.borrow();
+            let yb = y.borrow();
+            xb.len() == yb.len()
+                && xb.iter().zip(yb.iter()).all(|(p, q)| structural_eq_inner(p.as_value(), q.as_value(), seen))
         }
         _ => a == b,
     }

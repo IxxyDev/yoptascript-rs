@@ -481,8 +481,14 @@ pub fn state_from_value(value: Value, span: Span, ctx: &str) -> Result<IteratorS
     match value {
         Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().clone(), index: 0 }),
         Value::String(s) => Ok(IteratorState::Chars { chars: s.chars().collect(), index: 0 }),
-        Value::Set(values) => Ok(IteratorState::Array { values, index: 0 }),
-        Value::Map(entries) => Ok(IteratorState::MapEntries { entries, index: 0 }),
+        Value::Set(values) => Ok(IteratorState::Array {
+            values: values.borrow().iter().map(|k| k.as_value().clone()).collect(),
+            index: 0,
+        }),
+        Value::Map(entries) => Ok(IteratorState::MapEntries {
+            entries: entries.borrow().iter().map(|(k, v)| (k.as_value().clone(), v.clone())).collect(),
+            index: 0,
+        }),
         Value::Iterator(rc) => Ok(rc.borrow().clone()),
         other => Err(RuntimeError::new(
             format!("'{ctx}' ожидает итерируемое значение, получено '{}'", other.type_name()),

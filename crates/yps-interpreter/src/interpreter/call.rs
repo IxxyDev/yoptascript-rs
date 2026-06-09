@@ -345,7 +345,7 @@ impl Interpreter {
                 };
                 match val {
                     Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
-                    Value::Set(s) => values.extend(s),
+                    Value::Set(s) => values.extend(s.borrow().iter().map(|k| k.as_value().clone())),
                     Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
                     Value::TypedArray { buffer, offset, length, kind } => {
                         values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));

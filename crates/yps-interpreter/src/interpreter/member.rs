@@ -24,13 +24,13 @@ impl Interpreter {
             }
             Value::Map(entries) => {
                 if property == "size" || property == "размер" {
-                    return Ok(Value::Number(entries.len() as f64));
+                    return Ok(Value::Number(entries.borrow().len() as f64));
                 }
                 Ok(Value::Undefined)
             }
             Value::Set(items) => {
                 if property == "size" || property == "размер" {
-                    return Ok(Value::Number(items.len() as f64));
+                    return Ok(Value::Number(items.borrow().len() as f64));
                 }
                 Ok(Value::Undefined)
             }

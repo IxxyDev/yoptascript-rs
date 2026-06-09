@@ -168,15 +168,19 @@ impl Marker {
                     }
                 }
             }
-            Value::Map(entries) => {
-                for (key, val) in entries {
-                    self.push_value(key);
-                    self.push_value(val);
+            Value::Map(rc) => {
+                if self.seen.insert(Rc::as_ptr(rc) as usize) {
+                    for (key, val) in rc.borrow().iter() {
+                        self.push_value(key.as_value());
+                        self.push_value(val);
+                    }
                 }
             }
-            Value::Set(values) => {
-                for element in values {
-                    self.push_value(element);
+            Value::Set(rc) => {
+                if self.seen.insert(Rc::as_ptr(rc) as usize) {
+                    for element in rc.borrow().iter() {
+                        self.push_value(element.as_value());
+                    }
                 }
             }
             Value::Function { env, .. } => self.work.push(Work::Frame(Rc::clone(env))),
