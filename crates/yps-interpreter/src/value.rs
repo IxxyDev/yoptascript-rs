@@ -382,6 +382,10 @@ pub enum Value {
         offset: usize,
         length: usize,
     },
+    Proxy {
+        target: Rc<Value>,
+        handler: Rc<Value>,
+    },
     Undefined,
     Null,
 }
@@ -393,6 +397,13 @@ impl Value {
 
     pub fn object(map: HashMap<String, Value>) -> Value {
         Value::Object(Rc::new(RefCell::new(map)))
+    }
+
+    pub(crate) fn proxy_parts(&self) -> Option<(Rc<Value>, Rc<Value>)> {
+        match self {
+            Value::Proxy { target, handler } => Some((Rc::clone(target), Rc::clone(handler))),
+            _ => None,
+        }
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -440,6 +451,7 @@ impl Value {
             | Value::AbortUnsubscribe { .. }
             | Value::AbortCancelTimer { .. }
             | Value::AbortRejectPromise { .. } => "функция",
+            Value::Proxy { target, .. } => target.typeof_str(),
         }
     }
 
@@ -474,6 +486,7 @@ impl Value {
             | Value::AbortUnsubscribe { .. }
             | Value::AbortCancelTimer { .. }
             | Value::AbortRejectPromise { .. } => "функция",
+            Value::Proxy { target, .. } => target.type_name(),
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -538,6 +551,9 @@ impl fmt::Debug for Value {
                 write!(f, "TypedArray({}, offset={offset}, length={length})", kind.type_name())
             }
             Value::DataView { offset, length, .. } => write!(f, "DataView(offset={offset}, length={length})"),
+            Value::Proxy { target, handler } => {
+                f.debug_struct("Proxy").field("target", target).field("handler", handler).finish()
+            }
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
         }
@@ -681,6 +697,7 @@ impl Value {
             | Value::AbortUnsubscribe { .. }
             | Value::AbortCancelTimer { .. }
             | Value::AbortRejectPromise { .. } => write!(f, "[отписка]"),
+            Value::Proxy { .. } => write!(f, "[посредник]"),
         }
     }
 }
@@ -726,6 +743,9 @@ impl PartialEq for Value {
                 Value::DataView { buffer: ba, offset: oa, length: la },
                 Value::DataView { buffer: bb, offset: ob, length: lb },
             ) => Rc::ptr_eq(ba, bb) && oa == ob && la == lb,
+            (Value::Proxy { target: ta, handler: ha }, Value::Proxy { target: tb, handler: hb }) => {
+                Rc::ptr_eq(ta, tb) && Rc::ptr_eq(ha, hb)
+            }
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

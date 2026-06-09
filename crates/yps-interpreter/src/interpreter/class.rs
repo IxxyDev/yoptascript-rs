@@ -299,6 +299,9 @@ impl Interpreter {
         if let Value::BuiltinFunction(_) = &class_val {
             return self.call_function(class_val, args, span);
         }
+        if let Some((target, handler)) = class_val.proxy_parts() {
+            return self.proxy_construct(&target, &handler, args, span);
+        }
         let class_def = match &class_val {
             Value::Class(cls) => cls.clone(),
             _ => return Err(RuntimeError::new(format!("'{}' не является классом", class_val.type_name()), span)),

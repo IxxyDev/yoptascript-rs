@@ -11,6 +11,11 @@ use super::Interpreter;
 impl Interpreter {
     pub(crate) fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
+            Value::Proxy { target, handler } => {
+                let target = Rc::clone(target);
+                let handler = Rc::clone(handler);
+                self.proxy_get(&target, &handler, property, obj.clone(), span)
+            }
             Value::Array(arr) => {
                 if property == "length" || property == "длина" {
                     return Ok(Value::Number(arr.borrow().len() as f64));

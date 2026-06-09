@@ -223,6 +223,7 @@ impl Interpreter {
                 crate::stdlib::abort::abort_state(&target, reason, self, span)?;
                 Ok(Value::Undefined)
             }
+            Value::Proxy { target, handler } => self.proxy_apply(&target, &handler, args, span),
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
     }
@@ -293,8 +294,14 @@ impl Interpreter {
         }
     }
 
-    pub(super) fn eval_index(&self, obj: Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
+    pub(super) fn eval_index(&mut self, obj: Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
         match (&obj, &index) {
+            (Value::Proxy { target, handler }, _) => {
+                let target = Rc::clone(target);
+                let handler = Rc::clone(handler);
+                let key = index.to_string();
+                self.proxy_get(&target, &handler, &key, obj.clone(), span)
+            }
             (Value::Array(arr), Value::Number(n)) => {
                 let i = *n as usize;
                 Ok(arr.borrow().get(i).cloned().unwrap_or(Value::Undefined))
@@ -326,6 +333,10 @@ impl Interpreter {
         for arg in args {
             if let Expr::Spread { expr, span } = arg {
                 let val = self.eval_expr(expr)?;
+                let val = match val.proxy_parts() {
+                    Some((target, _)) => (*target).clone(),
+                    None => val,
+                };
                 match val {
                     Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                     Value::Set(s) => values.extend(s),

@@ -182,6 +182,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
         | Value::AbortRejectPromise { .. } => {
             return Err(RuntimeError::new("КонтроллёрОтмены/СигналОтмены нельзя сериализовать в JSON", span));
         }
+        Value::Proxy { target, .. } => stringify_into(target, out, span, seen)?,
     }
     Ok(())
 }
