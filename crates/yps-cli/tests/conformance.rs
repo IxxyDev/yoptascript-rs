@@ -82,4 +82,5 @@ conformance_cases! {
     example_import_json => "example_import_json",
     example_event_loop => "example_event_loop",
     example_async_timers => "example_async_timers",
+    example_proxy => "example_proxy",
 }
