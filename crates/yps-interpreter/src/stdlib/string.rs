@@ -8,6 +8,16 @@ use crate::interpreter::Interpreter;
 use crate::stdlib::{as_number, as_string, regexp, require_args};
 use crate::value::{IteratorState, Value};
 
+const MAX_STRING_LEN: usize = 50_000_000;
+
+fn check_pad_budget(target_len: usize, fill: &str, span: Span) -> Result<(), RuntimeError> {
+    let max_char_bytes = fill.chars().map(|c| c.len_utf8()).max().unwrap_or(1);
+    if target_len.saturating_mul(max_char_bytes) > MAX_STRING_LEN {
+        return Err(RuntimeError::new("Превышен лимит длины строки", span));
+    }
+    Ok(())
+}
+
 pub fn call(
     interp: &mut Interpreter,
     receiver: Value,
@@ -214,19 +224,25 @@ pub fn call(
             if count < 0.0 || !count.is_finite() {
                 return Err(RuntimeError::new("Некорректное количество повторений", span));
             }
-            Ok((Value::String(s.repeat(count as usize)), None))
+            let count = count as usize;
+            if s.len().saturating_mul(count) > MAX_STRING_LEN {
+                return Err(RuntimeError::new("Превышен лимит длины строки", span));
+            }
+            Ok((Value::String(s.repeat(count)), None))
         }
         "padStart" | "дополнитьСлева" => {
             require_args(&args, 1, span, "padStart")?;
             let target_len = as_number(&args[0], span, "padStart")? as usize;
             let fill =
                 if args.len() > 1 { as_string(&args[1], span, "padStart")?.to_string() } else { " ".to_string() };
+            check_pad_budget(target_len, &fill, span)?;
             Ok((Value::String(pad(&s, target_len, &fill, true)), None))
         }
         "padEnd" | "дополнитьСправа" => {
             require_args(&args, 1, span, "padEnd")?;
             let target_len = as_number(&args[0], span, "padEnd")? as usize;
             let fill = if args.len() > 1 { as_string(&args[1], span, "padEnd")?.to_string() } else { " ".to_string() };
+            check_pad_budget(target_len, &fill, span)?;
             Ok((Value::String(pad(&s, target_len, &fill, false)), None))
         }
         "at" | "поИндексу" => {

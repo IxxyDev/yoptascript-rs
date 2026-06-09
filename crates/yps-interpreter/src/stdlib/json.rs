@@ -14,7 +14,7 @@ pub fn build_object() -> Value {
 }
 
 pub(crate) fn parse_str(source: &str, span: Span) -> Result<Value, RuntimeError> {
-    let mut parser = JsonParser { input: source.as_bytes(), pos: 0 };
+    let mut parser = JsonParser { input: source.as_bytes(), pos: 0, depth: 0 };
     parser.skip_ws();
     let v = parser.parse_value(span)?;
     parser.skip_ws();
@@ -34,7 +34,7 @@ pub fn call_static(
         "разобрать" => {
             require_args(&args, 1, span, "Жсон.разобрать")?;
             let s = as_string(&args[0], span, "Жсон.разобрать")?;
-            let mut parser = JsonParser { input: s.as_bytes(), pos: 0 };
+            let mut parser = JsonParser { input: s.as_bytes(), pos: 0, depth: 0 };
             parser.skip_ws();
             let v = parser.parse_value(span)?;
             parser.skip_ws();
@@ -203,9 +203,12 @@ fn write_json_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
+const MAX_JSON_DEPTH: usize = 128;
+
 struct JsonParser<'a> {
     input: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> JsonParser<'a> {
@@ -224,11 +227,29 @@ impl<'a> JsonParser<'a> {
         self.input.get(self.pos).copied()
     }
 
+    fn enter_depth(&mut self, span: Span) -> Result<(), RuntimeError> {
+        if self.depth >= MAX_JSON_DEPTH {
+            return Err(RuntimeError::new("Слишком глубокая вложенность JSON", span));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
     fn parse_value(&mut self, span: Span) -> Result<Value, RuntimeError> {
         self.skip_ws();
         match self.peek() {
-            Some(b'{') => self.parse_object(span),
-            Some(b'[') => self.parse_array(span),
+            Some(b'{') => {
+                self.enter_depth(span)?;
+                let result = self.parse_object(span);
+                self.depth -= 1;
+                result
+            }
+            Some(b'[') => {
+                self.enter_depth(span)?;
+                let result = self.parse_array(span);
+                self.depth -= 1;
+                result
+            }
             Some(b'"') => self.parse_string(span).map(Value::String),
             Some(b't') | Some(b'f') => self.parse_bool(span),
             Some(b'n') => self.parse_null(span),

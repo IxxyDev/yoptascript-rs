@@ -14,6 +14,10 @@ use super::coercion;
 
 impl Interpreter {
     pub(super) fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
+        stacker::maybe_grow(super::STACK_RED_ZONE, super::STACK_GROW_SIZE, || self.eval_expr_inner(expr))
+    }
+
+    fn eval_expr_inner(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
             Expr::Identifier(ident) => self
