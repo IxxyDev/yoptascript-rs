@@ -21,7 +21,7 @@ cargo test -p yps-lexer  # Run lexer tests only
 cargo test -p yps-parser # Run parser tests only
 cargo test -p yps-interpreter # Run interpreter tests only
 cargo test -p yps-fmt  # Run formatter tests only
-cargo clippy --workspace --all-targets --all-features -D warnings  # Lint (matches CI)
+cargo clippy --workspace --all-targets --all-features -- -D warnings  # Lint (matches CI)
 cargo fmt --all --check  # Format check (matches CI)
 ```
 

@@ -9,7 +9,7 @@
       cargo fmt --all --check
 
   clippy:
-      cargo clippy --workspace --all-targets --all-features -D warnings
+      cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   lint:
       just fmt-check
