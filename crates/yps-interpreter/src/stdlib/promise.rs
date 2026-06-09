@@ -16,8 +16,30 @@ pub fn construct(interp: &mut Interpreter, args: Vec<Value>, span: Span) -> Resu
         return Err(RuntimeError::new("'СловоПацана' ожидает функцию-исполнитель", span));
     }
     let (promise, resolve, reject) = Interpreter::make_pending_promise();
-    interp.call_function(executor, vec![resolve, reject], span)?;
+    if let Err(e) = interp.call_function(executor, vec![resolve, reject.clone()], span) {
+        match e.thrown {
+            Some(val) => {
+                interp.call_function(reject, vec![*val], span)?;
+            }
+            None => return Err(e),
+        }
+    }
     Ok(promise)
+}
+
+pub(crate) fn rejection_reason(e: RuntimeError) -> Value {
+    match e.thrown {
+        Some(val) => *val,
+        None => {
+            let mut map = HashMap::new();
+            map.insert(
+                crate::symbols::ERROR_NAME_FIELD.to_string(),
+                Value::String(crate::symbols::ERROR_NAME.to_string()),
+            );
+            map.insert(crate::symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(e.message));
+            Value::object(map)
+        }
+    }
 }
 
 pub fn call_static(
@@ -77,7 +99,7 @@ pub fn call_static(
                         Ok(Interpreter::make_fulfilled_promise(val))
                     }
                 }
-                Err(e) => Ok(Interpreter::make_rejected_promise(Value::String(e.message))),
+                Err(e) => Ok(Interpreter::make_rejected_promise(rejection_reason(e))),
             }
         }
         _ => Err(RuntimeError::new(format!("У 'СловоПацана' нет метода '{method}'"), span)),
@@ -414,7 +436,7 @@ pub(crate) fn invoke_handler(
             interp.call_function(resolve_cap, vec![result], span)?;
         }
         Err(e) => {
-            interp.call_function(reject_cap, vec![Value::String(e.message)], span)?;
+            interp.call_function(reject_cap, vec![rejection_reason(e)], span)?;
         }
     }
     Ok(())

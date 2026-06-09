@@ -10,6 +10,13 @@ use crate::stdlib::{builtin, object_of, require_args};
 use crate::symbols;
 use crate::value::{IteratorState, Value};
 
+fn borrow_iter_mut<'a>(
+    rc: &'a Rc<RefCell<IteratorState>>,
+    span: Span,
+) -> Result<std::cell::RefMut<'a, IteratorState>, RuntimeError> {
+    rc.try_borrow_mut().map_err(|_| RuntimeError::new("Итератор уже выполняется", span))
+}
+
 const MAX_ITERATOR_DEPTH: usize = 200;
 
 fn adapter_depth(state: &IteratorState, budget: usize) -> usize {
@@ -89,7 +96,7 @@ pub fn call(
 
     match method {
         "следующий" | "next" => {
-            let mut state_borrow = rc.borrow_mut();
+            let mut state_borrow = borrow_iter_mut(&rc, span)?;
             if let IteratorState::Generator(gen_state) = &mut *state_borrow {
                 let outcome = crate::interpreter::generator::step_generator(
                     interp,
@@ -110,7 +117,7 @@ pub fn call(
         }
         "вернуть" | "return" => {
             let arg = args.into_iter().next().unwrap_or(Value::Undefined);
-            let mut state_borrow = rc.borrow_mut();
+            let mut state_borrow = borrow_iter_mut(&rc, span)?;
             match &mut *state_borrow {
                 IteratorState::Generator(gen_state) => {
                     if gen_state.completed {
@@ -133,7 +140,7 @@ pub fn call(
         }
         "кинуть" | "throw" => {
             let arg = args.into_iter().next().unwrap_or(Value::Undefined);
-            let mut state_borrow = rc.borrow_mut();
+            let mut state_borrow = borrow_iter_mut(&rc, span)?;
             match &mut *state_borrow {
                 IteratorState::Generator(gen_state) => {
                     if gen_state.completed {
@@ -158,7 +165,7 @@ pub fn call(
             require_args(&args, 1, span, "map")?;
             check_chain_depth(&rc, span)?;
             let func = args.into_iter().next().unwrap();
-            let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
+            let inner = std::mem::replace(&mut *borrow_iter_mut(&rc, span)?, IteratorState::Done);
             let new_state = IteratorState::Map { inner: Box::new(inner), func, index: 0 };
             Ok((Value::Iterator(Rc::new(RefCell::new(new_state))), None))
         }
@@ -166,7 +173,7 @@ pub fn call(
             require_args(&args, 1, span, "filter")?;
             check_chain_depth(&rc, span)?;
             let func = args.into_iter().next().unwrap();
-            let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
+            let inner = std::mem::replace(&mut *borrow_iter_mut(&rc, span)?, IteratorState::Done);
             let new_state = IteratorState::Filter { inner: Box::new(inner), func, index: 0 };
             Ok((Value::Iterator(Rc::new(RefCell::new(new_state))), None))
         }
@@ -174,7 +181,7 @@ pub fn call(
             require_args(&args, 1, span, "take")?;
             check_chain_depth(&rc, span)?;
             let n = expect_count(&args[0], span, "take")?;
-            let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
+            let inner = std::mem::replace(&mut *borrow_iter_mut(&rc, span)?, IteratorState::Done);
             let new_state = IteratorState::Take { inner: Box::new(inner), remaining: n };
             Ok((Value::Iterator(Rc::new(RefCell::new(new_state))), None))
         }
@@ -182,7 +189,7 @@ pub fn call(
             require_args(&args, 1, span, "drop")?;
             check_chain_depth(&rc, span)?;
             let n = expect_count(&args[0], span, "drop")?;
-            let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
+            let inner = std::mem::replace(&mut *borrow_iter_mut(&rc, span)?, IteratorState::Done);
             let new_state = IteratorState::Drop { inner: Box::new(inner), count: n, dropped: false };
             Ok((Value::Iterator(Rc::new(RefCell::new(new_state))), None))
         }
@@ -196,7 +203,7 @@ pub fn call(
             let mut idx = 0usize;
             loop {
                 let v = {
-                    let mut state = rc.borrow_mut();
+                    let mut state = borrow_iter_mut(&rc, span)?;
                     next(interp, &mut state, span)?
                 };
                 match v {
@@ -218,7 +225,7 @@ pub fn call(
                 Some(v) => v,
                 None => {
                     let first = {
-                        let mut state = rc.borrow_mut();
+                        let mut state = borrow_iter_mut(&rc, span)?;
                         next(interp, &mut state, span)?
                     };
                     match first {
@@ -232,7 +239,7 @@ pub fn call(
             let mut idx = 0usize;
             loop {
                 let v = {
-                    let mut state = rc.borrow_mut();
+                    let mut state = borrow_iter_mut(&rc, span)?;
                     next(interp, &mut state, span)?
                 };
                 match v {
@@ -251,7 +258,7 @@ pub fn call(
             let mut idx = 0usize;
             loop {
                 let v = {
-                    let mut state = rc.borrow_mut();
+                    let mut state = borrow_iter_mut(&rc, span)?;
                     next(interp, &mut state, span)?
                 };
                 match v {
@@ -272,7 +279,7 @@ pub fn call(
             let mut idx = 0usize;
             loop {
                 let v = {
-                    let mut state = rc.borrow_mut();
+                    let mut state = borrow_iter_mut(&rc, span)?;
                     next(interp, &mut state, span)?
                 };
                 match v {
@@ -293,7 +300,7 @@ pub fn call(
             let mut idx = 0usize;
             loop {
                 let v = {
-                    let mut state = rc.borrow_mut();
+                    let mut state = borrow_iter_mut(&rc, span)?;
                     next(interp, &mut state, span)?
                 };
                 match v {
@@ -321,7 +328,7 @@ pub fn drain(
     let mut out = Vec::new();
     loop {
         let v = {
-            let mut state = rc.borrow_mut();
+            let mut state = borrow_iter_mut(rc, span)?;
             next(interp, &mut state, span)?
         };
         match v {
