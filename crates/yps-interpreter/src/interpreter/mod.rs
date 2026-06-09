@@ -48,6 +48,9 @@ pub struct Interpreter {
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
 pub(super) const MAX_COERCION_DEPTH: usize = 100;
+pub(super) const MAX_CALL_DEPTH: usize = 1000;
+pub(super) const STACK_RED_ZONE: usize = 256 * 1024;
+pub(super) const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
 impl Default for Interpreter {
     fn default() -> Self {

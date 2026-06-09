@@ -12,6 +12,10 @@ use super::{ControlFlow, Interpreter, LoopOp};
 
 impl Interpreter {
     pub(super) fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
+        stacker::maybe_grow(super::STACK_RED_ZONE, super::STACK_GROW_SIZE, || self.exec_stmt_inner(stmt))
+    }
+
+    fn exec_stmt_inner(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
         let incoming_label = self.pending_label.take();
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, span } => {

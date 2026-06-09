@@ -7,3 +7,4 @@ publish.workspace = true
 
 [dependencies]
 yps-lexer = { path = "../yps-lexer" }
+stacker = "0.1"

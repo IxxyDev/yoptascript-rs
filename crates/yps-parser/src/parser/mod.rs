@@ -8,6 +8,10 @@ use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity
 
 const TERNARY_PRECEDENCE: u8 = 2;
 const UNARY_PRECEDENCE: u8 = 12;
+const MAX_PARSE_DEPTH: usize = 200;
+const MAX_CHAIN_LEN: usize = 10_000;
+const STACK_RED_ZONE: usize = 128 * 1024;
+const STACK_GROW_SIZE: usize = 4 * 1024 * 1024;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -15,6 +19,7 @@ pub struct Parser<'a> {
     position: usize,
     diagnostics: Vec<Diagnostic>,
     unexpected_eof: bool,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -23,7 +28,17 @@ impl<'a> Parser<'a> {
             matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)),
             "Parser::new требует, чтобы tokens заканчивался TokenKind::Eof"
         );
-        Self { tokens, source, position: 0, diagnostics: Vec::new(), unexpected_eof: false }
+        Self { tokens, source, position: 0, diagnostics: Vec::new(), unexpected_eof: false, depth: 0 }
+    }
+
+    fn enter_depth(&mut self) -> Result<(), ()> {
+        if self.depth >= MAX_PARSE_DEPTH {
+            let span = self.current().span;
+            self.push_error(span, "Слишком глубокая вложенность конструкций");
+            return Err(());
+        }
+        self.depth += 1;
+        Ok(())
     }
 
     pub fn parse_program_extended(mut self) -> (Program, Vec<Diagnostic>, bool) {
@@ -683,6 +698,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ()> {
+        self.enter_depth()?;
+        let result = stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || self.parse_statement_inner());
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_statement_inner(&mut self) -> Result<Stmt, ()> {
         if matches!(self.current().kind, TokenKind::Identifier)
             && matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::Colon))
         {
@@ -1946,9 +1968,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression_with_precedence(&mut self, min_precedence: u8) -> Result<Expr, ()> {
+        self.enter_depth()?;
+        let result = stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || {
+            self.parse_expression_with_precedence_inner(min_precedence)
+        });
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_expression_with_precedence_inner(&mut self, min_precedence: u8) -> Result<Expr, ()> {
         let mut lhs = self.parse_prefix()?;
+        let mut chain_len = 0usize;
 
         loop {
+            chain_len += 1;
+            if chain_len > MAX_CHAIN_LEN {
+                let span = self.current().span;
+                self.push_error(span, "Слишком длинная цепочка операций");
+                return Err(());
+            }
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Question))
                 && min_precedence <= TERNARY_PRECEDENCE
             {
@@ -2056,7 +2094,14 @@ impl<'a> Parser<'a> {
             _ => self.parse_primary()?,
         };
 
+        let mut chain_len = 0usize;
         loop {
+            chain_len += 1;
+            if chain_len > MAX_CHAIN_LEN {
+                let span = self.current().span;
+                self.push_error(span, "Слишком длинная цепочка обращений");
+                return Err(());
+            }
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 expr = self.parse_call(expr)?;
             } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
@@ -4188,5 +4233,67 @@ mod tests {
         let (prog, diags) = parse_program_from_source("йопта ф() { отвечаю 1; }");
         assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
         assert!(matches!(prog.items[0], crate::ast::Stmt::FunctionDecl { .. }));
+    }
+
+    #[test]
+    fn deeply_nested_parens_yield_diagnostic_not_crash() {
+        let src = format!("гыы а = {}1{};", "(".repeat(10_000), ")".repeat(10_000));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("вложенность")),
+            "ожидалась диагностика о вложенности: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn deeply_nested_arrays_yield_diagnostic_not_crash() {
+        let src = format!("гыы а = {}1{};", "[".repeat(10_000), "]".repeat(10_000));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("вложенность")),
+            "ожидалась диагностика о вложенности: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn deeply_nested_blocks_yield_diagnostic_not_crash() {
+        let src = format!("{}{}", "вилкойвглаз (правда) { ".repeat(10_000), "}".repeat(10_000));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("вложенность")),
+            "ожидалась диагностика о вложенности: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn nesting_within_limit_parses_without_diagnostics() {
+        let src = format!("гыы а = {}1{};", "(".repeat(100), ")".repeat(100));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+    }
+
+    #[test]
+    fn very_long_member_chain_yields_diagnostic_not_crash() {
+        let src = format!("гыы о = {{}}; о{};", ".х".repeat(50_000));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("цепочка")),
+            "ожидалась диагностика о длине цепочки: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn very_long_binary_chain_yields_diagnostic_not_crash() {
+        let src = format!("гыы а = 1{};", " + 1".repeat(50_000));
+        let (_, diags) = parse_program_from_source(&src);
+        assert!(
+            diags.iter().any(|d| d.message.contains("цепочка")),
+            "ожидалась диагностика о длине цепочки: {:?}",
+            diag_messages(&diags)
+        );
     }
 }

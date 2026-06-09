@@ -10,6 +10,31 @@ use crate::stdlib::{builtin, object_of, require_args};
 use crate::symbols;
 use crate::value::{IteratorState, Value};
 
+const MAX_ITERATOR_DEPTH: usize = 200;
+
+fn adapter_depth(state: &IteratorState, budget: usize) -> usize {
+    if budget == 0 {
+        return usize::MAX;
+    }
+    match state {
+        IteratorState::Map { inner, .. }
+        | IteratorState::Filter { inner, .. }
+        | IteratorState::Take { inner, .. }
+        | IteratorState::Drop { inner, .. } => adapter_depth(inner, budget - 1).saturating_add(1),
+        IteratorState::Concat { iters } => {
+            iters.iter().map(|it| adapter_depth(it, budget - 1)).max().unwrap_or(0).saturating_add(1)
+        }
+        _ => 0,
+    }
+}
+
+fn check_chain_depth(rc: &Rc<RefCell<IteratorState>>, span: Span) -> Result<(), RuntimeError> {
+    if adapter_depth(&rc.borrow(), MAX_ITERATOR_DEPTH) >= MAX_ITERATOR_DEPTH {
+        return Err(RuntimeError::new("Слишком длинная цепочка итераторов", span));
+    }
+    Ok(())
+}
+
 pub fn build_object() -> Value {
     object_of(&[
         ("от", builtin("Итератор.от")),
@@ -39,6 +64,9 @@ pub fn call_static(
             let mut iters: VecDeque<IteratorState> = VecDeque::new();
             for (i, arg) in args.into_iter().enumerate() {
                 let state = state_from_value(arg, span, &format!("Итератор.склеить(аргумент {})", i + 1))?;
+                if adapter_depth(&state, MAX_ITERATOR_DEPTH) >= MAX_ITERATOR_DEPTH {
+                    return Err(RuntimeError::new("Слишком длинная цепочка итераторов", span));
+                }
                 iters.push_back(state);
             }
             Ok(Value::Iterator(Rc::new(RefCell::new(IteratorState::Concat { iters }))))
@@ -128,6 +156,7 @@ pub fn call(
         }
         "map" | "преобразовать" => {
             require_args(&args, 1, span, "map")?;
+            check_chain_depth(&rc, span)?;
             let func = args.into_iter().next().unwrap();
             let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
             let new_state = IteratorState::Map { inner: Box::new(inner), func, index: 0 };
@@ -135,6 +164,7 @@ pub fn call(
         }
         "filter" | "отфильтровать" => {
             require_args(&args, 1, span, "filter")?;
+            check_chain_depth(&rc, span)?;
             let func = args.into_iter().next().unwrap();
             let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
             let new_state = IteratorState::Filter { inner: Box::new(inner), func, index: 0 };
@@ -142,6 +172,7 @@ pub fn call(
         }
         "take" | "взять" => {
             require_args(&args, 1, span, "take")?;
+            check_chain_depth(&rc, span)?;
             let n = expect_count(&args[0], span, "take")?;
             let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
             let new_state = IteratorState::Take { inner: Box::new(inner), remaining: n };
@@ -149,6 +180,7 @@ pub fn call(
         }
         "drop" | "пропустить" => {
             require_args(&args, 1, span, "drop")?;
+            check_chain_depth(&rc, span)?;
             let n = expect_count(&args[0], span, "drop")?;
             let inner = std::mem::replace(&mut *rc.borrow_mut(), IteratorState::Done);
             let new_state = IteratorState::Drop { inner: Box::new(inner), count: n, dropped: false };

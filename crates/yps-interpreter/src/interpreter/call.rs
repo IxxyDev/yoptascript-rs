@@ -66,6 +66,9 @@ impl Interpreter {
                 call_builtin(&name, args, span)
             }
             Value::Function { name, params, body, env, is_generator, is_async } => {
+                if self.call_stack.len() >= super::MAX_CALL_DEPTH {
+                    return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
+                }
                 let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
 
                 if args.len() < required_count {
@@ -239,6 +242,9 @@ impl Interpreter {
         this_val: Option<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        if self.call_stack.len() >= super::MAX_CALL_DEPTH {
+            return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
+        }
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(Rc::clone(env));
         self.env.push_scope();
