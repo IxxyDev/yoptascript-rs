@@ -78,6 +78,9 @@ cargo run -p yps-cli -- fmt path/to/program.yop
 just run path/to/program.yop
 just test
 just lint
+
+# Fuzz the lexer/parser/formatter (requires nightly + cargo-fuzz)
+just fuzz lexer
 ```
 
 ## Status
@@ -90,6 +93,7 @@ just lint
 - [x] Module system (`спиздить` / `предъява`)
 - [x] Standard library: `Матан`, `Помойка`, `Строка`, `Кент`, `Хуйня`, `Жсон`, `Карта`, `Набор`, `Симбол`, `Косяк`
 - [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
+- [x] Fuzzing: libFuzzer targets for lexer, parser and formatter round-trip (`fuzz/`, weekly CI job)
 
 This is an active learning project — see open issues for what's next.
 

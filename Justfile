@@ -34,3 +34,10 @@
       just lint
       just test
       just audit
+  fuzz target="lexer" time="120":
+      cargo +nightly fuzz run {{target}} -- -max_total_time={{time}}
+
+  fuzz-all:
+      just fuzz lexer
+      just fuzz parser
+      just fuzz fmt_roundtrip
