@@ -389,8 +389,73 @@ pub enum Value {
         target: Rc<Value>,
         handler: Rc<Value>,
     },
+    WeakMap(WeakMapStore),
+    WeakSet(WeakSetStore),
+    WeakRef(Rc<WeakKey>),
+    FinalizationRegistry(Rc<RefCell<FinRegState>>),
     Undefined,
     Null,
+}
+
+pub type WeakMapStore = Rc<RefCell<HashMap<usize, (WeakKey, Value)>>>;
+pub type WeakSetStore = Rc<RefCell<HashMap<usize, WeakKey>>>;
+
+#[derive(Clone)]
+pub enum WeakKey {
+    Object(Weak<RefCell<HashMap<String, Value>>>),
+    Array(Weak<RefCell<Vec<Value>>>),
+    Map(Weak<RefCell<IndexMap<MapKey, Value>>>),
+    Set(Weak<RefCell<IndexSet<MapKey>>>),
+}
+
+impl WeakKey {
+    pub fn try_from_value(value: &Value) -> Option<WeakKey> {
+        match value {
+            Value::Object(rc) => Some(WeakKey::Object(Rc::downgrade(rc))),
+            Value::Array(rc) => Some(WeakKey::Array(Rc::downgrade(rc))),
+            Value::Map(rc) => Some(WeakKey::Map(Rc::downgrade(rc))),
+            Value::Set(rc) => Some(WeakKey::Set(Rc::downgrade(rc))),
+            _ => None,
+        }
+    }
+
+    pub fn ptr(&self) -> usize {
+        match self {
+            WeakKey::Object(w) => w.as_ptr() as *const () as usize,
+            WeakKey::Array(w) => w.as_ptr() as *const () as usize,
+            WeakKey::Map(w) => w.as_ptr() as *const () as usize,
+            WeakKey::Set(w) => w.as_ptr() as *const () as usize,
+        }
+    }
+
+    pub fn upgrade(&self) -> Option<Value> {
+        match self {
+            WeakKey::Object(w) => w.upgrade().map(Value::Object),
+            WeakKey::Array(w) => w.upgrade().map(Value::Array),
+            WeakKey::Map(w) => w.upgrade().map(Value::Map),
+            WeakKey::Set(w) => w.upgrade().map(Value::Set),
+        }
+    }
+
+    pub fn is_alive(&self) -> bool {
+        match self {
+            WeakKey::Object(w) => w.strong_count() > 0,
+            WeakKey::Array(w) => w.strong_count() > 0,
+            WeakKey::Map(w) => w.strong_count() > 0,
+            WeakKey::Set(w) => w.strong_count() > 0,
+        }
+    }
+}
+
+pub struct FinRegState {
+    pub callback: Value,
+    pub entries: Vec<FinRegEntry>,
+}
+
+pub struct FinRegEntry {
+    pub target: WeakKey,
+    pub held: Value,
+    pub token: Option<WeakKey>,
 }
 
 impl Value {
@@ -454,7 +519,11 @@ impl Value {
             | Value::Date(_)
             | Value::ArrayBuffer(_)
             | Value::TypedArray { .. }
-            | Value::DataView { .. } => "объект",
+            | Value::DataView { .. }
+            | Value::WeakMap(_)
+            | Value::WeakSet(_)
+            | Value::WeakRef(_)
+            | Value::FinalizationRegistry(_) => "объект",
             Value::Symbol { .. } => "символ",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
@@ -513,6 +582,10 @@ impl Value {
             | Value::AbortCancelTimer { .. }
             | Value::AbortRejectPromise { .. } => "функция",
             Value::Proxy { target, .. } => target.type_name(),
+            Value::WeakMap(_) => "слабаяКарта",
+            Value::WeakSet(_) => "слабыйНабор",
+            Value::WeakRef(_) => "слабаяСсылка",
+            Value::FinalizationRegistry(_) => "реестрФинализации",
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -585,6 +658,12 @@ impl fmt::Debug for Value {
             Value::DataView { offset, length, .. } => write!(f, "DataView(offset={offset}, length={length})"),
             Value::Proxy { target, handler } => {
                 f.debug_struct("Proxy").field("target", target).field("handler", handler).finish()
+            }
+            Value::WeakMap(store) => write!(f, "WeakMap(entries={})", store.borrow().len()),
+            Value::WeakSet(store) => write!(f, "WeakSet(entries={})", store.borrow().len()),
+            Value::WeakRef(key) => write!(f, "WeakRef(alive={})", key.is_alive()),
+            Value::FinalizationRegistry(state) => {
+                write!(f, "FinalizationRegistry(entries={})", state.borrow().entries.len())
             }
             Value::Undefined => write!(f, "Undefined"),
             Value::Null => write!(f, "Null"),
@@ -745,6 +824,10 @@ impl Value {
             | Value::AbortCancelTimer { .. }
             | Value::AbortRejectPromise { .. } => write!(f, "[отписка]"),
             Value::Proxy { .. } => write!(f, "[посредник]"),
+            Value::WeakMap(_) => write!(f, "[слабаяКарта]"),
+            Value::WeakSet(_) => write!(f, "[слабыйНабор]"),
+            Value::WeakRef(_) => write!(f, "[слабаяСсылка]"),
+            Value::FinalizationRegistry(_) => write!(f, "[реестрФинализации]"),
         }
     }
 }
@@ -887,6 +970,22 @@ impl Hash for MapKey {
                 hash_rc_ptr(target, state);
                 hash_rc_ptr(handler, state);
             }
+            Value::WeakMap(rc) => {
+                27u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::WeakSet(rc) => {
+                28u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::WeakRef(rc) => {
+                29u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
+            Value::FinalizationRegistry(rc) => {
+                30u8.hash(state);
+                hash_rc_ptr(rc, state);
+            }
             Value::Undefined => 22u8.hash(state),
             Value::Null => 23u8.hash(state),
             Value::Function { env, .. } => {
@@ -942,6 +1041,10 @@ impl PartialEq for Value {
             (Value::Proxy { target: ta, handler: ha }, Value::Proxy { target: tb, handler: hb }) => {
                 Rc::ptr_eq(ta, tb) && Rc::ptr_eq(ha, hb)
             }
+            (Value::WeakMap(a), Value::WeakMap(b)) => Rc::ptr_eq(a, b),
+            (Value::WeakSet(a), Value::WeakSet(b)) => Rc::ptr_eq(a, b),
+            (Value::WeakRef(a), Value::WeakRef(b)) => Rc::ptr_eq(a, b),
+            (Value::FinalizationRegistry(a), Value::FinalizationRegistry(b)) => Rc::ptr_eq(a, b),
             (Value::Undefined, Value::Undefined) => true,
             (Value::Null, Value::Null) => true,
             _ => false,

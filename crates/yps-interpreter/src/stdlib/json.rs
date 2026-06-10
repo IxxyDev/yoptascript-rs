@@ -146,7 +146,11 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
                 span,
             ));
         }
-        Value::RegExp { .. } => out.push_str("{}"),
+        Value::RegExp { .. }
+        | Value::WeakMap(_)
+        | Value::WeakSet(_)
+        | Value::WeakRef(_)
+        | Value::FinalizationRegistry(_) => out.push_str("{}"),
         Value::Date(cell) => {
             let ms = cell.get();
             if ms.is_finite() {

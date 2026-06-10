@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::error::RuntimeError;
-use crate::value::{AbortState, Value};
+use crate::value::{AbortState, FinRegState, Value};
 
 use super::Interpreter;
 
@@ -339,6 +339,9 @@ impl Interpreter {
     pub(crate) fn drive_event_loop(&mut self, span: Span) -> Result<(), RuntimeError> {
         loop {
             self.drain_microtasks(span)?;
+            if self.sweep_finalization_registries() {
+                continue;
+            }
             if self.macrotasks.is_empty() {
                 return Ok(());
             }
@@ -347,6 +350,34 @@ impl Interpreter {
             };
             (task.task)(self, span)?;
         }
+    }
+
+    pub(crate) fn sweep_finalization_registries(&mut self) -> bool {
+        self.finalization_registries.retain(|weak| weak.strong_count() > 0);
+        let registries: Vec<Rc<RefCell<FinRegState>>> =
+            self.finalization_registries.iter().filter_map(std::rc::Weak::upgrade).collect();
+        let mut fired = false;
+        for registry in registries {
+            let mut dead: Vec<(Value, Value)> = Vec::new();
+            {
+                let mut state = registry.borrow_mut();
+                let callback = state.callback.clone();
+                let entries = std::mem::take(&mut state.entries);
+                for entry in entries {
+                    if entry.target.is_alive() {
+                        state.entries.push(entry);
+                    } else {
+                        dead.push((callback.clone(), entry.held));
+                    }
+                }
+            }
+            for (callback, held) in dead {
+                fired = true;
+                self.microtasks
+                    .push_back(Box::new(move |interp, sp| interp.call_function(callback, vec![held], sp).map(|_| ())));
+            }
+        }
+        fired
     }
 }
 

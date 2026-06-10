@@ -22,6 +22,7 @@ pub mod stdio;
 pub mod string;
 pub mod symbol;
 pub mod typed_array;
+pub mod weak;
 
 use std::collections::HashMap;
 
@@ -52,6 +53,10 @@ pub fn call_method(
         Value::TypedArray { .. } => typed_array::call(interp, receiver, method, args, span),
         Value::DataView { .. } => data_view::call(interp, receiver, method, args, span),
         Value::AbortController { .. } | Value::AbortSignal { .. } => abort::call(interp, receiver, method, args, span),
+        Value::WeakMap(_) => weak::call_weak_map(receiver, method, args, span).map(|v| (v, None)),
+        Value::WeakSet(_) => weak::call_weak_set(receiver, method, args, span).map(|v| (v, None)),
+        Value::WeakRef(_) => weak::call_weak_ref(receiver, method, args, span).map(|v| (v, None)),
+        Value::FinalizationRegistry(_) => weak::call_registry(receiver, method, args, span).map(|v| (v, None)),
         _ => Err(RuntimeError::new(format!("Тип '{}' не имеет метода '{method}'", receiver.type_name()), span)),
     }
 }
@@ -146,6 +151,18 @@ pub fn call_static_namespaced(
     if namespaced == "Набор" {
         return Some(set::construct(args, span));
     }
+    if namespaced == "СлабаяКарта" {
+        return Some(weak::construct_weak_map(args, span));
+    }
+    if namespaced == "СлабыйНабор" {
+        return Some(weak::construct_weak_set(args, span));
+    }
+    if namespaced == "СлабаяСсылка" {
+        return Some(weak::construct_weak_ref(args, span));
+    }
+    if namespaced == "РеестрФинализации" {
+        return Some(weak::construct_registry(interp, args, span));
+    }
     if namespaced == "Симбол" {
         return Some(symbol::construct(args, span));
     }
@@ -176,6 +193,10 @@ pub fn build_globals() -> Vec<(String, Value)> {
         ("Помойка".to_string(), array::build_object()),
         ("Карта".to_string(), Value::BuiltinFunction("Карта".to_string())),
         ("Набор".to_string(), Value::BuiltinFunction("Набор".to_string())),
+        ("СлабаяКарта".to_string(), Value::BuiltinFunction("СлабаяКарта".to_string())),
+        ("СлабыйНабор".to_string(), Value::BuiltinFunction("СлабыйНабор".to_string())),
+        ("СлабаяСсылка".to_string(), Value::BuiltinFunction("СлабаяСсылка".to_string())),
+        ("РеестрФинализации".to_string(), Value::BuiltinFunction("РеестрФинализации".to_string())),
         ("Симбол".to_string(), Value::BuiltinFunction("Симбол".to_string())),
         ("Дата".to_string(), Value::BuiltinFunction("Дата".to_string())),
         ("СловоПацана".to_string(), Value::BuiltinFunction("СловоПацана".to_string())),
