@@ -1,0 +1,38 @@
+[package]
+name = "yps-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+yps-lexer = { path = "../crates/yps-lexer" }
+yps-parser = { path = "../crates/yps-parser" }
+yps-fmt = { path = "../crates/yps-fmt" }
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fmt_roundtrip"
+path = "fuzz_targets/fmt_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
