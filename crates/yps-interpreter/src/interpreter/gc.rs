@@ -212,6 +212,23 @@ impl Marker {
                 self.push_value(target);
                 self.push_value(handler);
             }
+            Value::WeakMap(rc) => {
+                if self.seen.insert(Rc::as_ptr(rc) as usize) {
+                    for (_, value) in rc.borrow().values() {
+                        self.push_value(value);
+                    }
+                }
+            }
+            Value::WeakSet(_) | Value::WeakRef(_) => {}
+            Value::FinalizationRegistry(rc) => {
+                if self.seen.insert(Rc::as_ptr(rc) as usize) {
+                    let state = rc.borrow();
+                    self.push_value(&state.callback);
+                    for entry in &state.entries {
+                        self.push_value(&entry.held);
+                    }
+                }
+            }
         }
     }
 

@@ -9,7 +9,7 @@ use yps_parser::ast::Program;
 use crate::builtins::builtin_names;
 use crate::environment::Environment;
 use crate::error::{Frame, MAX_STACK_DEPTH, RuntimeError};
-use crate::value::Value;
+use crate::value::{FinRegState, Value};
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
@@ -45,6 +45,7 @@ pub struct Interpreter {
     pub(super) pending_label: Option<String>,
     pub(super) call_stack: Vec<Frame>,
     pub(super) coercion_depth: usize,
+    pub(super) finalization_registries: Vec<std::rc::Weak<RefCell<FinRegState>>>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -82,7 +83,12 @@ impl Interpreter {
             pending_label: None,
             call_stack: Vec::new(),
             coercion_depth: 0,
+            finalization_registries: Vec::new(),
         }
+    }
+
+    pub(crate) fn register_finalization_registry(&mut self, state: &Rc<RefCell<FinRegState>>) {
+        self.finalization_registries.push(Rc::downgrade(state));
     }
 
     pub(super) fn push_frame(&mut self, name: Rc<str>, span: Span) {

@@ -160,6 +160,10 @@ impl Interpreter {
                             | Value::DataView { .. }
                             | Value::AbortController { .. }
                             | Value::AbortSignal { .. }
+                            | Value::WeakMap(_)
+                            | Value::WeakSet(_)
+                            | Value::WeakRef(_)
+                            | Value::FinalizationRegistry(_)
                     ) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
