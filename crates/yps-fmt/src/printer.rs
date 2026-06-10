@@ -166,16 +166,14 @@ impl Printer<'_> {
 
     fn print_block(&mut self, block: &Block) {
         self.write("{");
-        if block.stmts.is_empty() {
+        let stmts: Vec<_> = block.stmts.iter().filter(|s| !matches!(s, Stmt::Empty { .. })).collect();
+        if stmts.is_empty() {
             self.write("}");
             return;
         }
         self.newline();
         self.depth += 1;
-        for stmt in &block.stmts {
-            if matches!(stmt, Stmt::Empty { .. }) {
-                continue;
-            }
+        for stmt in stmts {
             self.print_stmt_line(stmt);
         }
         self.depth -= 1;
