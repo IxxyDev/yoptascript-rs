@@ -624,7 +624,7 @@ impl<'src> Lexer<'src> {
     fn advance(&mut self) -> char {
         let ch = self.current_char();
 
-        if ch != '\0' {
+        if !self.is_at_end() {
             self.position += ch.len_utf8();
         }
         ch
@@ -770,5 +770,28 @@ mod tests {
             diags.iter().any(|d| d.message.contains("Незакрытый блочный комментарий")),
             "expected unterminated-block-comment diagnostic, got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn nul_byte_terminates_with_diagnostic() {
+        let source = SourceFile::new("test.yop".to_string(), "\0".to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
+        assert!(diags.iter().any(|d| d.message.contains("Неизвестный символ")), "ожидалась диагностика: {diags:?}");
+    }
+
+    #[test]
+    fn nul_byte_between_tokens_terminates() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы х\0= 1;".to_string());
+        let (tokens, _diags) = Lexer::new(&source).tokenize();
+        assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
+        assert!(tokens.len() < 20);
+    }
+
+    #[test]
+    fn nul_byte_inside_string_literal_terminates() {
+        let source = SourceFile::new("test.yop".to_string(), "гыы с = \"а\0б\";".to_string());
+        let (tokens, _diags) = Lexer::new(&source).tokenize();
+        assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
     }
 }
