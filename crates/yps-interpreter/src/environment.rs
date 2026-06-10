@@ -171,8 +171,8 @@ impl Environment {
         loop {
             let parent = {
                 let mut frame = frame_rc.borrow_mut();
-                if frame.bindings.contains_key(name) {
-                    frame.bindings.insert(name.to_string(), value);
+                if let Some(slot) = frame.bindings.get_mut(name) {
+                    *slot = value;
                     return true;
                 }
                 frame.parent.clone()
