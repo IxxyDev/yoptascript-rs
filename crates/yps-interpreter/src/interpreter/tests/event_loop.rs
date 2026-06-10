@@ -658,3 +658,49 @@ fn abort_listener_accepts_promise_capability_as_callback() {
     );
     assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
 }
+
+#[test]
+fn ot_podozhdat_rejects_immediately_for_aborted_signal() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        ассо йопта главное() {
+            гыы к = захуярить КонтроллёрОтмены();
+            к.отменить("уже всё");
+            хапнуть {
+                сидетьНахуй СловоПацана.отПодождать(к.сигнал);
+            } гоп (е) {
+                пойман = е;
+            }
+        }
+        главное();
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("уже всё".into())));
+}
+
+#[test]
+fn ot_podozhdat_rejects_with_reason_on_later_abort() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        ассо йопта главное() {
+            гыы к = захуярить КонтроллёрОтмены();
+            чутка(() => к.отменить("позже"), 5);
+            хапнуть {
+                сидетьНахуй СловоПацана.отПодождать(к.сигнал);
+            } гоп (е) {
+                пойман = е;
+            }
+        }
+        главное();
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("позже".into())));
+}
+
+#[test]
+fn ot_podozhdat_requires_signal_argument() {
+    let err = run_code_err("СловоПацана.отПодождать(42);");
+    assert!(err.message.contains("отПодождать"), "сообщение: {}", err.message);
+}

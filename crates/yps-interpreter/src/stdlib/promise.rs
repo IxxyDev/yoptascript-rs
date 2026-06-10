@@ -80,6 +80,16 @@ pub fn call_static(
             }
             Ok(run_aggregate(interp, AggregateKind::Race, arr, span))
         }
+        "отПодождать" => {
+            require_args(&args, 1, span, "СловоПацана.отПодождать")?;
+            match args.into_iter().next().unwrap() {
+                Value::AbortSignal { state } => Ok(crate::stdlib::abort::get_or_init_signal_promise(&state)),
+                other => Err(RuntimeError::new(
+                    format!("'СловоПацана.отПодождать' ожидает сигнал отмены, получено '{}'", other.type_name()),
+                    span,
+                )),
+            }
+        }
         "сРешалками" => {
             let (promise, resolve, reject) = Interpreter::make_pending_promise();
             let mut map = HashMap::new();
