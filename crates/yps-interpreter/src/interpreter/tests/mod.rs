@@ -127,3 +127,4 @@ mod strings;
 mod try_catch;
 mod typed_arrays;
 mod using_symbol;
+mod weak;
