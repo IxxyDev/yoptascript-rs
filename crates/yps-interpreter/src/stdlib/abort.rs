@@ -53,15 +53,11 @@ pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Res
             return Ok(result_signal);
         }
 
-        let listener = Value::AbortListener { target: Rc::clone(&ctrl_state) };
-        let id = {
-            let mut st = sig_state.borrow_mut();
-            let id = st.next_token;
-            st.next_token += 1;
-            st.listeners.push((id, listener));
-            id
-        };
-        let _ = id;
+        let listener = Value::AbortListener { target: Rc::downgrade(&ctrl_state) };
+        let mut st = sig_state.borrow_mut();
+        let id = st.next_token;
+        st.next_token += 1;
+        st.listeners.push((id, listener));
     }
 
     Ok(result_signal)
@@ -97,9 +93,11 @@ fn fire_listener(
     match cb {
         Value::Undefined => {}
         Value::AbortListener { target } => {
-            let reason = source.borrow().reason.clone();
-            if let Err(e) = abort_state(&target, reason, interp, span) {
-                eprintln!("необработанное исключение в 'отмена': {}", e.message);
+            if let Some(target) = target.upgrade() {
+                let reason = source.borrow().reason.clone();
+                if let Err(e) = abort_state(&target, reason, interp, span) {
+                    eprintln!("необработанное исключение в 'отмена': {}", e.message);
+                }
             }
         }
         Value::AbortCancelTimer { timer_id } => {
@@ -126,7 +124,7 @@ fn fire_listener(
     Ok(())
 }
 
-fn get_or_init_signal_promise(state: &Rc<RefCell<AbortState>>) -> Value {
+pub(crate) fn get_or_init_signal_promise(state: &Rc<RefCell<AbortState>>) -> Value {
     {
         let st = state.borrow();
         if let Some(v) = st.promise.borrow().as_ref() {
@@ -457,5 +455,36 @@ mod tests {
         "#,
         );
         assert_eq!(interp.get("вызван"), Some(Value::Boolean(false)));
+    }
+
+    #[test]
+    fn signal_any_does_not_strongly_retain_combo_state() {
+        let mut interp = Interpreter::new();
+        let src_ctrl = make_controller();
+        let src_signal = match &src_ctrl {
+            Value::AbortController { state } => Value::AbortSignal { state: Rc::clone(state) },
+            _ => unreachable!(),
+        };
+        let combo = signal_any(&mut interp, vec![src_signal], sp()).unwrap();
+        let combo_state = match &combo {
+            Value::AbortSignal { state } => Rc::clone(state),
+            _ => unreachable!(),
+        };
+        assert_eq!(Rc::strong_count(&combo_state), 2);
+    }
+
+    #[test]
+    fn signal_any_dropped_combo_does_not_block_source_abort() {
+        let mut interp = Interpreter::new();
+        let src_ctrl = make_controller();
+        let src_state = match &src_ctrl {
+            Value::AbortController { state } => Rc::clone(state),
+            _ => unreachable!(),
+        };
+        let src_signal = Value::AbortSignal { state: Rc::clone(&src_state) };
+        let combo = signal_any(&mut interp, vec![src_signal], sp()).unwrap();
+        drop(combo);
+        abort_state(&src_state, Value::String("стоп".into()), &mut interp, sp()).unwrap();
+        assert!(src_state.borrow().aborted);
     }
 }

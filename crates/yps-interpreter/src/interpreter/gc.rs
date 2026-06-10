@@ -202,7 +202,11 @@ impl Marker {
             Value::AbortController { state } | Value::AbortSignal { state } | Value::AbortUnsubscribe { state, .. } => {
                 self.work.push(Work::Abort(Rc::clone(state)));
             }
-            Value::AbortListener { target } => self.work.push(Work::Abort(Rc::clone(target))),
+            Value::AbortListener { target } => {
+                if let Some(rc) = target.upgrade() {
+                    self.work.push(Work::Abort(rc));
+                }
+            }
             Value::AbortRejectPromise { reject_cap, .. } => self.push_value(reject_cap),
             Value::Proxy { target, handler } => {
                 self.push_value(target);

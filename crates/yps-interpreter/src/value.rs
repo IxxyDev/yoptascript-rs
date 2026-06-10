@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -360,7 +360,7 @@ pub enum Value {
         state: Rc<RefCell<AbortState>>,
     },
     AbortListener {
-        target: Rc<RefCell<AbortState>>,
+        target: Weak<RefCell<AbortState>>,
     },
     AbortUnsubscribe {
         state: Rc<RefCell<AbortState>>,
@@ -875,7 +875,7 @@ impl Hash for MapKey {
             }
             Value::AbortListener { target } => {
                 19u8.hash(state);
-                hash_rc_ptr(target, state);
+                (target.as_ptr() as *const () as usize).hash(state);
             }
             Value::AbortUnsubscribe { state: rc, token } => {
                 20u8.hash(state);
@@ -926,7 +926,7 @@ impl PartialEq for Value {
             }
             (Value::AbortController { state: a }, Value::AbortController { state: b }) => Rc::ptr_eq(a, b),
             (Value::AbortSignal { state: a }, Value::AbortSignal { state: b }) => Rc::ptr_eq(a, b),
-            (Value::AbortListener { target: a }, Value::AbortListener { target: b }) => Rc::ptr_eq(a, b),
+            (Value::AbortListener { target: a }, Value::AbortListener { target: b }) => Weak::ptr_eq(a, b),
             (Value::AbortUnsubscribe { state: a, token: ta }, Value::AbortUnsubscribe { state: b, token: tb }) => {
                 Rc::ptr_eq(a, b) && ta == tb
             }

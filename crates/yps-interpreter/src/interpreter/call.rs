@@ -222,8 +222,10 @@ impl Interpreter {
                 Ok(Value::Undefined)
             }
             Value::AbortListener { target } => {
-                let reason = target.borrow().reason.clone();
-                crate::stdlib::abort::abort_state(&target, reason, self, span)?;
+                if let Some(target) = target.upgrade() {
+                    let reason = target.borrow().reason.clone();
+                    crate::stdlib::abort::abort_state(&target, reason, self, span)?;
+                }
                 Ok(Value::Undefined)
             }
             Value::Proxy { target, handler } => self.proxy_apply(&target, &handler, args, span),
