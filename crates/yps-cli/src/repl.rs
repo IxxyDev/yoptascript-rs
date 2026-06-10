@@ -1,6 +1,9 @@
 use std::env;
-use std::io::{self, BufRead, IsTerminal, Write as IoWrite};
+use std::io::{self, BufRead, IsTerminal};
 use std::process;
+
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 
 use yps_interpreter::Interpreter;
 use yps_lexer::{Lexer, SourceFile};
@@ -42,14 +45,49 @@ fn print_history(history: &[String]) {
     }
 }
 
-fn prompt(is_tty: bool, continuation: bool) {
-    if is_tty {
-        if continuation {
-            print!("....> ");
-        } else {
-            print!("йопта> ");
+enum LineEvent {
+    Line(String),
+    Cancelled,
+    Eof,
+}
+
+enum InputSource {
+    Tty(Box<DefaultEditor>),
+    Piped(io::Stdin),
+}
+
+impl InputSource {
+    fn read_line(&mut self, continuation: bool) -> LineEvent {
+        match self {
+            InputSource::Tty(editor) => {
+                let prompt = if continuation { "....> " } else { "йопта> " };
+                match editor.readline(prompt) {
+                    Ok(line) => {
+                        if !line.trim().is_empty() {
+                            let _ = editor.add_history_entry(&line);
+                        }
+                        LineEvent::Line(line)
+                    }
+                    Err(ReadlineError::Interrupted) => LineEvent::Cancelled,
+                    Err(ReadlineError::Eof) => LineEvent::Eof,
+                    Err(_) => {
+                        eprintln!("Ошибка чтения ввода.");
+                        LineEvent::Eof
+                    }
+                }
+            }
+            InputSource::Piped(stdin) => {
+                let mut line = String::new();
+                match stdin.lock().read_line(&mut line) {
+                    Ok(0) => LineEvent::Eof,
+                    Ok(_) => LineEvent::Line(line.trim_end_matches('\n').trim_end_matches('\r').to_string()),
+                    Err(_) => {
+                        eprintln!("Ошибка чтения ввода.");
+                        LineEvent::Eof
+                    }
+                }
+            }
         }
-        let _ = io::stdout().flush();
     }
 }
 
@@ -66,22 +104,26 @@ pub fn run_repl() {
         println!("Введите `:выход` для выхода, `:история` для истории, `:сброс` для сброса состояния.");
     }
 
-    let stdin = io::stdin();
+    let mut input = if is_tty {
+        match DefaultEditor::new() {
+            Ok(editor) => InputSource::Tty(Box::new(editor)),
+            Err(_) => InputSource::Piped(io::stdin()),
+        }
+    } else {
+        InputSource::Piped(io::stdin())
+    };
     let mut history: Vec<String> = Vec::new();
     let mut buffer = String::new();
 
     loop {
-        prompt(is_tty, !buffer.is_empty());
-
-        let mut line = String::new();
-        let result = stdin.lock().read_line(&mut line);
-        let line = match result {
-            Ok(0) => break,
-            Ok(_) => line.trim_end_matches('\n').trim_end_matches('\r').to_string(),
-            Err(_) => {
-                eprintln!("Ошибка чтения ввода.");
-                break;
+        let line = match input.read_line(!buffer.is_empty()) {
+            LineEvent::Eof => break,
+            LineEvent::Cancelled => {
+                buffer.clear();
+                println!("Ввод отменён.");
+                continue;
             }
+            LineEvent::Line(l) => l,
         };
 
         if let Some(cmd) = parse_repl_command(&line) {
