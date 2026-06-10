@@ -93,6 +93,7 @@ just fuzz lexer
 - [x] Async / Promises (`СловоПацана`)
 - [x] Module system (`спиздить` / `предъява`)
 - [x] Standard library: `Матан`, `Помойка`, `Строка`, `Кент`, `Хуйня`, `Жсон`, `Карта`, `Набор`, `Симбол`, `Косяк`
+- [x] Weak collections: `СлабаяКарта`, `СлабыйНабор`, `СлабаяСсылка`, `РеестрФинализации`
 - [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
 - [x] Fuzzing: libFuzzer targets for lexer, parser and formatter round-trip (`fuzz/`, weekly CI job)
 
