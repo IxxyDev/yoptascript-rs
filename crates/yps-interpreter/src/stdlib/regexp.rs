@@ -8,8 +8,103 @@ use crate::interpreter::Interpreter;
 use crate::stdlib::{as_string, require_args};
 use crate::value::Value;
 
-pub fn compile(pattern: &str, flags: &str, span: Span) -> Result<Rc<regex::Regex>, RuntimeError> {
-    validate_pattern(pattern, span)?;
+const FANCY_BACKTRACK_LIMIT: usize = 1_000_000;
+
+#[derive(Debug, Clone)]
+pub enum YopRegex {
+    Fast(regex::Regex),
+    Fancy(fancy_regex::Regex),
+}
+
+pub struct GroupSlot {
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+pub struct MatchData {
+    pub groups: Vec<Option<GroupSlot>>,
+    pub named: Vec<(String, Option<GroupSlot>)>,
+}
+
+impl MatchData {
+    fn whole(&self) -> &GroupSlot {
+        self.groups[0].as_ref().expect("match group 0")
+    }
+
+    fn from_fast(caps: &regex::Captures<'_>, re: &regex::Regex) -> MatchData {
+        let groups = (0..caps.len())
+            .map(|i| caps.get(i).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() }))
+            .collect();
+        let named = re
+            .capture_names()
+            .flatten()
+            .map(|name| {
+                let slot =
+                    caps.name(name).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() });
+                (name.to_string(), slot)
+            })
+            .collect();
+        MatchData { groups, named }
+    }
+
+    fn from_fancy(caps: &fancy_regex::Captures<'_>, re: &fancy_regex::Regex) -> MatchData {
+        let groups = (0..caps.len())
+            .map(|i| caps.get(i).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() }))
+            .collect();
+        let named = re
+            .capture_names()
+            .flatten()
+            .map(|name| {
+                let slot =
+                    caps.name(name).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() });
+                (name.to_string(), slot)
+            })
+            .collect();
+        MatchData { groups, named }
+    }
+}
+
+fn fancy_err(e: fancy_regex::Error, span: Span) -> RuntimeError {
+    RuntimeError::new(format!("Ошибка выполнения regex: {e}"), span)
+}
+
+impl YopRegex {
+    pub fn is_match(&self, s: &str, span: Span) -> Result<bool, RuntimeError> {
+        match self {
+            YopRegex::Fast(re) => Ok(re.is_match(s)),
+            YopRegex::Fancy(re) => re.is_match(s).map_err(|e| fancy_err(e, span)),
+        }
+    }
+
+    pub fn captures(&self, s: &str, span: Span) -> Result<Option<MatchData>, RuntimeError> {
+        match self {
+            YopRegex::Fast(re) => Ok(re.captures(s).map(|c| MatchData::from_fast(&c, re))),
+            YopRegex::Fancy(re) => {
+                re.captures(s).map(|opt| opt.map(|c| MatchData::from_fancy(&c, re))).map_err(|e| fancy_err(e, span))
+            }
+        }
+    }
+
+    pub fn captures_from_pos(&self, s: &str, pos: usize, span: Span) -> Result<Option<MatchData>, RuntimeError> {
+        match self {
+            YopRegex::Fast(re) => Ok(re.captures_at(s, pos).map(|c| MatchData::from_fast(&c, re))),
+            YopRegex::Fancy(re) => re
+                .captures_from_pos(s, pos)
+                .map(|opt| opt.map(|c| MatchData::from_fancy(&c, re)))
+                .map_err(|e| fancy_err(e, span)),
+        }
+    }
+
+    pub fn find_start(&self, s: &str, span: Span) -> Result<Option<usize>, RuntimeError> {
+        match self {
+            YopRegex::Fast(re) => Ok(re.find(s).map(|m| m.start())),
+            YopRegex::Fancy(re) => re.find(s).map(|opt| opt.map(|m| m.start())).map_err(|e| fancy_err(e, span)),
+        }
+    }
+}
+
+pub fn compile(pattern: &str, flags: &str, span: Span) -> Result<Rc<YopRegex>, RuntimeError> {
     let transformed = pre_transform(pattern);
 
     let mut prefix = String::new();
@@ -33,10 +128,21 @@ pub fn compile(pattern: &str, flags: &str, span: Span) -> Result<Rc<regex::Regex
         prefix.push(')');
     }
     let full = format!("{prefix}{transformed}");
-    regex::Regex::new(&full).map(Rc::new).map_err(|e| RuntimeError::new(format!("Ошибка regex /{pattern}/: {e}"), span))
+
+    if needs_fancy(pattern) {
+        let re = fancy_regex::RegexBuilder::new(&full)
+            .backtrack_limit(FANCY_BACKTRACK_LIMIT)
+            .build()
+            .map_err(|e| RuntimeError::new(format!("Ошибка regex /{pattern}/: {e}"), span))?;
+        Ok(Rc::new(YopRegex::Fancy(re)))
+    } else {
+        let re =
+            regex::Regex::new(&full).map_err(|e| RuntimeError::new(format!("Ошибка regex /{pattern}/: {e}"), span))?;
+        Ok(Rc::new(YopRegex::Fast(re)))
+    }
 }
 
-fn validate_pattern(pattern: &str, span: Span) -> Result<(), RuntimeError> {
+fn needs_fancy(pattern: &str) -> bool {
     let bytes = pattern.as_bytes();
     let mut i = 0;
     let mut in_class = false;
@@ -45,8 +151,8 @@ fn validate_pattern(pattern: &str, span: Span) -> Result<(), RuntimeError> {
         if b == b'\\' {
             if i + 1 < bytes.len() {
                 let nxt = bytes[i + 1];
-                if !in_class && (b'1'..=b'9').contains(&nxt) {
-                    return Err(RuntimeError::new("backreferences не поддерживаются", span));
+                if !in_class && ((b'1'..=b'9').contains(&nxt) || nxt == b'k') {
+                    return true;
                 }
                 i += 2;
                 continue;
@@ -60,10 +166,16 @@ fn validate_pattern(pattern: &str, span: Span) -> Result<(), RuntimeError> {
                 i += 1;
                 continue;
             }
-            if b == b'(' && i + 3 < bytes.len() && bytes[i + 1] == b'?' && bytes[i + 2] == b'<' {
-                let c3 = bytes[i + 3];
-                if c3 == b'=' || c3 == b'!' {
-                    return Err(RuntimeError::new("lookbehind не поддерживается", span));
+            if b == b'(' && i + 2 < bytes.len() && bytes[i + 1] == b'?' {
+                let c2 = bytes[i + 2];
+                if c2 == b'=' || c2 == b'!' {
+                    return true;
+                }
+                if c2 == b'<' && i + 3 < bytes.len() {
+                    let c3 = bytes[i + 3];
+                    if c3 == b'=' || c3 == b'!' {
+                        return true;
+                    }
                 }
             }
         } else if b == b']' {
@@ -71,7 +183,7 @@ fn validate_pattern(pattern: &str, span: Span) -> Result<(), RuntimeError> {
         }
         i += 1;
     }
-    Ok(())
+    false
 }
 
 fn pre_transform(pattern: &str) -> String {
@@ -143,47 +255,47 @@ fn char_index_at(s: &str, byte_pos: usize) -> i64 {
     s[..byte_pos].chars().count() as i64
 }
 
-pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex, with_indices: bool) -> Value {
+pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value {
     let mut map: HashMap<String, Value> = HashMap::new();
-    for i in 0..caps.len() {
+    for (i, slot) in md.groups.iter().enumerate() {
         let key = i.to_string();
-        match caps.get(i) {
-            Some(m) => map.insert(key, Value::String(m.as_str().to_string())),
+        match slot {
+            Some(g) => map.insert(key, Value::String(g.text.clone())),
             None => map.insert(key, Value::Null),
         };
     }
-    let whole = caps.get(0).expect("match group 0");
-    map.insert("index".to_string(), Value::Number(char_index_at(s, whole.start()) as f64));
+    let whole = md.whole();
+    map.insert("index".to_string(), Value::Number(char_index_at(s, whole.start) as f64));
     map.insert("input".to_string(), Value::String(s.to_string()));
 
     let mut groups: HashMap<String, Value> = HashMap::new();
     let mut has_named = false;
-    for name_opt in re.capture_names().flatten() {
+    for (name, slot) in &md.named {
         has_named = true;
-        match caps.name(name_opt) {
-            Some(m) => groups.insert(name_opt.to_string(), Value::String(m.as_str().to_string())),
-            None => groups.insert(name_opt.to_string(), Value::Null),
+        match slot {
+            Some(g) => groups.insert(name.clone(), Value::String(g.text.clone())),
+            None => groups.insert(name.clone(), Value::Null),
         };
     }
     let groups_val = if has_named { Value::object(groups) } else { Value::Null };
     map.insert("groups".to_string(), groups_val);
 
     if with_indices {
-        let pair = |m: regex::Match<'_>| {
+        let pair = |g: &GroupSlot| {
             Value::array(vec![
-                Value::Number(char_index_at(s, m.start()) as f64),
-                Value::Number(char_index_at(s, m.end()) as f64),
+                Value::Number(char_index_at(s, g.start) as f64),
+                Value::Number(char_index_at(s, g.end) as f64),
             ])
         };
         let mut indices_obj: HashMap<String, Value> = HashMap::new();
-        for i in 0..caps.len() {
-            let v = caps.get(i).map(pair).unwrap_or(Value::Null);
+        for (i, slot) in md.groups.iter().enumerate() {
+            let v = slot.as_ref().map(pair).unwrap_or(Value::Null);
             indices_obj.insert(i.to_string(), v);
         }
         let mut named_groups: HashMap<String, Value> = HashMap::new();
-        for name in re.capture_names().flatten() {
-            let v = caps.name(name).map(pair).unwrap_or(Value::Null);
-            named_groups.insert(name.to_string(), v);
+        for (name, slot) in &md.named {
+            let v = slot.as_ref().map(pair).unwrap_or(Value::Null);
+            named_groups.insert(name.clone(), v);
         }
         let groups_d = if named_groups.is_empty() { Value::Null } else { Value::object(named_groups) };
         indices_obj.insert("groups".to_string(), groups_d);
@@ -193,10 +305,10 @@ pub fn build_match_object(caps: &regex::Captures<'_>, s: &str, re: &regex::Regex
     Value::object(map)
 }
 
-pub fn match_first(re: &Rc<regex::Regex>, s: &str) -> Value {
-    match re.captures(s) {
-        Some(caps) => build_match_object(&caps, s, re, false),
-        None => Value::Null,
+pub fn match_first(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Value, RuntimeError> {
+    match re.captures(s, span)? {
+        Some(md) => Ok(build_match_object(&md, s, false)),
+        None => Ok(Value::Null),
     }
 }
 
@@ -214,62 +326,137 @@ fn char_to_byte(s: &str, char_idx: usize) -> Option<usize> {
     if count == char_idx { Some(s.len()) } else { None }
 }
 
-pub fn exec_stateful(re: &Rc<regex::Regex>, flags: &str, last_index: &Rc<std::cell::RefCell<usize>>, s: &str) -> Value {
+pub fn exec_stateful(
+    re: &Rc<YopRegex>,
+    flags: &str,
+    last_index: &Rc<std::cell::RefCell<usize>>,
+    s: &str,
+    span: Span,
+) -> Result<Value, RuntimeError> {
     let stateful = flags.contains('g') || flags.contains('y');
     let has_indices = flags.contains('d');
     if !stateful {
-        return match re.captures(s) {
-            Some(caps) => build_match_object(&caps, s, re, has_indices),
+        return Ok(match re.captures(s, span)? {
+            Some(md) => build_match_object(&md, s, has_indices),
             None => Value::Null,
-        };
+        });
     }
     let li = *last_index.borrow();
     let byte_pos = match char_to_byte(s, li) {
         Some(b) => b,
         None => {
             *last_index.borrow_mut() = 0;
-            return Value::Null;
+            return Ok(Value::Null);
         }
     };
-    let caps_opt = re.captures_at(s, byte_pos);
-    match caps_opt {
-        Some(caps) => {
-            let whole = caps.get(0).expect("match group 0");
-            if flags.contains('y') && whole.start() != byte_pos {
+    match re.captures_from_pos(s, byte_pos, span)? {
+        Some(md) => {
+            let whole = md.whole();
+            if flags.contains('y') && whole.start != byte_pos {
                 *last_index.borrow_mut() = 0;
-                return Value::Null;
+                return Ok(Value::Null);
             }
-            let new_li = s[..whole.end()].chars().count();
+            let new_li = s[..whole.end].chars().count();
             *last_index.borrow_mut() = new_li;
-            build_match_object(&caps, s, re, has_indices)
+            Ok(build_match_object(&md, s, has_indices))
         }
         None => {
             *last_index.borrow_mut() = 0;
-            Value::Null
+            Ok(Value::Null)
         }
     }
 }
 
-pub fn match_all_global(re: &Rc<regex::Regex>, s: &str) -> Vec<Value> {
-    re.find_iter(s).map(|m| Value::String(m.as_str().to_string())).collect()
+pub fn match_all_global(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while pos <= s.len() {
+        match re.captures_from_pos(s, pos, span)? {
+            Some(md) => {
+                let whole = md.whole();
+                out.push(Value::String(whole.text.clone()));
+                pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
+            }
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
-pub fn match_all_detailed(re: &Rc<regex::Regex>, s: &str) -> Vec<Value> {
-    re.captures_iter(s).map(|caps| build_match_object(&caps, s, re, false)).collect()
+fn next_byte(s: &str, pos: usize) -> usize {
+    if pos >= s.len() {
+        return pos + 1;
+    }
+    match s[pos..].chars().next() {
+        Some(ch) => pos + ch.len_utf8(),
+        None => pos + 1,
+    }
 }
 
-pub fn split_string(re: &Rc<regex::Regex>, s: &str) -> Vec<String> {
-    re.split(s).map(|p| p.to_string()).collect()
+pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<String>, RuntimeError> {
+    match re.as_ref() {
+        YopRegex::Fast(r) => Ok(r.split(s).map(|p| p.to_string()).collect()),
+        YopRegex::Fancy(_) => {
+            let mut out = Vec::new();
+            let mut last = 0usize;
+            let mut pos = 0usize;
+            while pos <= s.len() {
+                match re.captures_from_pos(s, pos, span)? {
+                    Some(md) => {
+                        let whole = md.whole();
+                        if whole.end == whole.start {
+                            pos = next_byte(s, whole.start);
+                            if whole.start >= s.len() {
+                                break;
+                            }
+                            continue;
+                        }
+                        out.push(s[last..whole.start].to_string());
+                        last = whole.end;
+                        pos = whole.end;
+                    }
+                    None => break,
+                }
+            }
+            out.push(s[last..].to_string());
+            Ok(out)
+        }
+    }
 }
 
-pub fn replace_string(re: &Rc<regex::Regex>, s: &str, replacement: &str, global: bool) -> String {
-    let rep = ReplacementTemplate::new(replacement);
-    if global { re.replace_all(s, &rep).into_owned() } else { re.replace(s, &rep).into_owned() }
+pub fn replace_string(
+    re: &Rc<YopRegex>,
+    s: &str,
+    replacement: &str,
+    global: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    let template = ReplacementTemplate::new(replacement);
+    let mut out = String::new();
+    let mut last_end = 0usize;
+    let mut pos = 0usize;
+    while pos <= s.len() {
+        match re.captures_from_pos(s, pos, span)? {
+            Some(md) => {
+                let whole = md.whole();
+                out.push_str(&s[last_end..whole.start]);
+                template.expand(&md, &mut out);
+                last_end = whole.end;
+                pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
+                if !global {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+    out.push_str(&s[last_end..]);
+    Ok(out)
 }
 
 pub fn replace_with_fn(
     interp: &mut Interpreter,
-    re: &Rc<regex::Regex>,
+    re: &Rc<YopRegex>,
     s: &str,
     fn_val: Value,
     global: bool,
@@ -277,18 +464,23 @@ pub fn replace_with_fn(
 ) -> Result<String, RuntimeError> {
     let mut out = String::new();
     let mut last_end = 0usize;
-    for caps in re.captures_iter(s) {
-        let whole = caps.get(0).expect("match group 0");
-        out.push_str(&s[last_end..whole.start()]);
-        let mut call_args: Vec<Value> = Vec::with_capacity(caps.len() + 2);
-        call_args.push(Value::String(whole.as_str().to_string()));
-        for i in 1..caps.len() {
-            match caps.get(i) {
-                Some(m) => call_args.push(Value::String(m.as_str().to_string())),
+    let mut pos = 0usize;
+    while pos <= s.len() {
+        let md = match re.captures_from_pos(s, pos, span)? {
+            Some(md) => md,
+            None => break,
+        };
+        let whole = md.whole();
+        out.push_str(&s[last_end..whole.start]);
+        let mut call_args: Vec<Value> = Vec::with_capacity(md.groups.len() + 2);
+        call_args.push(Value::String(whole.text.clone()));
+        for slot in md.groups.iter().skip(1) {
+            match slot {
+                Some(g) => call_args.push(Value::String(g.text.clone())),
                 None => call_args.push(Value::Null),
             }
         }
-        let char_offset = char_index_at(s, whole.start());
+        let char_offset = char_index_at(s, whole.start);
         call_args.push(Value::Number(char_offset as f64));
         call_args.push(Value::String(s.to_string()));
         let returned = interp.call_function(fn_val.clone(), call_args, span)?;
@@ -297,7 +489,8 @@ pub fn replace_with_fn(
             other => other.to_string(),
         };
         out.push_str(&rep);
-        last_end = whole.end();
+        last_end = whole.end;
+        pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
         if !global {
             break;
         }
@@ -306,10 +499,10 @@ pub fn replace_with_fn(
     Ok(out)
 }
 
-pub fn search_index(re: &Rc<regex::Regex>, s: &str) -> i64 {
-    match re.find(s) {
-        Some(m) => char_index_at(s, m.start()),
-        None => -1,
+pub fn search_index(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<i64, RuntimeError> {
+    match re.find_start(s, span)? {
+        Some(start) => Ok(char_index_at(s, start)),
+        None => Ok(-1),
     }
 }
 
@@ -321,20 +514,27 @@ impl<'a> ReplacementTemplate<'a> {
     fn new(src: &'a str) -> Self {
         Self { src }
     }
-}
 
-impl regex::Replacer for &ReplacementTemplate<'_> {
-    fn replace_append(&mut self, caps: &regex::Captures<'_>, dst: &mut String) {
+    fn group_text(md: &MatchData, idx: usize) -> Option<&str> {
+        md.groups.get(idx).and_then(|s| s.as_ref()).map(|g| g.text.as_str())
+    }
+
+    fn named_text<'m>(md: &'m MatchData, name: &str) -> Option<&'m str> {
+        md.named.iter().find(|(n, _)| n == name).and_then(|(_, s)| s.as_ref()).map(|g| g.text.as_str())
+    }
+
+    fn expand(&self, md: &MatchData, dst: &mut String) {
         let bytes = self.src.as_bytes();
         let mut i = 0;
+        let max_group = md.groups.len().saturating_sub(1);
         while i < bytes.len() {
             let b = bytes[i];
             if b == b'$' && i + 1 < bytes.len() {
                 let nb = bytes[i + 1];
                 match nb {
                     b'&' => {
-                        if let Some(m) = caps.get(0) {
-                            dst.push_str(m.as_str());
+                        if let Some(t) = Self::group_text(md, 0) {
+                            dst.push_str(t);
                         }
                         i += 2;
                         continue;
@@ -346,8 +546,6 @@ impl regex::Replacer for &ReplacementTemplate<'_> {
                     }
                     b'0'..=b'9' => {
                         let d1 = (nb - b'0') as usize;
-                        let total = caps.len();
-                        let max_group = total.saturating_sub(1);
                         let two_digit = if i + 2 < bytes.len() {
                             let nb2 = bytes[i + 2];
                             if nb2.is_ascii_digit() { Some((nb2 - b'0') as usize) } else { None }
@@ -357,15 +555,15 @@ impl regex::Replacer for &ReplacementTemplate<'_> {
                         if let Some(d2) = two_digit {
                             let nn = d1 * 10 + d2;
                             if nn != 0 && nn <= max_group {
-                                if let Some(m) = caps.get(nn) {
-                                    dst.push_str(m.as_str());
+                                if let Some(t) = Self::group_text(md, nn) {
+                                    dst.push_str(t);
                                 }
                                 i += 3;
                                 continue;
                             }
                             if d1 != 0 && d1 <= max_group {
-                                if let Some(m) = caps.get(d1) {
-                                    dst.push_str(m.as_str());
+                                if let Some(t) = Self::group_text(md, d1) {
+                                    dst.push_str(t);
                                 }
                                 dst.push(bytes[i + 2] as char);
                                 i += 3;
@@ -378,8 +576,8 @@ impl regex::Replacer for &ReplacementTemplate<'_> {
                             continue;
                         }
                         if d1 != 0 && d1 <= max_group {
-                            if let Some(m) = caps.get(d1) {
-                                dst.push_str(m.as_str());
+                            if let Some(t) = Self::group_text(md, d1) {
+                                dst.push_str(t);
                             }
                             i += 2;
                             continue;
@@ -394,8 +592,8 @@ impl regex::Replacer for &ReplacementTemplate<'_> {
                             let name_start = i + 2;
                             let name_end = name_start + end_off;
                             let name = &self.src[name_start..name_end];
-                            if let Some(m) = caps.name(name) {
-                                dst.push_str(m.as_str());
+                            if let Some(t) = Self::named_text(md, name) {
+                                dst.push_str(t);
                             }
                             i = name_end + 1;
                             continue;
@@ -438,12 +636,12 @@ pub fn call(
         "проверить" | "test" => {
             require_args(&args, 1, span, "regex.проверить")?;
             let s = as_string(&args[0], span, "regex.проверить")?;
-            Value::Boolean(compiled.is_match(s))
+            Value::Boolean(compiled.is_match(s, span)?)
         }
         "найти" | "exec" => {
             require_args(&args, 1, span, "regex.найти")?;
             let s = as_string(&args[0], span, "regex.найти")?;
-            exec_stateful(&compiled, &flags, &last_index, s)
+            exec_stateful(&compiled, &flags, &last_index, s, span)?
         }
         "вСтроку" | "toString" => Value::String(format!("/{pattern}/{flags}")),
         "источник" | "source" => Value::String(pattern.clone()),

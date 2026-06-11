@@ -28,7 +28,7 @@ pub enum IteratorState {
     Take { inner: Box<IteratorState>, remaining: usize },
     Drop { inner: Box<IteratorState>, count: usize, dropped: bool },
     Concat { iters: VecDeque<IteratorState> },
-    RegexMatches { re: Rc<regex::Regex>, input: String, byte_pos: usize },
+    RegexMatches { re: Rc<crate::stdlib::regexp::YopRegex>, input: String, byte_pos: usize },
     Generator(Box<GenState>),
     Done,
 }
@@ -349,7 +349,7 @@ pub enum Value {
     RegExp {
         pattern: String,
         flags: String,
-        compiled: Rc<regex::Regex>,
+        compiled: Rc<crate::stdlib::regexp::YopRegex>,
         last_index: Rc<RefCell<usize>>,
     },
     Date(Rc<Cell<f64>>),

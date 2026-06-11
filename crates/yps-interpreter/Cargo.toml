@@ -12,3 +12,4 @@ yps-parser = { path = "../yps-parser" }
 regex = "1"
 stacker = "0.1"
 indexmap = "2"
+fancy-regex = "0.18.0"
