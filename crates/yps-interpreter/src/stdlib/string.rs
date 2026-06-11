@@ -91,7 +91,8 @@ pub fn call(
                 return Ok((Value::array(vec![Value::String(s)]), None));
             }
             if let Value::RegExp { compiled, .. } = &args[0] {
-                let parts: Vec<Value> = regexp::split_string(compiled, &s).into_iter().map(Value::String).collect();
+                let parts: Vec<Value> =
+                    regexp::split_string(compiled, &s, span)?.into_iter().map(Value::String).collect();
                 return Ok((Value::array(parts), None));
             }
             let sep = as_string(&args[0], span, "split")?;
@@ -110,7 +111,7 @@ pub fn call(
                 match &args[1] {
                     Value::String(rep) => {
                         let rep = rep.clone();
-                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, global)), None));
+                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, global, span)?), None));
                     }
                     Value::Function { .. } | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
@@ -139,7 +140,7 @@ pub fn call(
                 match &args[1] {
                     Value::String(rep) => {
                         let rep = rep.clone();
-                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, true)), None));
+                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, true, span)?), None));
                     }
                     Value::Function { .. } | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
@@ -173,9 +174,9 @@ pub fn call(
                 }
             };
             if flags.contains('g') {
-                Ok((Value::array(regexp::match_all_global(compiled, &s)), None))
+                Ok((Value::array(regexp::match_all_global(compiled, &s, span)?), None))
             } else {
-                Ok((regexp::match_first(compiled, &s), None))
+                Ok((regexp::match_first(compiled, &s, span)?, None))
             }
         }
         "matchAll" | "найтиВсе" => {
@@ -206,7 +207,7 @@ pub fn call(
                     ));
                 }
             };
-            Ok((Value::Number(regexp::search_index(compiled, &s) as f64), None))
+            Ok((Value::Number(regexp::search_index(compiled, &s, span)? as f64), None))
         }
         "startsWith" | "начинаетсяС" => {
             require_args(&args, 1, span, "startsWith")?;

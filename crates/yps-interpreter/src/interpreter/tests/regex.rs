@@ -334,23 +334,63 @@ fn regex_new_regexp_invalid_pattern() {
 }
 
 #[test]
-fn regex_lookbehind_rejected() {
-    let err = run_code_err(
+fn regex_lookbehind_matches() {
+    let interp = run_code(
         r#"
-        RegExp("(?<=foo)bar");
+        гыы re = RegExp("(?<=foo)bar");
+        гыы ok = re.проверить("foobar");
+        гыы no = re.проверить("xbar");
         "#,
     );
-    assert!(err.message.contains("lookbehind"), "got: {}", err.message);
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("no"), Some(Value::Boolean(false)));
 }
 
 #[test]
-fn regex_backref_rejected() {
-    let err = run_code_err(
+fn regex_backref_matches() {
+    let interp = run_code(
         r#"
-        RegExp("(a)\\1");
+        гыы re = RegExp("^(a+) \\1$");
+        гыы ok = re.проверить("aa aa");
+        гыы no = re.проверить("aa aaa");
         "#,
     );
-    assert!(err.message.contains("backreferences"), "got: {}", err.message);
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("no"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn regex_lookahead_routes_fancy_and_matches() {
+    let interp = run_code(
+        r#"
+        гыы r = "слово".совпадает(/слов(?=о)/);
+        гыы m = r["0"];
+        "#,
+    );
+    assert_eq!(interp.get("m"), Some(Value::String("слов".to_string())));
+}
+
+#[test]
+fn regex_lookahead_uses_fancy_engine() {
+    use crate::stdlib::regexp::{YopRegex, compile};
+    let sp = yps_lexer::Span { start: 0, end: 0 };
+    let fancy = compile("слов(?=о)", "", sp);
+    assert!(matches!(fancy.as_deref(), Ok(YopRegex::Fancy(_))));
+    let plain = compile("слово", "", sp);
+    assert!(matches!(plain.as_deref(), Ok(YopRegex::Fast(_))));
+}
+
+#[test]
+fn regex_lookbehind_negative_and_backref_exec() {
+    let interp = run_code(
+        r#"
+        гыы lb = "1234".заменить(/(?<=\d)(?=(\d\d\d)+$)/g, ",");
+        гыы br = "abab".совпадает(/(ab)\1/);
+        гыы brm = br["0"];
+        "#,
+    );
+    assert_eq!(interp.get("lb"), Some(Value::String("1,234".to_string())));
+    assert_eq!(interp.get("brm"), Some(Value::String("abab".to_string())));
 }
 
 #[test]
@@ -536,4 +576,109 @@ fn regex_division_disambiguation() {
         "#,
     );
     assert_eq!(interp.get("c"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn regex_negative_lookahead_matches() {
+    let interp = run_code(
+        r#"
+        гыы r1 = /а(?!б)/.проверить("ав");
+        гыы r2 = /а(?!б)/.проверить("аб");
+        "#,
+    );
+    assert_eq!(interp.get("r1"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("r2"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn regex_stateful_exec_fancy_path() {
+    let interp = run_code(
+        r#"
+        гыы re = /а(?=б)/g;
+        гыы m1 = re.найти("абхаб");
+        гыы li1 = re.последнийИндекс;
+        гыы m2 = re.найти("абхаб");
+        гыы li2 = re.последнийИндекс;
+        гыы m3 = re.найти("абхаб");
+        гыы li3 = re.последнийИндекс;
+        гыы t1 = m1["0"];
+        гыы t2 = m2["0"];
+        "#,
+    );
+    assert_eq!(interp.get("t1"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("li1"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("t2"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("li2"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("m3"), Some(Value::Null));
+    assert_eq!(interp.get("li3"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn regex_sticky_fancy_path() {
+    let interp = run_code(
+        r#"
+        гыы re = /(?<=х)а/y;
+        re.последнийИндекс = 2;
+        гыы r1 = re.найти("абхаб");
+        гыы li1 = re.последнийИндекс;
+        re.последнийИндекс = 3;
+        гыы r2 = re.найти("абхаб");
+        гыы matched = r2["0"];
+        гыы li2 = re.последнийИндекс;
+        "#,
+    );
+    assert_eq!(interp.get("r1"), Some(Value::Null));
+    assert_eq!(interp.get("li1"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("matched"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("li2"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn regex_named_backref_matches() {
+    let interp = run_code(
+        r#"
+        гыы re = RegExp("^(?<б>а+)-\\k<б>$");
+        гыы ok = re.проверить("аа-аа");
+        гыы no = re.проверить("аа-а");
+        "#,
+    );
+    assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("no"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn regex_split_with_backref() {
+    let interp = run_code(
+        r#"
+        гыы parts = "абабX".разбить(RegExp("(а)б\\1б"));
+        гыы len = длина(parts);
+        гыы p0 = parts[0];
+        гыы p1 = parts[1];
+        "#,
+    );
+    assert_eq!(interp.get("len"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("p0"), Some(Value::String("".to_string())));
+    assert_eq!(interp.get("p1"), Some(Value::String("X".to_string())));
+}
+
+#[test]
+fn regex_catastrophic_backtracking_terminates() {
+    let err = run_code_err(
+        r#"
+        гыы input = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        гыы re = RegExp("(a|(?!x)a)+b");
+        re.проверить(input);
+        "#,
+    );
+    assert!(err.message.contains("Ошибка выполнения regex"), "сообщение об ошибке: {}", err.message);
+}
+
+#[test]
+fn regex_invalid_fancy_pattern_russian_error() {
+    let err = run_code_err(
+        r#"
+        RegExp("(?<=*)");
+        "#,
+    );
+    assert!(err.message.contains("Ошибка regex"), "сообщение об ошибке: {}", err.message);
 }

@@ -68,8 +68,9 @@ cargo build --release
 # Run a YoptaScript file
 cargo run -p yps-cli -- path/to/program.yop
 
-# Start the REPL (line editing and up/down history via rustyline —
-# the one deliberate exception to the otherwise dependency-free runtime)
+# Start the REPL (line editing and up/down history via rustyline;
+# the runtime's other deliberate dependencies are the regex engines —
+# regex for plain patterns, fancy-regex for lookaround and backreferences)
 cargo run -p yps-cli
 
 # Format a .yop file (--write to apply, --check for CI)

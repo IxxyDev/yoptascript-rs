@@ -448,15 +448,18 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
                 return Ok(None);
             }
             let re = Rc::clone(re);
-            match re.captures_at(input, *byte_pos) {
+            match re.captures_from_pos(input, *byte_pos, span)? {
                 None => {
                     *state = IteratorState::Done;
                     Ok(None)
                 }
-                Some(caps) => {
-                    let whole = caps.get(0).expect("match group 0");
-                    let new_pos = if whole.end() == whole.start() { whole.end() + 1 } else { whole.end() };
-                    let obj = crate::stdlib::regexp::build_match_object(&caps, input, &re, false);
+                Some(md) => {
+                    let (start, end) = {
+                        let whole = md.groups[0].as_ref().expect("match group 0");
+                        (whole.start, whole.end)
+                    };
+                    let new_pos = if end == start { end + 1 } else { end };
+                    let obj = crate::stdlib::regexp::build_match_object(&md, input, false);
                     *byte_pos = new_pos;
                     Ok(Some(obj))
                 }
