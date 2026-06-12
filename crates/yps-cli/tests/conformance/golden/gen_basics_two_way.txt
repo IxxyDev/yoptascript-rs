@@ -1,0 +1,6 @@
+y1: первый false
+получил a: 10
+y2: второй false
+получил b: 20
+ret: 30 true
+после: undefined true

@@ -1,0 +1,8 @@
+y1: 1
+ret: 42 true
+после: undefined true
+y: a
+финалли выполнен
+ret2: стоп true
+y3: x
+ret3: из-финалли true

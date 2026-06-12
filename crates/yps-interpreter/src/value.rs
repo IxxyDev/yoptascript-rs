@@ -40,6 +40,7 @@ pub struct GenState {
     pub frames: Vec<GenFrame>,
     pub completed: bool,
     pub pending_bind: Option<BindTarget>,
+    pub pending_send: Option<Value>,
 }
 
 #[derive(Clone)]

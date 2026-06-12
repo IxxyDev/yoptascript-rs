@@ -1,0 +1,16 @@
+выдаю 0
+map 0
+filter 0
+выдаю 1
+map 1
+filter 10
+выдаю 2
+map 2
+filter 20
+длина: 2
+0
+20
+drop+take длина: 3
+3
+4
+5
