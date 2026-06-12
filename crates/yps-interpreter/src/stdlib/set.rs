@@ -15,7 +15,7 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
             let items = items.borrow();
             let mut out: IndexSet<MapKey> = IndexSet::with_capacity(items.len());
             for v in items.iter() {
-                out.insert(MapKey(v.clone()));
+                out.insert(MapKey::new(v.clone()));
             }
             Ok(Value::set(out))
         }
@@ -42,16 +42,16 @@ pub fn call(
         "add" | "добавить" => {
             require_args(&args, 1, span, "add")?;
             let val = args.into_iter().next().unwrap();
-            set.borrow_mut().insert(MapKey(val));
+            set.borrow_mut().insert(MapKey::new(val));
             Ok(Value::Set(set))
         }
         "has" | "имеет" => {
             require_args(&args, 1, span, "has")?;
-            Ok(Value::Boolean(set.borrow().contains(&MapKey(args[0].clone()))))
+            Ok(Value::Boolean(set.borrow().contains(&MapKey::new(args[0].clone()))))
         }
         "delete" | "удалить" => {
             require_args(&args, 1, span, "delete")?;
-            let removed = set.borrow_mut().shift_remove(&MapKey(args[0].clone()));
+            let removed = set.borrow_mut().shift_remove(&MapKey::new(args[0].clone()));
             Ok(Value::Boolean(removed))
         }
         "clear" | "очистить" => {
@@ -145,7 +145,7 @@ fn extract_set_like(v: &Value, span: Span) -> Result<IndexSet<MapKey>, RuntimeEr
             let a = a.borrow();
             let mut out: IndexSet<MapKey> = IndexSet::with_capacity(a.len());
             for el in a.iter() {
-                out.insert(MapKey(el.clone()));
+                out.insert(MapKey::new(el.clone()));
             }
             Ok(out)
         }
@@ -175,5 +175,17 @@ mod tests {
     #[test]
     fn set_difference_nan() {
         assert_eq!(eval("Набор([нихуя]).разница(Набор([нихуя])).размер;"), crate::value::Value::Number(0.0));
+    }
+
+    #[test]
+    fn set_negative_zero_value_normalized() {
+        let v = eval("гыы с = захуярить Набор(); с.add(-0); с.значения()[0];");
+        match v {
+            crate::value::Value::Number(n) => {
+                assert_eq!(n, 0.0);
+                assert!(!n.is_sign_negative(), "значение -0 должно нормализоваться в +0");
+            }
+            other => panic!("ожидалось число, получено {other:?}"),
+        }
     }
 }

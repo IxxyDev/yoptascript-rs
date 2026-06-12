@@ -1,0 +1,18 @@
+'use strict';
+var m = new Map();
+m.set(NaN, 'nan-val');
+console.log(m.has(NaN));
+console.log(m.get(NaN));
+console.log(m.size);
+m.set(NaN, 'nan-обновлено');
+console.log(m.size);
+console.log(m.get(NaN));
+var mz = new Map();
+mz.set(-0, 'negzero');
+console.log(mz.has(0));
+console.log(mz.has(-0));
+console.log(mz.size);
+for (var k of mz.keys()) console.log(k);
+mz.set(0, 'zero-updated');
+console.log(mz.size);
+console.log(mz.get(0));

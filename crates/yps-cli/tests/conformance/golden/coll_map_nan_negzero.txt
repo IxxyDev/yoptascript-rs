@@ -1,0 +1,11 @@
+true
+nan-val
+1
+1
+nan-обновлено
+true
+true
+1
+0
+1
+zero-updated
