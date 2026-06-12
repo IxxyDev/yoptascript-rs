@@ -36,7 +36,14 @@ enum Unwind {
 
 pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>) -> GenState {
     let stmts: Rc<[Stmt]> = Rc::from(body.stmts.as_slice());
-    GenState { name, env, frames: vec![GenFrame::Block { stmts, idx: 0 }], completed: false, pending_bind: None }
+    GenState {
+        name,
+        env,
+        frames: vec![GenFrame::Block { stmts, idx: 0 }],
+        completed: false,
+        pending_bind: None,
+        pending_send: None,
+    }
 }
 
 pub(crate) fn step_generator(
@@ -60,15 +67,19 @@ pub(crate) fn step_generator(
         GenInput::Send(v) => {
             if let Some(bind) = g.pending_bind.take() {
                 apply_bind(&mut g.env, bind, v);
+            } else {
+                g.pending_send = Some(v);
             }
             pump(interp, g, span)
         }
         GenInput::Return(v) => {
             g.pending_bind = None;
+            g.pending_send = None;
             pump_with_unwind(interp, g, Unwind::Return(v), span)
         }
         GenInput::Throw(v) => {
             g.pending_bind = None;
+            g.pending_send = None;
             pump_with_unwind(interp, g, Unwind::Throw(v), span)
         }
     };
@@ -216,13 +227,11 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
             }
             GenFrame::Delegate { inner } => {
                 let inner_rc = inner.clone();
-                let next_val = {
-                    let mut state = inner_rc.borrow_mut();
-                    crate::stdlib::iterator::next(interp, &mut state, span)?
-                };
-                match next_val {
-                    Some(v) => return Ok(GenStep::Yielded(v)),
-                    None => {
+                let sent = g.pending_send.take().unwrap_or(Value::Undefined);
+                let outcome = delegate_step(interp, &inner_rc, GenInput::Send(sent), span)?;
+                match outcome {
+                    DelegateOutcome::Yielded(v) => return Ok(GenStep::Yielded(v)),
+                    DelegateOutcome::Done(_ret) => {
                         g.frames.pop();
                     }
                 }
@@ -283,6 +292,38 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 }
             }
         }
+    }
+}
+
+enum DelegateOutcome {
+    Yielded(Value),
+    Done(Value),
+}
+
+fn delegate_step(
+    interp: &mut Interpreter,
+    inner_rc: &Rc<RefCell<IteratorState>>,
+    input: GenInput,
+    span: Span,
+) -> Result<DelegateOutcome, RuntimeError> {
+    let mut state = inner_rc.borrow_mut();
+    if let IteratorState::Generator(gen_state) = &mut *state {
+        let outcome = step_generator(interp, gen_state, input, span)?;
+        return Ok(match outcome {
+            StepOutcome::Yielded(v) => DelegateOutcome::Yielded(v),
+            StepOutcome::Done(v) => DelegateOutcome::Done(v),
+        });
+    }
+    match input {
+        GenInput::Send(_) => match crate::stdlib::iterator::next(interp, &mut state, span)? {
+            Some(v) => Ok(DelegateOutcome::Yielded(v)),
+            None => Ok(DelegateOutcome::Done(Value::Undefined)),
+        },
+        GenInput::Return(v) => {
+            *state = IteratorState::Done;
+            Ok(DelegateOutcome::Done(v))
+        }
+        GenInput::Throw(v) => Err(RuntimeError::thrown(v, span)),
     }
 }
 
@@ -531,7 +572,7 @@ fn step_block_stmt(
 fn unwind(
     interp: &mut Interpreter,
     g: &mut GenState,
-    kind: Unwind,
+    mut kind: Unwind,
     span: Span,
 ) -> Result<Option<GenStep>, RuntimeError> {
     loop {
@@ -586,61 +627,49 @@ fn unwind(
                     }
                 },
                 Unwind::Return(v) => {
-                    if let Some(fb) = finally_body.clone() {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
+                    let pending = matches!(state, TryState::Trying | TryState::InCatch);
+                    match state {
+                        TryState::Trying => interp.env.pop_scope(),
+                        TryState::InCatch => interp.env.pop_scope(),
+                        _ => {}
+                    }
+                    if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterReturn(v.clone());
                         g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
                         return Ok(None);
                     } else {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
                         g.frames.pop();
                         continue;
                     }
                 }
                 Unwind::Break => {
-                    if let Some(fb) = finally_body.clone() {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
+                    let pending = matches!(state, TryState::Trying | TryState::InCatch);
+                    match state {
+                        TryState::Trying => interp.env.pop_scope(),
+                        TryState::InCatch => interp.env.pop_scope(),
+                        _ => {}
+                    }
+                    if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterBreak;
                         g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
                         return Ok(None);
                     } else {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
                         g.frames.pop();
                         continue;
                     }
                 }
                 Unwind::Continue => {
-                    if let Some(fb) = finally_body.clone() {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
+                    let pending = matches!(state, TryState::Trying | TryState::InCatch);
+                    match state {
+                        TryState::Trying => interp.env.pop_scope(),
+                        TryState::InCatch => interp.env.pop_scope(),
+                        _ => {}
+                    }
+                    if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterContinue;
                         g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
                         return Ok(None);
                     } else {
-                        match state {
-                            TryState::Trying => interp.env.pop_scope(),
-                            TryState::InCatch => interp.env.pop_scope(),
-                            _ => {}
-                        }
                         g.frames.pop();
                         continue;
                     }
@@ -691,9 +720,48 @@ fn unwind(
                     continue;
                 }
             },
-            GenFrame::Block { .. } | GenFrame::Delegate { .. } => {
+            GenFrame::Block { .. } => {
                 g.frames.pop();
                 continue;
+            }
+            GenFrame::Delegate { inner } => {
+                let inner_rc = inner.clone();
+                match &kind {
+                    Unwind::Return(v) => {
+                        let outcome = delegate_step(interp, &inner_rc, GenInput::Return(v.clone()), span)?;
+                        match outcome {
+                            DelegateOutcome::Yielded(y) => return Ok(Some(GenStep::Yielded(y))),
+                            DelegateOutcome::Done(_) => {
+                                g.frames.pop();
+                                continue;
+                            }
+                        }
+                    }
+                    Unwind::Throw(v) => {
+                        let outcome = match delegate_step(interp, &inner_rc, GenInput::Throw(v.clone()), span) {
+                            Ok(o) => o,
+                            Err(e) => {
+                                if let Some(thrown) = e.thrown.as_deref() {
+                                    g.frames.pop();
+                                    kind = Unwind::Throw(thrown.clone());
+                                    continue;
+                                }
+                                return Err(e);
+                            }
+                        };
+                        match outcome {
+                            DelegateOutcome::Yielded(y) => return Ok(Some(GenStep::Yielded(y))),
+                            DelegateOutcome::Done(_) => {
+                                g.frames.pop();
+                                continue;
+                            }
+                        }
+                    }
+                    Unwind::Break | Unwind::Continue => {
+                        g.frames.pop();
+                        continue;
+                    }
+                }
             }
         }
     }

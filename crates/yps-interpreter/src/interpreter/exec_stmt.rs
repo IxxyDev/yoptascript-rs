@@ -469,11 +469,29 @@ impl Interpreter {
                 };
                 let item = if is_await { self.do_await(item, span)? } else { item };
                 self.env.set(&variable.name, item);
-                if let Some(cf) = self.exec_stmt(body)? {
+                let body_result = self.exec_stmt(body);
+                let cf = match body_result {
+                    Ok(cf) => cf,
+                    Err(e) => {
+                        let mut state = rc.borrow_mut();
+                        let _ = crate::stdlib::iterator::close(self, &mut state, span);
+                        self.env.pop_scope();
+                        return Err(e);
+                    }
+                };
+                if let Some(cf) = cf {
                     match cf.for_loop(label.as_deref()) {
-                        LoopOp::Break => break,
+                        LoopOp::Break => {
+                            let mut state = rc.borrow_mut();
+                            crate::stdlib::iterator::close(self, &mut state, span)?;
+                            break;
+                        }
                         LoopOp::Continue => continue,
                         LoopOp::Exit(cf) => {
+                            {
+                                let mut state = rc.borrow_mut();
+                                crate::stdlib::iterator::close(self, &mut state, span)?;
+                            }
                             self.env.pop_scope();
                             return Ok(Some(cf));
                         }

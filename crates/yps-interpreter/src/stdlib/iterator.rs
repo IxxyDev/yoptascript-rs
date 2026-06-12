@@ -96,12 +96,13 @@ pub fn call(
 
     match method {
         "следующий" | "next" => {
+            let sent = args.into_iter().next().unwrap_or(Value::Undefined);
             let mut state_borrow = borrow_iter_mut(&rc, span)?;
             if let IteratorState::Generator(gen_state) = &mut *state_borrow {
                 let outcome = crate::interpreter::generator::step_generator(
                     interp,
                     gen_state,
-                    crate::interpreter::generator::GenInput::Send(Value::Undefined),
+                    crate::interpreter::generator::GenInput::Send(sent),
                     span,
                 )?;
                 match outcome {
@@ -335,6 +336,27 @@ pub fn drain(
             Some(val) => out.push(val),
             None => return Ok(out),
         }
+    }
+}
+
+pub fn close(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> Result<(), RuntimeError> {
+    match state {
+        IteratorState::Generator(gen_state) => {
+            if !gen_state.completed {
+                crate::interpreter::generator::step_generator(
+                    interp,
+                    gen_state,
+                    crate::interpreter::generator::GenInput::Return(Value::Undefined),
+                    span,
+                )?;
+            }
+            Ok(())
+        }
+        IteratorState::Map { inner, .. }
+        | IteratorState::Filter { inner, .. }
+        | IteratorState::Take { inner, .. }
+        | IteratorState::Drop { inner, .. } => close(interp, inner, span),
+        _ => Ok(()),
     }
 }
 

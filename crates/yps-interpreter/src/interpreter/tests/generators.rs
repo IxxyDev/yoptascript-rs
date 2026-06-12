@@ -493,3 +493,184 @@ fn generator_yield_delegate_non_iterable_errors() {
     );
     assert!(err.message.contains("итерировать") || err.message.contains("итер"));
 }
+
+#[test]
+fn generator_next_arg_two_way_communication() {
+    let i = run_code(
+        r#"
+        пиздюли двусторонний() {
+            гыы а = поебалу 1;
+            гыы б = поебалу 2;
+            отвечаю а + б;
+        }
+        гыы г = двусторонний();
+        гыы р1 = г.следующий("игнор").значение;
+        гыы р2 = г.следующий(10).значение;
+        гыы р3 = г.следующий(20);
+        гыы итог = р3.значение;
+        гыы гт = р3.готово;
+        "#,
+    );
+    assert_eq!(i.get("р1"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("р2"), Some(Value::Number(2.0)));
+    assert_eq!(i.get("итог"), Some(Value::Number(30.0)));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_return_in_finally_overrides_gen_return() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+            } тюряжка {
+                отвечаю "из-финалли";
+            }
+        }
+        гыы г = ген();
+        гыы первый = г.следующий().значение;
+        гыы р = г.вернуть(99);
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        гыы посл = г.следующий().готово;
+        "#,
+    );
+    assert_eq!(i.get("первый"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("зн"), Some(Value::String("из-финалли".to_string())));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("посл"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_closed_when_for_of_breaks_early() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        пиздюли счёт() {
+            хапнуть {
+                гыы и = 0;
+                потрещим (правда) {
+                    поебалу и;
+                    и = и + 1;
+                }
+            } тюряжка {
+                лог.втолкнуть("закрыт");
+            }
+        }
+        гыы сумма = 0;
+        го (гыы х сашаГрей счёт()) {
+            вилкойвглаз (х >= 3) { харэ; }
+            сумма = сумма + х;
+        }
+        "#,
+    );
+    assert_eq!(i.get("сумма"), Some(Value::Number(3.0)));
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("закрыт".to_string())]));
+}
+
+#[test]
+fn generator_yield_delegate_forwards_sent_values() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        пиздюли вн() {
+            гыы а = поебалу "i1";
+            лог.втолкнуть(а);
+            гыы б = поебалу "i2";
+            лог.втолкнуть(б);
+        }
+        пиздюли внеш() {
+            поебалуна вн();
+        }
+        гыы ит = внеш();
+        ит.следующий();
+        ит.следующий("S1");
+        ит.следующий("S2");
+        "#,
+    );
+    assert_struct_eq(
+        i.get("лог"),
+        Value::array(vec![Value::String("S1".to_string()), Value::String("S2".to_string())]),
+    );
+}
+
+#[test]
+fn generator_yield_delegate_return_runs_inner_finally() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        пиздюли вн() {
+            хапнуть {
+                поебалу "i1";
+                поебалу "i2";
+            } тюряжка {
+                лог.втолкнуть("вн-финалли");
+            }
+        }
+        пиздюли внеш() {
+            поебалуна вн();
+            поебалу "после";
+        }
+        гыы ит = внеш();
+        ит.следующий();
+        гыы р = ит.вернуть("СТОП");
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        "#,
+    );
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("вн-финалли".to_string())]));
+    assert_eq!(i.get("зн"), Some(Value::String("СТОП".to_string())));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn generator_yield_delegate_throw_recovers_in_inner_catch() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        пиздюли вн() {
+            хапнуть {
+                поебалу "i1";
+                поебалу "i2";
+            } гоп (e) {
+                лог.втолкнуть(e);
+                поебалу "восстановлен";
+            }
+        }
+        пиздюли внеш() {
+            поебалуна вн();
+            поебалу "после";
+        }
+        гыы ит = внеш();
+        ит.следующий();
+        гыы р = ит.кинуть("БАХ");
+        гыы зн = р.значение;
+        гыы гт = р.готово;
+        гыы дальше = ит.следующий().значение;
+        "#,
+    );
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("БАХ".to_string())]));
+    assert_eq!(i.get("зн"), Some(Value::String("восстановлен".to_string())));
+    assert_eq!(i.get("гт"), Some(Value::Boolean(false)));
+    assert_eq!(i.get("дальше"), Some(Value::String("после".to_string())));
+}
+
+#[test]
+fn generator_throw_in_finally_overrides_gen_return() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+            } тюряжка {
+                кидай "из-финалли";
+            }
+        }
+        гыы г = ген();
+        г.следующий();
+        г.вернуть(99);
+        "#,
+    );
+    assert_eq!(err.thrown, Some(Box::new(Value::String("из-финалли".to_string()))));
+}
