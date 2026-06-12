@@ -64,21 +64,21 @@ pub fn call(
             let mut iter = args.into_iter();
             let key = iter.next().unwrap();
             let val = iter.next().unwrap();
-            map.borrow_mut().insert(MapKey(key), val);
+            map.borrow_mut().insert(MapKey::new(key), val);
             Ok(Value::Map(map))
         }
         "get" | "взять" => {
             require_args(&args, 1, span, "get")?;
-            let val = map.borrow().get(&MapKey(args[0].clone())).cloned().unwrap_or(Value::Undefined);
+            let val = map.borrow().get(&MapKey::new(args[0].clone())).cloned().unwrap_or(Value::Undefined);
             Ok(val)
         }
         "has" | "имеет" => {
             require_args(&args, 1, span, "has")?;
-            Ok(Value::Boolean(map.borrow().contains_key(&MapKey(args[0].clone()))))
+            Ok(Value::Boolean(map.borrow().contains_key(&MapKey::new(args[0].clone()))))
         }
         "delete" | "удалить" => {
             require_args(&args, 1, span, "delete")?;
-            let removed = map.borrow_mut().shift_remove(&MapKey(args[0].clone())).is_some();
+            let removed = map.borrow_mut().shift_remove(&MapKey::new(args[0].clone())).is_some();
             Ok(Value::Boolean(removed))
         }
         "clear" | "очистить" => {
@@ -105,7 +105,7 @@ pub fn call(
             let key = iter.next().unwrap();
             let default = iter.next().unwrap();
             let mut borrowed = map.borrow_mut();
-            let val = borrowed.entry(MapKey(key)).or_insert(default).clone();
+            let val = borrowed.entry(MapKey::new(key)).or_insert(default).clone();
             Ok(val)
         }
         "getOrInsertComputed" | "взятьИлиВычислить" => {
@@ -113,11 +113,11 @@ pub fn call(
             let mut iter = args.into_iter();
             let key = iter.next().unwrap();
             let callback = iter.next().unwrap();
-            if let Some(existing) = map.borrow().get(&MapKey(key.clone())) {
+            if let Some(existing) = map.borrow().get(&MapKey::new(key.clone())) {
                 return Ok(existing.clone());
             }
             let computed = interp.call_function(callback, vec![key.clone()], span)?;
-            map.borrow_mut().entry(MapKey(key)).or_insert(computed.clone());
+            map.borrow_mut().entry(MapKey::new(key)).or_insert(computed.clone());
             Ok(computed)
         }
         "forEach" | "каждый" => {
@@ -141,7 +141,7 @@ fn entries_to_map(entries: &[Value], span: Span) -> Result<Value, RuntimeError> 
                 let pair = pair.borrow();
                 let key = pair[0].clone();
                 let val = pair[1].clone();
-                out.insert(MapKey(key), val);
+                out.insert(MapKey::new(key), val);
             }
             _ => return Err(RuntimeError::new("Каждая запись Карты должна быть [ключ, значение]", span)),
         }
@@ -161,5 +161,17 @@ mod tests {
     #[test]
     fn map_nan_key_found() {
         assert_eq!(eval("Карта([[нихуя, 42]]).взять(нихуя);"), crate::value::Value::Number(42.0));
+    }
+
+    #[test]
+    fn map_negative_zero_key_normalized() {
+        let key = eval("гыы м = захуярить Карта(); м.set(-0, 1); м.keys()[0];");
+        match key {
+            crate::value::Value::Number(n) => {
+                assert_eq!(n, 0.0);
+                assert!(!n.is_sign_negative(), "ключ -0 должен нормализоваться в +0");
+            }
+            other => panic!("ожидалось число, получено {other:?}"),
+        }
     }
 }

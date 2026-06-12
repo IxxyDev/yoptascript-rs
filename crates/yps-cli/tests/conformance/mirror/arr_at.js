@@ -1,0 +1,10 @@
+'use strict';
+var a = [10, 20, 30, 40];
+console.log(a.at(0));
+console.log(a.at(3));
+console.log(a.at(-1));
+console.log(a.at(-4));
+console.log(String(a.at(4)));
+console.log(String(a.at(-5)));
+console.log(a.at(1.9));
+console.log(a.at(-1.9));

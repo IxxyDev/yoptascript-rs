@@ -87,15 +87,51 @@ pub fn call(
         "indexOf" | "найтиИндекс" => {
             require_args(&args, 1, span, "indexOf")?;
             let target = &args[0];
-            let start = if args.len() > 1 { as_number(&args[1], span, "indexOf")? as usize } else { 0 };
             let snapshot = rc.borrow().clone();
+            let len = snapshot.len() as isize;
+            let start = if args.len() > 1 {
+                let raw = as_number(&args[1], span, "indexOf")? as isize;
+                if raw < 0 { (len + raw).max(0) } else { raw }
+            } else {
+                0
+            } as usize;
             let idx = snapshot.iter().enumerate().skip(start).find(|(_, v)| *v == target).map(|(i, _)| i);
             Ok(Value::Number(idx.map(|i| i as f64).unwrap_or(-1.0)))
+        }
+        "lastIndexOf" | "найтиПоследнийПо" => {
+            require_args(&args, 1, span, "lastIndexOf")?;
+            let target = &args[0];
+            let snapshot = rc.borrow().clone();
+            let len = snapshot.len() as isize;
+            let start = if args.len() > 1 {
+                let raw = as_number(&args[1], span, "lastIndexOf")? as isize;
+                if raw < 0 { len + raw } else { raw.min(len - 1) }
+            } else {
+                len - 1
+            };
+            let mut idx = -1.0;
+            let mut i = start;
+            while i >= 0 {
+                if &snapshot[i as usize] == target {
+                    idx = i as f64;
+                    break;
+                }
+                i -= 1;
+            }
+            Ok(Value::Number(idx))
         }
         "includes" | "включает" => {
             require_args(&args, 1, span, "includes")?;
             let target = &args[0];
-            let found = rc.borrow().iter().any(|v| same_value_zero(v, target));
+            let snapshot = rc.borrow().clone();
+            let len = snapshot.len() as isize;
+            let start = if args.len() > 1 {
+                let raw = as_number(&args[1], span, "includes")? as isize;
+                if raw < 0 { (len + raw).max(0) } else { raw }
+            } else {
+                0
+            } as usize;
+            let found = snapshot.iter().skip(start).any(|v| same_value_zero(v, target));
             Ok(Value::Boolean(found))
         }
         "join" | "склеить" => {
@@ -108,13 +144,7 @@ pub fn call(
                 }
             };
             let snapshot = rc.borrow().clone();
-            let parts: Vec<String> = snapshot
-                .iter()
-                .map(|v| match v {
-                    Value::Null | Value::Undefined => String::new(),
-                    other => other.to_string(),
-                })
-                .collect();
+            let parts: Vec<String> = snapshot.iter().map(|v| join_element(v, &sep)).collect();
             Ok(Value::String(parts.join(&sep)))
         }
         "reverse" | "перевернуть" => {
@@ -143,7 +173,11 @@ pub fn call(
             let snapshot = rc.borrow().clone();
             let mut result = Vec::with_capacity(snapshot.len());
             for (i, el) in snapshot.into_iter().enumerate() {
-                let v = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let v = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 result.push(v);
             }
             Ok(Value::array(result))
@@ -154,7 +188,11 @@ pub fn call(
             let snapshot = rc.borrow().clone();
             let mut result = Vec::new();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let keep = interp.call_function(callback.clone(), vec![el.clone(), Value::Number(i as f64)], span)?;
+                let keep = interp.call_function(
+                    callback.clone(),
+                    vec![el.clone(), Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if keep.is_truthy() {
                     result.push(el);
                 }
@@ -179,7 +217,7 @@ pub fn call(
                     for (i, el) in it.enumerate() {
                         acc = interp.call_function(
                             callback.clone(),
-                            vec![acc, el, Value::Number((i + 1) as f64)],
+                            vec![acc, el, Value::Number((i + 1) as f64), Value::Array(rc.clone())],
                             span,
                         )?;
                     }
@@ -187,16 +225,59 @@ pub fn call(
                 }
             };
             for (i, el) in snapshot.into_iter().enumerate() {
-                acc = interp.call_function(callback.clone(), vec![acc, el, Value::Number(i as f64)], span)?;
+                acc = interp.call_function(
+                    callback.clone(),
+                    vec![acc, el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
             }
             Ok(acc)
+        }
+        "reduceRight" | "свернутьСправа" => {
+            require_args(&args, 1, span, "reduceRight")?;
+            let mut iter = args.into_iter();
+            let callback = iter.next().unwrap();
+            let initial = iter.next();
+            let snapshot = rc.borrow().clone();
+            let len = snapshot.len();
+            match initial {
+                Some(v) => {
+                    let mut acc = v;
+                    for i in (0..len).rev() {
+                        acc = interp.call_function(
+                            callback.clone(),
+                            vec![acc, snapshot[i].clone(), Value::Number(i as f64), Value::Array(rc.clone())],
+                            span,
+                        )?;
+                    }
+                    Ok(acc)
+                }
+                None => {
+                    if snapshot.is_empty() {
+                        return Err(RuntimeError::new("reduceRight пустого массива без начального значения", span));
+                    }
+                    let mut acc = snapshot[len - 1].clone();
+                    for i in (0..len - 1).rev() {
+                        acc = interp.call_function(
+                            callback.clone(),
+                            vec![acc, snapshot[i].clone(), Value::Number(i as f64), Value::Array(rc.clone())],
+                            span,
+                        )?;
+                    }
+                    Ok(acc)
+                }
+            }
         }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();
             let snapshot = rc.borrow().clone();
             for (i, el) in snapshot.into_iter().enumerate() {
-                interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
             }
             Ok(Value::Undefined)
         }
@@ -205,8 +286,11 @@ pub fn call(
             let callback = args.into_iter().next().unwrap();
             let snapshot = rc.borrow().clone();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let matched =
-                    interp.call_function(callback.clone(), vec![el.clone(), Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el.clone(), Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if matched.is_truthy() {
                     return Ok(el);
                 }
@@ -218,7 +302,11 @@ pub fn call(
             let callback = args.into_iter().next().unwrap();
             let snapshot = rc.borrow().clone();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let matched = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if matched.is_truthy() {
                     return Ok(Value::Number(i as f64));
                 }
@@ -230,7 +318,11 @@ pub fn call(
             let callback = args.into_iter().next().unwrap();
             let snapshot = rc.borrow().clone();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let matched = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if matched.is_truthy() {
                     return Ok(Value::Boolean(true));
                 }
@@ -242,7 +334,11 @@ pub fn call(
             let callback = args.into_iter().next().unwrap();
             let snapshot = rc.borrow().clone();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let matched = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if !matched.is_truthy() {
                     return Ok(Value::Boolean(false));
                 }
@@ -268,7 +364,11 @@ pub fn call(
             let snapshot = rc.borrow().clone();
             let mut result = Vec::new();
             for (i, el) in snapshot.into_iter().enumerate() {
-                let v = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let v = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 match v {
                     Value::Array(inner) => result.extend(inner.borrow().iter().cloned()),
                     other => result.push(other),
@@ -282,8 +382,11 @@ pub fn call(
             let snapshot = rc.borrow().clone();
             for i in (0..snapshot.len()).rev() {
                 let el = snapshot[i].clone();
-                let matched =
-                    interp.call_function(callback.clone(), vec![el.clone(), Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el.clone(), Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if matched.is_truthy() {
                     return Ok(el);
                 }
@@ -296,7 +399,11 @@ pub fn call(
             let snapshot = rc.borrow().clone();
             for i in (0..snapshot.len()).rev() {
                 let el = snapshot[i].clone();
-                let matched = interp.call_function(callback.clone(), vec![el, Value::Number(i as f64)], span)?;
+                let matched = interp.call_function(
+                    callback.clone(),
+                    vec![el, Value::Number(i as f64), Value::Array(rc.clone())],
+                    span,
+                )?;
                 if matched.is_truthy() {
                     return Ok(Value::Number(i as f64));
                 }
@@ -405,6 +512,17 @@ fn flatten(arr: Vec<Value>, depth: isize) -> Vec<Value> {
     result
 }
 
+fn join_element(v: &Value, sep: &str) -> String {
+    match v {
+        Value::Null | Value::Undefined => String::new(),
+        Value::Array(inner) => {
+            let parts: Vec<String> = inner.borrow().iter().map(|e| join_element(e, sep)).collect();
+            parts.join(sep)
+        }
+        other => other.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     fn eval(src: &str) -> crate::value::Value {
@@ -422,5 +540,30 @@ mod tests {
     #[test]
     fn nan_index_of_nan_is_minus_one() {
         assert_eq!(eval("[нихуя].найтиИндекс(нихуя);"), crate::value::Value::Number(-1.0));
+    }
+
+    #[test]
+    fn index_of_negative_from_index() {
+        assert_eq!(eval("[1,2,3,2,1].indexOf(2, -3);"), crate::value::Value::Number(3.0));
+    }
+
+    #[test]
+    fn includes_honors_from_index() {
+        assert_eq!(eval("[1,2,3].includes(1, 2);"), crate::value::Value::Boolean(false));
+        assert_eq!(eval("[1,2,3].includes(3, 2);"), crate::value::Value::Boolean(true));
+    }
+
+    #[test]
+    fn last_index_of_basic_and_from_index() {
+        assert_eq!(eval("[1,2,3,2,1].lastIndexOf(2);"), crate::value::Value::Number(3.0));
+        assert_eq!(eval("[1,2,3,2,1].lastIndexOf(2, 2);"), crate::value::Value::Number(1.0));
+        assert_eq!(eval("[1,2,3,2,1].lastIndexOf(2, -3);"), crate::value::Value::Number(1.0));
+        assert_eq!(eval("[1,2,3].lastIndexOf(9);"), crate::value::Value::Number(-1.0));
+    }
+
+    #[test]
+    fn reduce_right_with_and_without_init() {
+        assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+\"-\"+б);"), crate::value::Value::String("3-2-1".to_string()));
+        assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+б, 10);"), crate::value::Value::Number(16.0));
     }
 }

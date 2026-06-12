@@ -1,0 +1,16 @@
+'use strict';
+console.log([1, 2, NaN, 4].indexOf(NaN));
+console.log([1, 2, NaN, 4].includes(NaN));
+console.log([1, 2, 3, 2, 1].indexOf(2));
+console.log([1, 2, 3, 2, 1].indexOf(2, 2));
+console.log([1, 2, 3, 2, 1].indexOf(2, -2));
+console.log([1, 2, 3, 2, 1].indexOf(2, -3));
+console.log([1, 2, 3].indexOf(9));
+console.log([1, 2, 3, 2, 1].lastIndexOf(2));
+console.log([1, 2, 3, 2, 1].lastIndexOf(2, 2));
+console.log([1, 2, 3, 2, 1].lastIndexOf(2, -3));
+console.log([1, 2, 3].lastIndexOf(9));
+console.log([1, 2, 3].includes(1, 2));
+console.log([1, 2, 3].includes(3, 2));
+console.log([1, 2, 3].includes(2, -2));
+console.log([1, 2, 3].includes(1, -5));

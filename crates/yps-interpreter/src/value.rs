@@ -849,6 +849,15 @@ pub fn same_value_zero(a: &Value, b: &Value) -> bool {
 pub struct MapKey(pub Value);
 
 impl MapKey {
+    pub fn new(value: Value) -> Self {
+        if let Value::Number(n) = value
+            && n == 0.0
+        {
+            return MapKey(Value::Number(0.0));
+        }
+        MapKey(value)
+    }
+
     pub fn into_value(self) -> Value {
         self.0
     }

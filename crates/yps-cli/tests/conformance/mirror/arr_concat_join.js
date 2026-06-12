@@ -1,0 +1,13 @@
+'use strict';
+console.log([1, 2].concat([3, 4]).join(','));
+console.log([1, 2].concat(3, 4).join(','));
+console.log([1, 2].concat([3, [4, 5]]).length);
+var вл = [1].concat([[2, 3]]);
+console.log(вл[1].join(','));
+console.log([1, null, 2, undefined, 3].join(','));
+console.log([1, 2, 3].join('-'));
+console.log([1, 2, 3].join(''));
+console.log([null, undefined].join(','));
+console.log([1, 2, 3].join());
+console.log([].join(','));
+console.log([7].join(','));

@@ -1,0 +1,10 @@
+'use strict';
+console.log([1, [2, 3], [4, [5, 6]]].flat().join(','));
+console.log([1, [2, [3, [4]]]].flat(2).join(','));
+console.log([1, [2, [3, [4, [5]]]]].flat(Infinity).join(','));
+console.log([1, [2, 3]].flat(0).join(','));
+console.log([1, 2, 3].flatMap((n) => [n, n * 10]).join(','));
+console.log([1, 2, 3].flatMap((n) => n * 2).join(','));
+console.log([1, 2, 3].flatMap((n) => [[n]]).length);
+var вложенный = [1, 2, 3].flatMap((n) => [[n]]);
+console.log(вложенный[0].join(','));
