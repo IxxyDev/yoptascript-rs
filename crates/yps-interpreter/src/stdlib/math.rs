@@ -98,7 +98,7 @@ pub fn call_static(
         "знак" => {
             require_args(&args, 1, span, "Матан.знак")?;
             let n = as_number(&args[0], span, "Матан.знак")?;
-            Ok(Value::Number(if n == 0.0 { 0.0 } else { n.signum() }))
+            Ok(Value::Number(if n == 0.0 || n.is_nan() { n } else { n.signum() }))
         }
         "обрезать" => {
             require_args(&args, 1, span, "Матан.обрезать")?;

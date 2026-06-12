@@ -1,0 +1,11 @@
+Infinity
+-Infinity
+NaN
+-0
+0
+Infinity
+-Infinity
+NaN
+Infinity
+0
+0
