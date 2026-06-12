@@ -25,62 +25,72 @@ fn run_case(case_path: &Path) -> String {
     combined
 }
 
-fn normalize(s: &str) -> String {
-    s.replace("\r\n", "\n")
+fn normalize_output(s: &str, case_path: &Path, cases_dir: &Path) -> String {
+    let s = s.replace("\r\n", "\n");
+    let case_str = case_path.to_string_lossy();
+    let cases_str = cases_dir.to_string_lossy();
+    let s = s.replace(case_str.as_ref(), "<КЕЙС>");
+    s.replace(cases_str.as_ref(), "<КЕЙСЫ>")
 }
 
-fn check(case_name: &str) {
+fn discover_cases(cases_dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(cases_dir)
+        .unwrap_or_else(|e| panic!("не удалось прочитать каталог кейсов: {e}"))
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("yop") {
+                path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_owned())
+            } else {
+                None
+            }
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn conformance() {
     let dir = conformance_dir();
-    let case_path = dir.join("cases").join(format!("{case_name}.yop"));
-    let golden_path = dir.join("golden").join(format!("{case_name}.txt"));
-    assert!(case_path.exists(), "нет кейса: {}", case_path.display());
+    let cases_dir = dir.join("cases");
+    let golden_dir = dir.join("golden");
 
-    let actual = normalize(&run_case(&case_path));
+    let mut case_names = discover_cases(&cases_dir);
+    if let Ok(filter) = std::env::var("YPS_CONFORMANCE_FILTER") {
+        let prefixes: Vec<&str> = filter.split(',').filter(|p| !p.is_empty()).collect();
+        case_names.retain(|name| prefixes.iter().any(|p| name.starts_with(p)));
+        assert!(!case_names.is_empty(), "фильтр '{filter}' не выбрал ни одного кейса");
+    }
+    let bless = std::env::var("YPS_CONFORMANCE_BLESS").is_ok();
+    let mut failures: Vec<String> = Vec::new();
 
-    if std::env::var("YPS_CONFORMANCE_BLESS").is_ok() {
-        std::fs::write(&golden_path, &actual).expect("запись golden");
-        return;
+    for name in &case_names {
+        let case_path = cases_dir.join(format!("{name}.yop"));
+        let golden_path = golden_dir.join(format!("{name}.txt"));
+
+        assert!(case_path.exists(), "нет кейса: {}", case_path.display());
+
+        let actual = normalize_output(&run_case(&case_path), &case_path, &cases_dir);
+
+        if bless {
+            std::fs::write(&golden_path, &actual).expect("запись golden");
+            continue;
+        }
+
+        let expected = std::fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+            panic!("нет golden для кейса '{}': {} (запустите с YPS_CONFORMANCE_BLESS=1)", name, golden_path.display())
+        });
+        let expected = expected.replace("\r\n", "\n");
+
+        if actual != expected {
+            failures
+                .push(format!("кейс '{name}':\n--- ожидалось (golden) ---\n{expected}\n--- получено ---\n{actual}"));
+        }
     }
 
-    let expected = std::fs::read_to_string(&golden_path)
-        .unwrap_or_else(|_| panic!("нет golden: {} (запустите с YPS_CONFORMANCE_BLESS=1)", golden_path.display()));
-    let expected = normalize(&expected);
-
-    assert_eq!(
-        actual, expected,
-        "\nрасхождение conformance в кейсе '{case_name}'\n--- ожидалось (golden) ---\n{expected}\n--- получено ---\n{actual}\n"
-    );
-}
-
-macro_rules! conformance_cases {
-    ($($name:ident => $case:literal),+ $(,)?) => {
-        $(
-            #[test]
-            fn $name() {
-                check($case);
-            }
-        )+
-    };
-}
-
-conformance_cases! {
-    coercion_equality => "coercion_equality",
-    coercion_add => "coercion_add",
-    coercion_stringify => "coercion_stringify",
-    coercion_user_hooks => "coercion_user_hooks",
-    strict_callsites => "strict_callsites",
-    example_hello => "example_hello",
-    example_hoisting => "example_hoisting",
-    example_labeled_loops => "example_labeled_loops",
-    example_destructuring_defaults => "example_destructuring_defaults",
-    example_tagged_templates => "example_tagged_templates",
-    example_decorators => "example_decorators",
-    example_for_await_of => "example_for_await_of",
-    example_promise_smoke1 => "example_promise_smoke1",
-    example_promise_smoke2 => "example_promise_smoke2",
-    example_dynamic_import => "example_dynamic_import",
-    example_import_json => "example_import_json",
-    example_event_loop => "example_event_loop",
-    example_async_timers => "example_async_timers",
-    example_proxy => "example_proxy",
+    if !failures.is_empty() {
+        let report = failures.join("\n\n---\n\n");
+        panic!("\nрасхождение conformance в {} кейс(ах):\n\n{report}\n", failures.len());
+    }
 }
