@@ -1,0 +1,18 @@
+гыы re = /\d+/g;
+гыы m1 = re.exec("a12b345c6");
+сказать(m1[0]);
+сказать(m1.index);
+сказать(re.lastIndex);
+гыы m2 = re.exec("a12b345c6");
+сказать(m2[0]);
+сказать(m2.index);
+сказать(re.lastIndex);
+гыы m3 = re.exec("a12b345c6");
+сказать(m3[0]);
+сказать(re.lastIndex);
+гыы m4 = re.exec("a12b345c6");
+сказать(m4);
+сказать(re.lastIndex);
+гыы m5 = re.exec("a12b345c6");
+сказать(m5[0]);
+сказать(re.lastIndex);

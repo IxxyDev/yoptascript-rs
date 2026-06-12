@@ -654,11 +654,13 @@ fn regex_split_with_backref() {
         гыы len = длина(parts);
         гыы p0 = parts[0];
         гыы p1 = parts[1];
+        гыы p2 = parts[2];
         "#,
     );
-    assert_eq!(interp.get("len"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("len"), Some(Value::Number(3.0)));
     assert_eq!(interp.get("p0"), Some(Value::String("".to_string())));
-    assert_eq!(interp.get("p1"), Some(Value::String("X".to_string())));
+    assert_eq!(interp.get("p1"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("p2"), Some(Value::String("X".to_string())));
 }
 
 #[test]
@@ -681,4 +683,30 @@ fn regex_invalid_fancy_pattern_russian_error() {
         "#,
     );
     assert!(err.message.contains("Ошибка regex"), "сообщение об ошибке: {}", err.message);
+}
+
+#[test]
+fn regex_split_includes_capture_groups() {
+    let interp = run_code(
+        r#"
+        гыы части = "axbxc".разбить(/(x)/);
+        гыы дл = части.длина;
+        гыы стр = части.join("|");
+        "#,
+    );
+    assert_eq!(interp.get("дл"), Some(Value::Number(5.0)));
+    assert_eq!(interp.get("стр"), Some(Value::String("a|x|b|x|c".to_string())));
+}
+
+#[test]
+fn regex_split_empty_pattern_per_char() {
+    let interp = run_code(
+        r#"
+        гыы части = "abc".разбить(/(?:)/);
+        гыы дл = части.длина;
+        гыы стр = части.join("|");
+        "#,
+    );
+    assert_eq!(interp.get("дл"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("стр"), Some(Value::String("a|b|c".to_string())));
 }

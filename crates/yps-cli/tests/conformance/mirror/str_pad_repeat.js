@@ -1,0 +1,13 @@
+'use strict';
+console.log("5".padStart(3, "0"));
+console.log("5".padEnd(3, "0"));
+console.log("abc".padStart(2, "0"));
+console.log("abc".padEnd(2, "0"));
+console.log("1".padStart(6, "ab"));
+console.log("1".padEnd(6, "ab"));
+console.log("x".padStart(5));
+console.log("xy".padStart(5, ""));
+console.log("ab".repeat(3));
+console.log("ab".repeat(0));
+console.log("ab".repeat(2.9));
+console.log("-".repeat(5));

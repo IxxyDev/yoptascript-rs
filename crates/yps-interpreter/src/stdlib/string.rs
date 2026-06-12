@@ -39,17 +39,48 @@ pub fn call(
         "indexOf" | "найтиПодстроку" => {
             require_args(&args, 1, span, "indexOf")?;
             let needle = as_string(&args[0], span, "indexOf")?;
-            if let Some(byte_pos) = s.find(needle) {
-                let char_pos = s[..byte_pos].chars().count();
+            let chars: Vec<char> = s.chars().collect();
+            let from = if args.len() > 1 { clamped_char_index(&args[1], chars.len(), span, "indexOf")? } else { 0 };
+            let from_byte = char_to_byte_index(&chars, from);
+            if let Some(rel) = s[from_byte..].find(needle) {
+                let char_pos = s[..from_byte + rel].chars().count();
                 Ok((Value::Number(char_pos as f64), None))
             } else {
                 Ok((Value::Number(-1.0), None))
             }
         }
+        "lastIndexOf" | "найтиПодстрокуСконца" => {
+            require_args(&args, 1, span, "lastIndexOf")?;
+            let needle = as_string(&args[0], span, "lastIndexOf")?;
+            let chars: Vec<char> = s.chars().collect();
+            let from = if args.len() > 1 {
+                let n = as_number(&args[1], span, "lastIndexOf")?;
+                if n.is_nan() { chars.len() } else { (n as isize).clamp(0, chars.len() as isize) as usize }
+            } else {
+                chars.len()
+            };
+            let needle_chars: Vec<char> = needle.chars().collect();
+            let mut best: isize = -1;
+            let mut pos = from.min(chars.len());
+            loop {
+                if pos + needle_chars.len() <= chars.len() && chars[pos..pos + needle_chars.len()] == needle_chars[..] {
+                    best = pos as isize;
+                    break;
+                }
+                if pos == 0 {
+                    break;
+                }
+                pos -= 1;
+            }
+            Ok((Value::Number(best as f64), None))
+        }
         "includes" | "содержит" => {
             require_args(&args, 1, span, "includes")?;
             let needle = as_string(&args[0], span, "includes")?;
-            Ok((Value::Boolean(s.contains(needle)), None))
+            let chars: Vec<char> = s.chars().collect();
+            let from = if args.len() > 1 { clamped_char_index(&args[1], chars.len(), span, "includes")? } else { 0 };
+            let from_byte = char_to_byte_index(&chars, from);
+            Ok((Value::Boolean(s[from_byte..].contains(needle)), None))
         }
         "slice" | "отрезать" => {
             let chars: Vec<char> = s.chars().collect();
@@ -90,17 +121,31 @@ pub fn call(
             if args.is_empty() {
                 return Ok((Value::array(vec![Value::String(s)]), None));
             }
+            let limit = if args.len() > 1 && !matches!(args[1], Value::Undefined) {
+                let n = as_number(&args[1], span, "split")?;
+                if n.is_nan() || n < 0.0 { Some(0usize) } else { Some(n as usize) }
+            } else {
+                None
+            };
+            if let Some(0) = limit {
+                return Ok((Value::array(Vec::new()), None));
+            }
             if let Value::RegExp { compiled, .. } = &args[0] {
-                let parts: Vec<Value> =
-                    regexp::split_string(compiled, &s, span)?.into_iter().map(Value::String).collect();
+                let mut parts: Vec<Value> = regexp::split_string(compiled, &s, span)?;
+                if let Some(lim) = limit {
+                    parts.truncate(lim);
+                }
                 return Ok((Value::array(parts), None));
             }
             let sep = as_string(&args[0], span, "split")?;
-            let parts: Vec<Value> = if sep.is_empty() {
+            let mut parts: Vec<Value> = if sep.is_empty() {
                 s.chars().map(|c| Value::String(c.to_string())).collect()
             } else {
                 s.split(sep).map(|p| Value::String(p.to_string())).collect()
             };
+            if let Some(lim) = limit {
+                parts.truncate(lim);
+            }
             Ok((Value::array(parts), None))
         }
         "replace" | "заменить" => {
@@ -128,7 +173,16 @@ pub fn call(
             }
             let from = as_string(&args[0], span, "replace")?;
             let to = as_string(&args[1], span, "replace")?;
-            Ok((Value::String(s.replacen(from, to, 1)), None))
+            if let Some(byte_pos) = s.find(from) {
+                let repl = expand_string_replacement(to, &s, byte_pos, from);
+                let mut out = String::with_capacity(s.len());
+                out.push_str(&s[..byte_pos]);
+                out.push_str(&repl);
+                out.push_str(&s[byte_pos + from.len()..]);
+                Ok((Value::String(out), None))
+            } else {
+                Ok((Value::String(s.clone()), None))
+            }
         }
         "replaceAll" | "заменитьВсе" => {
             require_args(&args, 2, span, "replaceAll")?;
@@ -160,7 +214,19 @@ pub fn call(
             }
             let from = as_string(&args[0], span, "replaceAll")?;
             let to = as_string(&args[1], span, "replaceAll")?;
-            Ok((Value::String(s.replace(from, to)), None))
+            if from.is_empty() {
+                return Ok((Value::String(s.replace(from, to)), None));
+            }
+            let mut out = String::with_capacity(s.len());
+            let mut last = 0usize;
+            while let Some(rel) = s[last..].find(from) {
+                let byte_pos = last + rel;
+                out.push_str(&s[last..byte_pos]);
+                out.push_str(&expand_string_replacement(to, &s, byte_pos, from));
+                last = byte_pos + from.len();
+            }
+            out.push_str(&s[last..]);
+            Ok((Value::String(out), None))
         }
         "match" | "совпадает" => {
             require_args(&args, 1, span, "match")?;
@@ -212,12 +278,22 @@ pub fn call(
         "startsWith" | "начинаетсяС" => {
             require_args(&args, 1, span, "startsWith")?;
             let needle = as_string(&args[0], span, "startsWith")?;
-            Ok((Value::Boolean(s.starts_with(needle)), None))
+            let chars: Vec<char> = s.chars().collect();
+            let pos = if args.len() > 1 { clamped_char_index(&args[1], chars.len(), span, "startsWith")? } else { 0 };
+            let from_byte = char_to_byte_index(&chars, pos);
+            Ok((Value::Boolean(s[from_byte..].starts_with(needle)), None))
         }
         "endsWith" | "заканчиваетсяНа" => {
             require_args(&args, 1, span, "endsWith")?;
             let needle = as_string(&args[0], span, "endsWith")?;
-            Ok((Value::Boolean(s.ends_with(needle)), None))
+            let chars: Vec<char> = s.chars().collect();
+            let end = if args.len() > 1 && !matches!(args[1], Value::Undefined) {
+                clamped_char_index(&args[1], chars.len(), span, "endsWith")?
+            } else {
+                chars.len()
+            };
+            let end_byte = char_to_byte_index(&chars, end);
+            Ok((Value::Boolean(s[..end_byte].ends_with(needle)), None))
         }
         "repeat" | "повторить" => {
             require_args(&args, 1, span, "repeat")?;
@@ -267,6 +343,53 @@ pub fn call(
         }
         _ => Err(RuntimeError::new(format!("У строки нет метода '{method}'"), span)),
     }
+}
+
+fn clamped_char_index(arg: &Value, len: usize, span: Span, method: &str) -> Result<usize, RuntimeError> {
+    Ok((as_number(arg, span, method)? as isize).clamp(0, len as isize) as usize)
+}
+
+fn char_to_byte_index(chars: &[char], char_idx: usize) -> usize {
+    chars.iter().take(char_idx).map(|c| c.len_utf8()).sum()
+}
+
+fn expand_string_replacement(repl: &str, source: &str, match_start: usize, matched: &str) -> String {
+    if !repl.contains('$') {
+        return repl.to_string();
+    }
+    let bytes = repl.as_bytes();
+    let mut out = String::with_capacity(repl.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'$' => {
+                    out.push('$');
+                    i += 2;
+                    continue;
+                }
+                b'&' => {
+                    out.push_str(matched);
+                    i += 2;
+                    continue;
+                }
+                b'`' => {
+                    out.push_str(&source[..match_start]);
+                    i += 2;
+                    continue;
+                }
+                b'\'' => {
+                    out.push_str(&source[match_start + matched.len()..]);
+                    i += 2;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(repl[i..].chars().next().unwrap());
+        i += repl[i..].chars().next().unwrap().len_utf8();
+    }
+    out
 }
 
 fn pad(s: &str, target_len: usize, fill: &str, at_start: bool) -> String {

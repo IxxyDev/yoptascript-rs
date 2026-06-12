@@ -1,0 +1,13 @@
+сказать("abcabc".indexOf("bc"));
+сказать("abcabc".indexOf("bc", 2));
+сказать("abcabc".indexOf("x"));
+сказать("abcabc".indexOf("a", -5));
+сказать("abcabc".indexOf(""));
+сказать("abcabc".indexOf("", 3));
+сказать("abcabc".lastIndexOf("bc"));
+сказать("abcabc".lastIndexOf("bc", 2));
+сказать("abcabc".lastIndexOf("x"));
+сказать("abcabc".includes("cab"));
+сказать("abcabc".includes("cab", 3));
+сказать("abcabc".includes("abc", 1));
+сказать("abcabc".includes("x"));

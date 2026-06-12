@@ -1,0 +1,16 @@
+сказать("aaa".replace("a", "b"));
+сказать("aaa".replaceAll("a", "b"));
+сказать("a.b.c".replaceAll(".", "-"));
+сказать("price: 100".replace("100", "$$"));
+сказать("name".replace("name", "[$&]"));
+сказать("John Smith".replace(/(\w+) (\w+)/, "$2 $1"));
+сказать("John Smith".replace(/(\w+) (\w+)/, "$1$1"));
+сказать("foo bar".replace(/(?<first>\w+) (?<second>\w+)/, "$<second> $<first>"));
+сказать("x".replace(/x/, "$$"));
+сказать("abc".replace(/b/, "[$&]"));
+сказать("a1b2c3".replace(/\d/g, "#"));
+сказать("a1b2c3".replaceAll(/\d/g, "#"));
+сказать("hello".replace(/l/, "L"));
+сказать("a1 b2".replace(/(\w)(\d)/g, "$2$1"));
+сказать("test".replace(/(t)/g, (m, g1) => "<" + g1 + ">"));
+сказать("ab12cd".replaceAll(/\d/g, (m) => "[" + m + "]"));
