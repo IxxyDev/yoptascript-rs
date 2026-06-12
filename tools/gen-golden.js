@@ -4,57 +4,110 @@
 // Офлайн-оракул для conformance-батареи YoptaScript-rs.
 // НЕ запускается в CI. Разработчик запускает вручную:
 //   node tools/gen-golden.js
-// Скрипт печатает эталонные (Node) значения для коэрсивных кейсов, чтобы
-// сверить с golden-файлами после шага 3 (abstract_equals + Add через ToPrimitive).
-// Это не транспайлер YoptaScript: здесь вручную закодированы JS-эквиваленты
-// выражений из cases/coercion_*.yop в том же порядке вывода.
+//
+// Для каждого mirror/*.js запускает Node, снимает stdout, нормализует CRLF→LF,
+// сравнивает с golden/<name>.txt. Статусы:
+//   OK         — совпадает
+//   MISMATCH   — расходится (показывает diff)
+//   DOCUMENTED — расходится, но задокументировано заголовком DIVERGENCE в .js
+//   SKIP       — нет mirror-файла для cases/<name>.yop
+// Завершается с ненулевым кодом, если есть хотя бы один недокументированный MISMATCH.
 
-function section(name, lines) {
-  console.log(`===== ${name} =====`);
-  for (const v of lines) console.log(v);
-  console.log('');
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const ROOT = path.resolve(__dirname, '..');
+const CASES_DIR = path.join(ROOT, 'crates/yps-cli/tests/conformance/cases');
+const GOLDEN_DIR = path.join(ROOT, 'crates/yps-cli/tests/conformance/golden');
+const MIRROR_DIR = path.join(ROOT, 'crates/yps-cli/tests/conformance/mirror');
+const NODE = process.execPath;
+
+function readGolden(name) {
+    const p = path.join(GOLDEN_DIR, `${name}.txt`);
+    if (!fs.existsSync(p)) return null;
+    return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 }
 
-// cases/coercion_equality.yop
-section('coercion_equality', [
-  1 == '1',
-  1 === '1',
-  null == undefined,
-  null === undefined,
-  true == 1,
-  0 == false,
-  '' == 0,
-  undefined == 0,
-  null == 0,
-  'abc' == 'abc',
-  1 != '1',
-  1 !== '1',
-].map(String));
+function runMirror(mirrorPath) {
+    const out = execFileSync(NODE, [mirrorPath], {
+        cwd: MIRROR_DIR,
+        encoding: 'utf8',
+    });
+    return out.replace(/\r\n/g, '\n');
+}
 
-// cases/coercion_add.yop
-section('coercion_add', [
-  1 + 2,
-  'a' + 'b',
-  'n=' + 1,
-  1 + 'x',
-  '' + true,
-  '' + null,
-  '' + undefined,
-  10 + 5 + 'px',
-  'px' + 10 + 5,
-].map(String));
+function isDivergenceDeclared(mirrorPath) {
+    const src = fs.readFileSync(mirrorPath, 'utf8');
+    return /^\/\/ DIVERGENCE:/m.test(src);
+}
 
-// cases/coercion_stringify.yop
-// число(x) == Number(x); строка(x) == String(x); "+" объект -> ToPrimitive(String) -> [object Object]
-const ob = { a: 1 };
-const mas = [1, 2, 3];
-section('coercion_stringify', [
-  'об=' + ob,
-  'мас=' + mas,
-  Number('42'),
-  Number('  7  '),
-  Number(true),
-  Number(null),
-  String(42),
-  String(true),
-].map(String));
+function simpleDiff(expected, actual) {
+    const eLines = expected.split('\n');
+    const aLines = actual.split('\n');
+    const maxLen = Math.max(eLines.length, aLines.length);
+    const lines = [];
+    for (let i = 0; i < maxLen; i++) {
+        const e = eLines[i] ?? '(missing)';
+        const a = aLines[i] ?? '(missing)';
+        if (e !== a) {
+            lines.push(`  line ${i + 1}:`);
+            lines.push(`    expected (node): ${JSON.stringify(e)}`);
+            lines.push(`    golden:           ${JSON.stringify(a)}`);
+        }
+    }
+    return lines.join('\n');
+}
+
+// Collect all case names from cases/*.yop (skip modules subdir entries)
+const caseNames = fs.readdirSync(CASES_DIR)
+    .filter(f => f.endsWith('.yop'))
+    .map(f => f.slice(0, -4))
+    .sort();
+
+let ok = 0, mismatch = 0, documented = 0, skip = 0;
+
+for (const name of caseNames) {
+    const mirrorPath = path.join(MIRROR_DIR, `${name}.js`);
+    if (!fs.existsSync(mirrorPath)) {
+        console.log(`SKIP       ${name}`);
+        skip++;
+        continue;
+    }
+
+    const golden = readGolden(name);
+    let nodeOut;
+    try {
+        nodeOut = runMirror(mirrorPath);
+    } catch (err) {
+        console.log(`ERROR      ${name}: ${err.message}`);
+        mismatch++;
+        continue;
+    }
+
+    // Ensure both end with a single newline for fair comparison
+    const normalizeTrailing = s => s.replace(/\n*$/, '\n');
+    const goldenNorm = golden !== null ? normalizeTrailing(golden) : null;
+    const nodeNorm = normalizeTrailing(nodeOut);
+
+    if (goldenNorm === nodeNorm) {
+        console.log(`OK         ${name}`);
+        ok++;
+    } else if (isDivergenceDeclared(mirrorPath)) {
+        console.log(`DOCUMENTED ${name}`);
+        documented++;
+    } else {
+        console.log(`MISMATCH   ${name}`);
+        if (golden !== null) {
+            console.log(simpleDiff(nodeNorm, goldenNorm));
+        } else {
+            console.log('  (no golden file)');
+        }
+        mismatch++;
+    }
+}
+
+console.log('');
+console.log(`Summary: ${ok} OK, ${mismatch} MISMATCH, ${documented} DOCUMENTED, ${skip} SKIP`);
+
+if (mismatch > 0) process.exit(1);
