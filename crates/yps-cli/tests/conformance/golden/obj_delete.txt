@@ -1,0 +1,8 @@
+true
+undefined
+true
+true
+undefined
+3
+10
+30

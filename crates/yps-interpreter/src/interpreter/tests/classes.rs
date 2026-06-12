@@ -412,3 +412,85 @@ fn static_getter() {
     );
     assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
 }
+
+#[test]
+fn static_method_inherited_by_subclass() {
+    let i = run_code(
+        r#"
+        клёво А {
+            попонятия привет() { отвечаю "А-привет"; }
+            попонятия счёт = 10;
+        }
+        клёво Б батя А {}
+        гыы рез = Б.привет();
+        гыы поле = Б.счёт;
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("А-привет".to_string())));
+    assert_eq!(i.get("поле"), Some(Value::Number(10.0)));
+}
+
+#[test]
+fn super_method_call_in_instance_method() {
+    let i = run_code(
+        r#"
+        клёво Зверь {
+            голос() { отвечаю "..."; }
+        }
+        клёво Пёс батя Зверь {
+            голос() { отвечаю яга.голос() + "гав"; }
+        }
+        участковый п = захуярить Пёс();
+        гыы рез = п.голос();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("...гав".to_string())));
+}
+
+#[test]
+fn super_constructor_three_level_chain() {
+    let i = run_code(
+        r#"
+        клёво А { А() { тырыпыры.а = "a"; } }
+        клёво Б батя А { Б() { яга(); тырыпыры.б = "b"; } }
+        клёво В батя Б { В() { яга(); тырыпыры.в = "c"; } }
+        участковый в = захуярить В();
+        гыы поле_а = в.а;
+        гыы поле_б = в.б;
+        гыы поле_в = в.в;
+        "#,
+    );
+    assert_eq!(i.get("поле_а"), Some(Value::String("a".to_string())));
+    assert_eq!(i.get("поле_б"), Some(Value::String("b".to_string())));
+    assert_eq!(i.get("поле_в"), Some(Value::String("c".to_string())));
+}
+
+#[test]
+fn static_this_bound_to_class() {
+    let i = run_code(
+        r#"
+        клёво Мат {
+            попонятия ПИ = 3.14;
+            попонятия описание() { отвечаю "Мат(" + тырыпыры.ПИ + ")"; }
+        }
+        гыы рез = Мат.описание();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("Мат(3.14)".to_string())));
+}
+
+#[test]
+fn arrow_field_captures_live_instance() {
+    let i = run_code(
+        r#"
+        клёво Т {
+            Т() { тырыпыры.х = 10; }
+            стрела = () => тырыпыры.х;
+        }
+        участковый т = захуярить Т();
+        участковый стр = т.стрела;
+        гыы рез = стр();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(10.0)));
+}

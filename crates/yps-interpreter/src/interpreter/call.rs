@@ -244,6 +244,21 @@ impl Interpreter {
         this_val: Option<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        self.call_method_with_this_super(name, params, body, env, args, this_val, None, span)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn call_method_with_this_super(
+        &mut self,
+        name: Rc<str>,
+        params: &[yps_parser::ast::Param],
+        body: &Rc<Block>,
+        env: &Rc<RefCell<EnvFrame>>,
+        args: Vec<Value>,
+        this_val: Option<Value>,
+        super_class: Option<Rc<crate::value::ClassDef>>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
         if self.call_stack.len() >= super::MAX_CALL_DEPTH {
             return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
         }
@@ -255,7 +270,9 @@ impl Interpreter {
             self.env.define(symbols::THIS.to_string(), this.clone(), false);
         }
 
-        if let Some(super_val) = saved_env.get(symbols::SUPER) {
+        if let Some(parent) = super_class {
+            self.env.define(symbols::SUPER.to_string(), Value::Class(parent), false);
+        } else if let Some(super_val) = saved_env.get(symbols::SUPER) {
             self.env.define(symbols::SUPER.to_string(), super_val, false);
         }
 

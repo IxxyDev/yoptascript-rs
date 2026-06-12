@@ -122,13 +122,15 @@ impl Interpreter {
                         let params = params.clone();
                         let body = Rc::clone(body);
                         let env = Rc::clone(env);
-                        return self.call_method_with_this(
+                        let super_class = Self::find_getter_owner_parent(cls, property);
+                        return self.call_method_with_this_super(
                             Rc::from(property),
                             &params,
                             &body,
                             &env,
                             vec![],
                             Some(obj),
+                            super_class,
                             span,
                         );
                     }
@@ -156,13 +158,13 @@ impl Interpreter {
                 if property == "прототип" || property == "prototype" {
                     return Ok(Self::class_prototype_object(cls));
                 }
-                if let Some((params, body, env)) = cls.static_getters.get(property) {
+                if let Some((params, body, env)) = Self::find_static_getter_in_class(cls, property) {
                     return self.call_method_with_this(Rc::from(property), params, body, env, vec![], None, span);
                 }
-                if let Some(val) = cls.static_fields.get(property) {
+                if let Some(val) = Self::find_static_field_in_class(cls, property) {
                     return Ok(val.clone());
                 }
-                if let Some((params, body, env)) = cls.static_methods.get(property) {
+                if let Some((params, body, env)) = Self::find_static_method_in_class(cls, property) {
                     return Ok(Value::Function {
                         name: Rc::from(property),
                         params: params.clone(),
