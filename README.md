@@ -97,8 +97,29 @@ just fuzz lexer
 - [x] Weak collections: `СлабаяКарта`, `СлабыйНабор`, `СлабаяСсылка`, `РеестрФинализации`
 - [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
 - [x] Fuzzing: libFuzzer targets for lexer, parser and formatter round-trip (`fuzz/`, weekly CI job)
+- [x] Conformance suite: 87 golden cases checked against Node.js semantics (`crates/yps-cli/tests/conformance/`)
 
 This is an active learning project — see open issues for what's next.
+
+## Conformance suite
+
+A Test262-inspired golden battery lives in `crates/yps-cli/tests/conformance/` and runs as part of `cargo test -p yps-cli`. Every top-level `cases/*.yop` file is discovered automatically and its CLI output is compared against `golden/<name>.txt`.
+
+```bash
+# Run the battery
+cargo test -p yps-cli --test conformance
+
+# Run a subset (comma-separated case-name prefixes)
+YPS_CONFORMANCE_FILTER=gen_,async_ cargo test -p yps-cli --test conformance
+
+# Regenerate golden files after an intentional behavior change
+YPS_CONFORMANCE_BLESS=1 cargo test -p yps-cli --test conformance
+
+# Check golden files against live Node.js (developer-only oracle, not in CI)
+node tools/gen-golden.js
+```
+
+Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-golden.js` runs each mirror and diffs its output against the golden file, so the suite tracks real ECMAScript semantics rather than freezing the interpreter's own behavior. Intentional differences are catalogued in [`golden/KNOWN_DIVERGENCES.md`](crates/yps-cli/tests/conformance/golden/KNOWN_DIVERGENCES.md).
 
 ## Project layout
 
