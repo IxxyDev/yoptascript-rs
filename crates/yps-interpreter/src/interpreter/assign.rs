@@ -156,7 +156,7 @@ impl Interpreter {
                 Ok(None)
             }
             Value::Class(cls) => {
-                if let Some((params, body, env)) = cls.static_setters.get(property) {
+                if let Some((params, body, env)) = Self::find_static_setter_in_class(cls, property) {
                     self.call_method_with_this(Rc::from(property), params, body, env, vec![value.clone()], None, span)?;
                     return Ok(Some(value));
                 }

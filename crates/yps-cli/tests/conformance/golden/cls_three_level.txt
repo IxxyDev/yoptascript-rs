@@ -1,0 +1,7 @@
+a
+b
+c
+А+Б
+true
+true
+true

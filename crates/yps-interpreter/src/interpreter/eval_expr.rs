@@ -131,18 +131,29 @@ impl Interpreter {
                     };
                     if let Expr::Super { .. } = object.as_ref()
                         && let Value::Class(cls) = &obj
-                        && let Some((ref params, ref body, ref env)) = cls.constructor
                     {
-                        let arg_values = self.eval_args(args)?;
-                        return self.call_method_with_this(
-                            Rc::from("<конструктор>"),
-                            params,
-                            body,
-                            env,
-                            arg_values,
-                            None,
+                        if let Some((params, body, env)) = Self::find_method_in_class(cls, &property.name) {
+                            let params = params.clone();
+                            let body = Rc::clone(body);
+                            let env = Rc::clone(env);
+                            let super_class = Self::find_method_owner_parent(cls, &property.name);
+                            let this_val = self.env.get(symbols::THIS);
+                            let arg_values = self.eval_args(args)?;
+                            return self.call_method_with_this_super(
+                                Rc::from(property.name.as_str()),
+                                &params,
+                                &body,
+                                &env,
+                                arg_values,
+                                this_val,
+                                super_class,
+                                *span,
+                            );
+                        }
+                        return Err(RuntimeError::new(
+                            format!("'{}' не является методом родительского класса", property.name),
                             *span,
-                        );
+                        ));
                     }
                     if matches!(
                         obj,
@@ -175,16 +186,35 @@ impl Interpreter {
                     }
                     let func = self.eval_member(obj.clone(), &property.name, *span)?;
                     let arg_values = self.eval_args(args)?;
-                    if matches!(obj, Value::Object(_))
+                    if let Value::Object(map) = &obj
                         && let Value::Function { params, body, env, .. } = &func
                     {
-                        return self.call_method_with_this(
+                        let super_class = Self::resolve_class_for_object(map, &self.env)
+                            .and_then(|cls| Self::find_method_owner_parent(&cls, &property.name));
+                        return self.call_method_with_this_super(
                             Rc::from(property.name.as_str()),
                             params,
                             body,
                             env,
                             arg_values,
-                            Some(obj),
+                            Some(obj.clone()),
+                            super_class,
+                            *span,
+                        );
+                    }
+                    if let Value::Class(cls) = &obj
+                        && let Value::Function { params, body, env, .. } = &func
+                        && Self::find_static_method_in_class(cls, &property.name).is_some()
+                    {
+                        let super_class = Self::find_static_method_owner_parent(cls, &property.name);
+                        return self.call_method_with_this_super(
+                            Rc::from(property.name.as_str()),
+                            params,
+                            body,
+                            env,
+                            arg_values,
+                            Some(obj.clone()),
+                            super_class,
                             *span,
                         );
                     }
@@ -198,13 +228,15 @@ impl Interpreter {
                     {
                         let arg_values = self.eval_args(args)?;
                         let this_val = self.env.get(symbols::THIS);
-                        return self.call_method_with_this(
+                        let grandparent = cls.parent.clone();
+                        return self.call_method_with_this_super(
                             Rc::from("<конструктор>"),
                             params,
                             body,
                             env,
                             arg_values,
                             this_val,
+                            grandparent,
                             *span,
                         );
                     }

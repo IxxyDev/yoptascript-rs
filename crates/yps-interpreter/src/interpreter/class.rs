@@ -307,13 +307,12 @@ impl Interpreter {
             _ => return Err(RuntimeError::new(format!("'{}' не является классом", class_val.type_name()), span)),
         };
 
-        let mut instance = HashMap::new();
-        instance.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
-        instance.insert(symbols::PROTO.to_string(), Value::Class(Rc::clone(&class_def)));
+        let mut seed = HashMap::new();
+        seed.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
+        seed.insert(symbols::PROTO.to_string(), Value::Class(Rc::clone(&class_def)));
+        let mut instance_val = Value::object(seed);
 
-        self.init_fields(&class_def, &mut instance, span)?;
-
-        let mut instance_val = Value::object(instance);
+        self.init_fields(&class_def, &mut instance_val, span)?;
 
         for init in &class_def.instance_initializers {
             let saved = self.env.clone();
@@ -492,17 +491,21 @@ impl Interpreter {
     pub(super) fn init_fields(
         &mut self,
         class_def: &ClassDef,
-        instance: &mut HashMap<String, Value>,
+        instance_val: &mut Value,
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(ref parent) = class_def.parent {
-            self.init_fields(parent, instance, span)?;
+            self.init_fields(parent, instance_val, span)?;
         }
+        let map = match instance_val {
+            Value::Object(m) => Rc::clone(m),
+            _ => return Ok(()),
+        };
         for (name, init_body, transform) in &class_def.field_inits {
             let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
                 self.env.push_scope();
-                self.env.define(symbols::THIS.to_string(), Value::object(instance.clone()), false);
+                self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env = saved_env;
                 match result? {
@@ -514,7 +517,7 @@ impl Interpreter {
             };
             let val =
                 if let Some(tf) = transform { self.call_function(tf.clone(), vec![base_val], span)? } else { base_val };
-            instance.insert(name.clone(), val);
+            map.borrow_mut().insert(name.clone(), val);
         }
         Ok(())
     }
@@ -622,6 +625,85 @@ impl Interpreter {
             return Err(e);
         }
         Ok(())
+    }
+
+    pub(super) fn find_method_owner_parent(class_def: &Rc<ClassDef>, method_name: &str) -> Option<Rc<ClassDef>> {
+        if class_def.methods.contains_key(method_name) {
+            return class_def.parent.clone();
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_method_owner_parent(parent, method_name);
+        }
+        None
+    }
+
+    pub(super) fn find_getter_owner_parent(class_def: &Rc<ClassDef>, name: &str) -> Option<Rc<ClassDef>> {
+        if class_def.getters.contains_key(name) {
+            return class_def.parent.clone();
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_getter_owner_parent(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_method_in_class<'a>(
+        class_def: &'a ClassDef,
+        name: &str,
+    ) -> Option<&'a crate::value::MethodDef> {
+        if let Some(m) = class_def.static_methods.get(name) {
+            return Some(m);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_method_in_class(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_method_owner_parent(class_def: &Rc<ClassDef>, name: &str) -> Option<Rc<ClassDef>> {
+        if class_def.static_methods.contains_key(name) {
+            return class_def.parent.clone();
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_method_owner_parent(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_field_in_class<'a>(class_def: &'a ClassDef, name: &str) -> Option<&'a Value> {
+        if let Some(v) = class_def.static_fields.get(name) {
+            return Some(v);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_field_in_class(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_getter_in_class<'a>(
+        class_def: &'a ClassDef,
+        name: &str,
+    ) -> Option<&'a crate::value::MethodDef> {
+        if let Some(g) = class_def.static_getters.get(name) {
+            return Some(g);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_getter_in_class(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_setter_in_class<'a>(
+        class_def: &'a ClassDef,
+        name: &str,
+    ) -> Option<&'a crate::value::MethodDef> {
+        if let Some(s) = class_def.static_setters.get(name) {
+            return Some(s);
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_setter_in_class(parent, name);
+        }
+        None
     }
 
     pub(super) fn find_getter_in_class<'a>(class_def: &'a ClassDef, name: &str) -> Option<&'a crate::value::MethodDef> {
