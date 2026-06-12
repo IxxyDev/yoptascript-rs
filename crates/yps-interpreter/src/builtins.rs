@@ -92,7 +92,11 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             if args.len() != 1 {
                 return Err(RuntimeError::new("'строка' принимает 1 аргумент", span));
             }
-            Ok(Value::String(args[0].to_string()))
+            let text = match &args[0] {
+                Value::Number(n) => crate::interpreter::coercion::number_to_string(*n),
+                other => other.to_string(),
+            };
+            Ok(Value::String(text))
         }
         "втолкнуть" => {
             if args.len() != 2 {

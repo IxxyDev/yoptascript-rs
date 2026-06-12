@@ -25,6 +25,34 @@ fn test_stdlib_math_basic() {
 }
 
 #[test]
+fn test_stdlib_math_sign_preserves_negative_zero() {
+    let interp = run_code(
+        r#"
+        гыы плюс = Матан.знак(7);
+        гыы минус = Матан.знак(-7);
+        гыы нул = Матан.знак(0);
+        гыы минуснул = Матан.знак(-0);
+        "#,
+    );
+    assert_eq!(interp.get("плюс"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("минус"), Some(Value::Number(-1.0)));
+    match interp.get("нул") {
+        Some(Value::Number(n)) => {
+            assert_eq!(n, 0.0);
+            assert!(!n.is_sign_negative(), "знак(0) должен быть +0");
+        }
+        other => panic!("ожидалось число, получено {other:?}"),
+    }
+    match interp.get("минуснул") {
+        Some(Value::Number(n)) => {
+            assert_eq!(n, 0.0);
+            assert!(n.is_sign_negative(), "знак(-0) должен сохранять знак -0");
+        }
+        other => panic!("ожидалось число, получено {other:?}"),
+    }
+}
+
+#[test]
 fn test_stdlib_math_constants() {
     let interp = run_code(
         r#"

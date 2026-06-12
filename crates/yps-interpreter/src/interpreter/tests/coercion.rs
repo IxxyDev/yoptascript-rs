@@ -9,6 +9,17 @@ fn eval_bool(src: &str) -> bool {
 }
 
 #[test]
+fn display_number_specials_match_node() {
+    assert_eq!(Value::Number(f64::INFINITY).to_string(), "Infinity");
+    assert_eq!(Value::Number(f64::NEG_INFINITY).to_string(), "-Infinity");
+    assert_eq!(Value::Number(f64::NAN).to_string(), "NaN");
+    assert_eq!(Value::Number(-0.0).to_string(), "-0");
+    assert_eq!(Value::Number(0.0).to_string(), "0");
+    assert_eq!(Value::Number(1e19).to_string(), "10000000000000000000");
+    assert_eq!(Value::Number(42.0).to_string(), "42");
+}
+
+#[test]
 fn abstract_equals_number_string() {
     assert!(eval_bool("1 == \"1\""));
     assert!(!eval_bool("1 === \"1\""));

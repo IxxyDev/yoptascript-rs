@@ -686,7 +686,13 @@ impl Value {
     ) -> fmt::Result {
         match self {
             Value::Number(n) => {
-                if n.fract() == 0.0 && n.is_finite() {
+                if *n == 0.0 && n.is_sign_negative() {
+                    write!(f, "-0")
+                } else if n.is_nan() {
+                    write!(f, "NaN")
+                } else if n.is_infinite() {
+                    write!(f, "{}", if *n > 0.0 { "Infinity" } else { "-Infinity" })
+                } else if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
                     write!(f, "{}", *n as i64)
                 } else {
                     write!(f, "{n}")

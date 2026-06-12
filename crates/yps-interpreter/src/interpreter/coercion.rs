@@ -85,7 +85,10 @@ pub(crate) fn number_to_string(n: f64) -> String {
     if n.is_infinite() {
         return if n > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
     }
-    if n.fract() == 0.0 && n.abs() < 1e21 {
+    if n == 0.0 {
+        return "0".to_string();
+    }
+    if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
         return format!("{}", n as i64);
     }
     format!("{n}")
@@ -179,6 +182,23 @@ mod tests {
     fn to_ecma_string_array_null_undefined_blank() {
         let arr = Value::Array(Rc::new(RefCell::new(vec![Value::Null, Value::Undefined, Value::Number(1.0)])));
         assert_eq!(to_ecma_string(&arr), ",,1");
+    }
+
+    #[test]
+    fn number_to_string_specials() {
+        assert_eq!(number_to_string(f64::NAN), "NaN");
+        assert_eq!(number_to_string(f64::INFINITY), "Infinity");
+        assert_eq!(number_to_string(f64::NEG_INFINITY), "-Infinity");
+        assert_eq!(number_to_string(-0.0), "0");
+        assert_eq!(number_to_string(0.0), "0");
+    }
+
+    #[test]
+    fn number_to_string_large_integers_no_i64_saturation() {
+        assert_eq!(number_to_string(1e19), "10000000000000000000");
+        assert_eq!(number_to_string(1e20), "100000000000000000000");
+        assert_eq!(number_to_string(5e18), "5000000000000000000");
+        assert_eq!(number_to_string(9_007_199_254_740_992.0), "9007199254740992");
     }
 
     #[test]
