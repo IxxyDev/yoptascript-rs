@@ -1,0 +1,13 @@
+'use strict';
+console.log("[" + "  hi  ".trim() + "]");
+console.log("[" + "  hi  ".trimStart() + "]");
+console.log("[" + "  hi  ".trimEnd() + "]");
+console.log("[" + "\t\n hi \n\t".trim() + "]");
+console.log("hello".startsWith("he"));
+console.log("hello".startsWith("lo"));
+console.log("hello".startsWith("ll", 2));
+console.log("hello".startsWith("he", 1));
+console.log("hello".endsWith("lo"));
+console.log("hello".endsWith("he"));
+console.log("hello".endsWith("ell", 4));
+console.log("hello".endsWith("lo", 4));

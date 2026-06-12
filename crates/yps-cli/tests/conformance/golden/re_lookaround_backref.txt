@@ -1,0 +1,15 @@
+true
+false
+true
+false
+true
+false
+true
+false
+true
+false
+1,234,567
+true
+false
+abcabc
+abc

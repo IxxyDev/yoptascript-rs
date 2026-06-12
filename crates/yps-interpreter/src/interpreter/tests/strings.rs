@@ -221,3 +221,87 @@ fn tagged_template_builtin_dlina_on_strings() {
     );
     assert_eq!(interp.get("н"), Some(Value::Number(3.0)));
 }
+
+#[test]
+fn string_index_of_from_index() {
+    let interp = run_code(
+        r#"
+        гыы a = "abcabc".indexOf("bc", 2);
+        гыы b = "abcabc".indexOf("", 3);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn string_last_index_of() {
+    let interp = run_code(
+        r#"
+        гыы a = "abcabc".lastIndexOf("bc");
+        гыы b = "abcabc".lastIndexOf("bc", 2);
+        гыы c = "abcabc".lastIndexOf("x");
+        гыы d = "abcabc".lastIndexOf("");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(-1.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn string_includes_from_index() {
+    let interp = run_code(
+        r#"
+        гыы a = "abcabc".содержит("cab", 3);
+        гыы b = "abcabc".содержит("abc", 1);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn string_starts_ends_with_position() {
+    let interp = run_code(
+        r#"
+        гыы a = "hello".начинаетсяС("ll", 2);
+        гыы b = "hello".начинаетсяС("he", 1);
+        гыы c = "hello".заканчиваетсяНа("ell", 4);
+        гыы d = "hello".заканчиваетсяНа("lo", 4);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("c"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("d"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn string_split_limit() {
+    let interp = run_code(
+        r#"
+        гыы a = "a,b,c".разбить(",", 2).join("|");
+        гыы b = "a-b-c".разбить("-", 0).длина;
+        гыы c = "hello".разбить("", 3).join("|");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("a|b".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("c"), Some(Value::String("h|e|l".to_string())));
+}
+
+#[test]
+fn string_replace_dollar_patterns() {
+    let interp = run_code(
+        r#"
+        гыы a = "price: 100".заменить("100", "$$");
+        гыы b = "name".заменить("name", "[$&]");
+        гыы c = "a.b.c".заменитьВсе(".", "$$");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("price: $".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("[name]".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("a$b$c".to_string())));
+}

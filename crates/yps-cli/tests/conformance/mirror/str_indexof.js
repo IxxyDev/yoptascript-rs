@@ -1,0 +1,14 @@
+'use strict';
+console.log("abcabc".indexOf("bc"));
+console.log("abcabc".indexOf("bc", 2));
+console.log("abcabc".indexOf("x"));
+console.log("abcabc".indexOf("a", -5));
+console.log("abcabc".indexOf(""));
+console.log("abcabc".indexOf("", 3));
+console.log("abcabc".lastIndexOf("bc"));
+console.log("abcabc".lastIndexOf("bc", 2));
+console.log("abcabc".lastIndexOf("x"));
+console.log("abcabc".includes("cab"));
+console.log("abcabc".includes("cab", 3));
+console.log("abcabc".includes("abc", 1));
+console.log("abcabc".includes("x"));

@@ -1,0 +1,17 @@
+'use strict';
+console.log(/foo(?=bar)/.test("foobar"));
+console.log(/foo(?=bar)/.test("foobaz"));
+console.log(/foo(?!bar)/.test("foobaz"));
+console.log(/foo(?!bar)/.test("foobar"));
+console.log(/(?<=foo)bar/.test("foobar"));
+console.log(/(?<=foo)bar/.test("xxxbar"));
+console.log(/(?<!foo)bar/.test("xxxbar"));
+console.log(/(?<!foo)bar/.test("foobar"));
+console.log(/(\w)\1/.test("aa"));
+console.log(/(\w)\1/.test("ab"));
+console.log("1234567".replace(/(?<=\d)(?=(\d\d\d)+$)/g, ","));
+console.log(/^(\w+) \1$/.test("hi hi"));
+console.log(/^(\w+) \1$/.test("hi ho"));
+const m = "abcabc".match(/(abc)\1/);
+console.log(m[0]);
+console.log(m[1]);

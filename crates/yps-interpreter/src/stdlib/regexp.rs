@@ -393,35 +393,39 @@ fn next_byte(s: &str, pos: usize) -> usize {
     }
 }
 
-pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<String>, RuntimeError> {
-    match re.as_ref() {
-        YopRegex::Fast(r) => Ok(r.split(s).map(|p| p.to_string()).collect()),
-        YopRegex::Fancy(_) => {
-            let mut out = Vec::new();
-            let mut last = 0usize;
-            let mut pos = 0usize;
-            while pos <= s.len() {
-                match re.captures_from_pos(s, pos, span)? {
-                    Some(md) => {
-                        let whole = md.whole();
-                        if whole.end == whole.start {
-                            pos = next_byte(s, whole.start);
-                            if whole.start >= s.len() {
-                                break;
-                            }
-                            continue;
-                        }
-                        out.push(s[last..whole.start].to_string());
-                        last = whole.end;
-                        pos = whole.end;
-                    }
-                    None => break,
+pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
+    if s.is_empty() {
+        return match re.captures_from_pos(s, 0, span)? {
+            Some(_) => Ok(Vec::new()),
+            None => Ok(vec![Value::String(String::new())]),
+        };
+    }
+    let mut out: Vec<Value> = Vec::new();
+    let mut last = 0usize;
+    let mut pos = 0usize;
+    while pos < s.len() {
+        match re.captures_from_pos(s, pos, span)? {
+            Some(md) => {
+                let whole = md.whole();
+                if whole.end == last {
+                    pos = next_byte(s, pos);
+                    continue;
                 }
+                out.push(Value::String(s[last..whole.start].to_string()));
+                for slot in md.groups.iter().skip(1) {
+                    match slot {
+                        Some(g) => out.push(Value::String(g.text.clone())),
+                        None => out.push(Value::Null),
+                    }
+                }
+                last = whole.end;
+                pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
             }
-            out.push(s[last..].to_string());
-            Ok(out)
+            None => break,
         }
     }
+    out.push(Value::String(s[last..].to_string()));
+    Ok(out)
 }
 
 pub fn replace_string(

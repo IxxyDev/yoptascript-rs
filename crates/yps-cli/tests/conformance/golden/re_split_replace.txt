@@ -1,0 +1,9 @@
+4 :: a|b|c|
+4 :: a|b|c|d
+1 :: abc
+3 :: 2026|06|12
+5 :: a|x|b|x|c
+---replace regex groups---
+12/06/2026
+elloh orldw
+1a2b

@@ -1,0 +1,14 @@
+a1 | a | 1 | 0
+b2 | b | 2 | 3
+c3 | c | 3 | 6
+---match no g---
+123
+123
+4
+---match with g---
+3
+1,2,3
+---match no result---
+null
+---matchAll empty---
+0

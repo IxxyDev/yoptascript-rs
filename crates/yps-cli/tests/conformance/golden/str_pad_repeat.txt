@@ -1,0 +1,12 @@
+005
+500
+abc
+abc
+ababa1
+1ababa
+    x
+xy
+ababab
+
+abab
+-----

@@ -1,0 +1,16 @@
+baa
+bbb
+a-b-c
+price: $
+[name]
+Smith John
+JohnJohn
+bar foo
+$
+a[b]c
+a#b#c#
+a#b#c#
+heLlo
+1a 2b
+<t>es<t>
+ab[1][2]cd

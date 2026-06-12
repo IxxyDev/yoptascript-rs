@@ -1,0 +1,12 @@
+сказать("[" + "  hi  ".trim() + "]");
+сказать("[" + "  hi  ".trimStart() + "]");
+сказать("[" + "  hi  ".trimEnd() + "]");
+сказать("[" + "\t\n hi \n\t".trim() + "]");
+сказать("hello".startsWith("he"));
+сказать("hello".startsWith("lo"));
+сказать("hello".startsWith("ll", 2));
+сказать("hello".startsWith("he", 1));
+сказать("hello".endsWith("lo"));
+сказать("hello".endsWith("he"));
+сказать("hello".endsWith("ell", 4));
+сказать("hello".endsWith("lo", 4));

@@ -1,0 +1,17 @@
+'use strict';
+console.log("aaa".replace("a", "b"));
+console.log("aaa".replaceAll("a", "b"));
+console.log("a.b.c".replaceAll(".", "-"));
+console.log("price: 100".replace("100", "$$"));
+console.log("name".replace("name", "[$&]"));
+console.log("John Smith".replace(/(\w+) (\w+)/, "$2 $1"));
+console.log("John Smith".replace(/(\w+) (\w+)/, "$1$1"));
+console.log("foo bar".replace(/(?<first>\w+) (?<second>\w+)/, "$<second> $<first>"));
+console.log("x".replace(/x/, "$$"));
+console.log("abc".replace(/b/, "[$&]"));
+console.log("a1b2c3".replace(/\d/g, "#"));
+console.log("a1b2c3".replaceAll(/\d/g, "#"));
+console.log("hello".replace(/l/, "L"));
+console.log("a1 b2".replace(/(\w)(\d)/g, "$2$1"));
+console.log("test".replace(/(t)/g, (m, g1) => "<" + g1 + ">"));
+console.log("ab12cd".replaceAll(/\d/g, (m) => "[" + m + "]"));

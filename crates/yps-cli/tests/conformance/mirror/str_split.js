@@ -1,0 +1,15 @@
+'use strict';
+function показ(массив) {
+    console.log(массив.length + " :: " + массив.join("|"));
+}
+показ("a,b,c".split(","));
+показ("a,b,c".split(",", 2));
+показ("abc".split(""));
+показ("abc".split("x"));
+показ(",a,b,".split(","));
+показ("a,,b".split(","));
+показ("".split(","));
+показ("".split(""));
+показ("a-b-c".split("-", 0));
+показ("hello".split("", 3));
+показ("one two  three".split(" "));
