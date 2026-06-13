@@ -109,7 +109,11 @@ impl Interpreter {
                     );
                 }
                 if let Some(val) = map.borrow().get(property) {
-                    return Ok(val.clone());
+                    let val = match val.clone() {
+                        Value::WeakClass(w) => w.upgrade().map(Value::Class).unwrap_or(Value::Undefined),
+                        other => other,
+                    };
+                    return Ok(val);
                 }
                 let effective_class = Self::resolve_class_for_object(map, &self.env);
                 if (property == "конструктор" || property == "constructor")
@@ -148,7 +152,7 @@ impl Interpreter {
                 let proto = map.borrow().get(symbols::PROTO).cloned();
                 if let Some(proto) = proto {
                     match proto {
-                        Value::Class(_) | Value::Null => return Ok(Value::Undefined),
+                        Value::Class(_) | Value::WeakClass(_) | Value::Null => return Ok(Value::Undefined),
                         _ => return self.eval_member(proto, property, span),
                     }
                 }
@@ -211,6 +215,7 @@ impl Interpreter {
         let proto = map.borrow().get(symbols::PROTO).cloned();
         match proto {
             Some(Value::Class(cls)) => Some(cls),
+            Some(Value::WeakClass(w)) => w.upgrade(),
             Some(_) => None,
             None => {
                 let class_name = match map.borrow().get(symbols::CLASS_TAG) {
@@ -245,8 +250,8 @@ impl Interpreter {
                     }
                     current = c.parent.as_deref();
                 }
-                map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
-                map.insert(symbols::PROTO.to_string(), Value::Class(std::rc::Rc::clone(cls)));
+                map.insert("конструктор".to_string(), Value::WeakClass(std::rc::Rc::downgrade(cls)));
+                map.insert(symbols::PROTO.to_string(), Value::WeakClass(std::rc::Rc::downgrade(cls)));
                 Value::object(map)
             })
             .clone()

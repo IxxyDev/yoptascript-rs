@@ -321,6 +321,7 @@ pub enum Value {
     },
     BuiltinFunction(String),
     Class(Rc<ClassDef>),
+    WeakClass(Weak<ClassDef>),
     Symbol {
         description: Option<String>,
         id: u64,
@@ -513,6 +514,7 @@ impl Value {
             Value::Array(_)
             | Value::Object(_)
             | Value::Class(_)
+            | Value::WeakClass(_)
             | Value::Map(_)
             | Value::Set(_)
             | Value::Promise { .. }
@@ -568,7 +570,7 @@ impl Value {
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
-            Value::Class(_) => "класс",
+            Value::Class(_) | Value::WeakClass(_) => "класс",
             Value::Symbol { .. } => "символ",
             Value::Promise { .. } => "обещание",
             Value::Iterator(_) => "итератор",
@@ -617,6 +619,10 @@ impl fmt::Debug for Value {
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
             Value::Class(cls) => write!(f, "Class({})", cls.name),
+            Value::WeakClass(w) => match w.upgrade() {
+                Some(cls) => write!(f, "WeakClass({})", cls.name),
+                None => write!(f, "WeakClass(dropped)"),
+            },
             Value::Symbol { description, id } => write!(f, "Symbol({description:?}, id={id})"),
             Value::Promise { state } => match &*state.borrow() {
                 PromiseState::Pending { .. } => write!(f, "Promise(Pending)"),
@@ -777,6 +783,10 @@ impl Value {
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
+            Value::WeakClass(w) => match w.upgrade() {
+                Some(cls) => write!(f, "[класс {}]", cls.name),
+                None => write!(f, "[класс]"),
+            },
             Value::Symbol { description: Some(d), .. } => write!(f, "Симбол({d})"),
             Value::Symbol { description: None, .. } => write!(f, "Симбол()"),
             Value::Promise { state } => match &*state.borrow() {
@@ -1033,6 +1043,7 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
+            (Value::WeakClass(a), Value::WeakClass(b)) => Weak::ptr_eq(a, b),
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),

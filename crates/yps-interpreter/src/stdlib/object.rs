@@ -201,6 +201,10 @@ pub fn call_static(
                     let proto = map.borrow().get(symbols::PROTO).cloned();
                     match proto {
                         Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object(&cls)),
+                        Some(Value::WeakClass(w)) => match w.upgrade() {
+                            Some(cls) => Ok(Interpreter::class_prototype_object(&cls)),
+                            None => Ok(Value::Null),
+                        },
                         Some(other) => Ok(other),
                         None => Ok(Value::Null),
                     }
