@@ -268,6 +268,7 @@ impl Interpreter {
             static_setters,
             parent,
             instance_initializers: instance_inits,
+            prototype_cache: std::cell::OnceCell::new(),
         };
 
         let mut class_val = Value::Class(Rc::new(class_def));
