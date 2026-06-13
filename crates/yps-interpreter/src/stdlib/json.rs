@@ -124,7 +124,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
                 span,
             ));
         }
-        Value::Function { .. } | Value::BuiltinFunction(_) | Value::Class(_) => {
+        Value::Function { .. } | Value::BuiltinFunction(_) | Value::Class(_) | Value::WeakClass(_) => {
             return Err(RuntimeError::new("Функции/классы нельзя сериализовать в JSON", span));
         }
         Value::Symbol { .. } => {

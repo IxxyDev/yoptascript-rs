@@ -153,7 +153,8 @@ impl Marker {
             | Value::TypedArray { .. }
             | Value::DataView { .. }
             | Value::Undefined
-            | Value::Null => {}
+            | Value::Null
+            | Value::WeakClass(_) => {}
             Value::Array(rc) => {
                 if self.seen.insert(Rc::as_ptr(rc) as usize) {
                     for element in rc.borrow().iter() {
