@@ -228,23 +228,27 @@ impl Interpreter {
     }
 
     pub(crate) fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
-        let mut map = std::collections::HashMap::new();
-        let mut current: Option<&crate::value::ClassDef> = Some(cls);
-        while let Some(c) = current {
-            for (name, (params, body, env)) in &c.methods {
-                map.entry(name.clone()).or_insert_with(|| Value::Function {
-                    name: Rc::from(name.as_str()),
-                    params: params.clone(),
-                    body: Rc::clone(body),
-                    env: Rc::clone(env),
-                    is_generator: false,
-                    is_async: false,
-                });
-            }
-            current = c.parent.as_deref();
-        }
-        map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
-        map.insert(symbols::PROTO.to_string(), Value::Class(std::rc::Rc::clone(cls)));
-        Value::object(map)
+        cls.prototype_cache
+            .get_or_init(|| {
+                let mut map = std::collections::HashMap::new();
+                let mut current: Option<&crate::value::ClassDef> = Some(cls);
+                while let Some(c) = current {
+                    for (name, (params, body, env)) in &c.methods {
+                        map.entry(name.clone()).or_insert_with(|| Value::Function {
+                            name: Rc::from(name.as_str()),
+                            params: params.clone(),
+                            body: Rc::clone(body),
+                            env: Rc::clone(env),
+                            is_generator: false,
+                            is_async: false,
+                        });
+                    }
+                    current = c.parent.as_deref();
+                }
+                map.insert("конструктор".to_string(), Value::Class(std::rc::Rc::clone(cls)));
+                map.insert(symbols::PROTO.to_string(), Value::Class(std::rc::Rc::clone(cls)));
+                Value::object(map)
+            })
+            .clone()
     }
 }

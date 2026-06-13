@@ -1,0 +1,5 @@
+42
+true
+99
+true
+null

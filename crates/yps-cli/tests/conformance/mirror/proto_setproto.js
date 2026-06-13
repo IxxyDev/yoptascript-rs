@@ -1,0 +1,10 @@
+const parent = { x: 42 };
+const child = Object.create(parent);
+console.log(child.x);
+console.log(Object.getPrototypeOf(child) === parent);
+const newParent = { x: 99 };
+Object.setPrototypeOf(child, newParent);
+console.log(child.x);
+console.log(Object.getPrototypeOf(child) === newParent);
+Object.setPrototypeOf(child, null);
+console.log(Object.getPrototypeOf(child));
