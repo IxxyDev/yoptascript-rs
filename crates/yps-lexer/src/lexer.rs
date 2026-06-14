@@ -242,6 +242,21 @@ impl<'src> Lexer<'src> {
             "мой" => TokenKind::Keyword(KeywordKind::Private),
             "подкрыша" => TokenKind::Keyword(KeywordKind::Protected),
             "ебанное" => TokenKind::Keyword(KeywordKind::Public),
+            "эквалио" | "однахуйня" | "ровно" | "типа" | "блясука" => {
+                TokenKind::Operator(OperatorKind::Equals)
+            }
+            "блябуду" | "чёткоровно" | "четкоровно" | "чоткоровно" | "конкретно" => {
+                TokenKind::Operator(OperatorKind::StrictEquals)
+            }
+            "ичо" => TokenKind::Operator(OperatorKind::And),
+            "иличо" => TokenKind::Operator(OperatorKind::Or),
+            "пизже" => TokenKind::Operator(OperatorKind::Greater),
+            "хуёвей" | "хуевей" => TokenKind::Operator(OperatorKind::Less),
+            "поцик" => TokenKind::Operator(OperatorKind::GreaterOrEqual),
+            "поц" => TokenKind::Operator(OperatorKind::LessOrEqual),
+            "сука" | "внатуре" => TokenKind::Operator(OperatorKind::Assign),
+            "жЫ" => TokenKind::Punctuation(PunctuationKind::LBrace),
+            "нах" | "нахуй" | "бля" => TokenKind::Punctuation(PunctuationKind::Semicolon),
             _ => TokenKind::Identifier,
         };
 
