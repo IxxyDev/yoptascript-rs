@@ -84,6 +84,20 @@ pub enum OperatorKind {
     AndAssign,
     OrAssign,
     Pipeline,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitwiseNot,
+    LeftShift,
+    RightShift,
+    UnsignedRightShift,
+    ModAssign,
+    BitAndAssign,
+    BitOrAssign,
+    BitXorAssign,
+    ShlAssign,
+    ShrAssign,
+    UshrAssign,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
