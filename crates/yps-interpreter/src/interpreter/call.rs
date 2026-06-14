@@ -102,7 +102,11 @@ impl Interpreter {
                     } else {
                         Value::Undefined
                     };
-                    self.env.define(param.name.name.clone(), value, false);
+                    if let Some(pat) = &param.pattern {
+                        self.destructure_pattern(pat, value, false, span)?;
+                    } else {
+                        self.env.define(param.name.name.clone(), value, false);
+                    }
                 }
 
                 if is_generator {
@@ -290,7 +294,11 @@ impl Interpreter {
             } else {
                 Value::Undefined
             };
-            self.env.define(param.name.name.clone(), value, false);
+            if let Some(pat) = &param.pattern {
+                self.destructure_pattern(pat, value, false, span)?;
+            } else {
+                self.env.define(param.name.name.clone(), value, false);
+            }
         }
 
         self.push_frame(name, span);
@@ -334,6 +342,10 @@ impl Interpreter {
             (Value::Object(map), Value::String(key)) => Ok(map.borrow().get(key).cloned().unwrap_or(Value::Undefined)),
             (Value::Object(map), Value::Number(n)) => {
                 Ok(map.borrow().get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
+            }
+            (Value::Object(map), Value::Symbol { id, .. }) => {
+                let key = crate::symbols::symbol_key(*id);
+                Ok(map.borrow().get(&key).cloned().unwrap_or(Value::Undefined))
             }
             (Value::TypedArray { buffer, offset, length, kind }, Value::Number(n)) => {
                 if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {

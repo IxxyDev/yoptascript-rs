@@ -86,8 +86,12 @@ pub fn call_static(
             for src in iter {
                 match src {
                     Value::Object(m) => {
-                        let entries: Vec<(String, Value)> =
-                            m.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        let entries: Vec<(String, Value)> = m
+                            .borrow()
+                            .iter()
+                            .filter(|(k, _)| !symbols::is_internal_key(k))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
                         let mut guard = target_rc.borrow_mut();
                         for (k, v) in entries {
                             guard.insert(k, v);
