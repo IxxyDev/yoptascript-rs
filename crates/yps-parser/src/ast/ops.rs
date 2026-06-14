@@ -3,6 +3,7 @@ pub enum UnaryOp {
     Plus,
     Minus,
     Not,
+    BitwiseNot,
     Typeof,
     Delete,
     Void,
@@ -39,6 +40,19 @@ pub enum BinaryOp {
     Pipeline,
     Instanceof,
     In,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LeftShift,
+    RightShift,
+    UnsignedRightShift,
+    ModAssign,
+    BitAndAssign,
+    BitOrAssign,
+    BitXorAssign,
+    ShlAssign,
+    ShrAssign,
+    UshrAssign,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
