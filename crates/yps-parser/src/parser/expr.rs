@@ -132,6 +132,13 @@ impl<'a> Parser<'a> {
                 let end = expr.span().end;
                 Expr::Unary { op: UnaryOp::Not, expr: Box::new(expr), span: Span { start, end } }
             }
+            TokenKind::Operator(OperatorKind::BitwiseNot) => {
+                let start = self.current().span.start;
+                self.advance();
+                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+                let end = expr.span().end;
+                Expr::Unary { op: UnaryOp::BitwiseNot, expr: Box::new(expr), span: Span { start, end } }
+            }
             TokenKind::Keyword(KeywordKind::Typeof) => {
                 let start = self.current().span.start;
                 self.advance();
@@ -384,28 +391,43 @@ impl<'a> Parser<'a> {
                 OperatorKind::NullishAssign => Some((BinaryOp::NullishAssign, 1)),
                 OperatorKind::AndAssign => Some((BinaryOp::AndAssign, 1)),
                 OperatorKind::OrAssign => Some((BinaryOp::OrAssign, 1)),
+                OperatorKind::ModAssign => Some((BinaryOp::ModAssign, 1)),
+                OperatorKind::BitAndAssign => Some((BinaryOp::BitAndAssign, 1)),
+                OperatorKind::BitOrAssign => Some((BinaryOp::BitOrAssign, 1)),
+                OperatorKind::BitXorAssign => Some((BinaryOp::BitXorAssign, 1)),
+                OperatorKind::ShlAssign => Some((BinaryOp::ShlAssign, 1)),
+                OperatorKind::ShrAssign => Some((BinaryOp::ShrAssign, 1)),
+                OperatorKind::UshrAssign => Some((BinaryOp::UshrAssign, 1)),
                 OperatorKind::Or => Some((BinaryOp::Or, 3)),
                 OperatorKind::NullishCoalescing => Some((BinaryOp::NullishCoalescing, 4)),
                 OperatorKind::And => Some((BinaryOp::And, 5)),
-                OperatorKind::Equals => Some((BinaryOp::Equals, 6)),
-                OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 6)),
-                OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 6)),
-                OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 6)),
-                OperatorKind::Less => Some((BinaryOp::Less, 7)),
-                OperatorKind::Greater => Some((BinaryOp::Greater, 7)),
-                OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 7)),
-                OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 7)),
-                OperatorKind::Pipeline => Some((BinaryOp::Pipeline, 8)),
-                OperatorKind::Plus => Some((BinaryOp::Add, 9)),
-                OperatorKind::Minus => Some((BinaryOp::Sub, 9)),
-                OperatorKind::Multiply => Some((BinaryOp::Mul, 10)),
-                OperatorKind::Divide => Some((BinaryOp::Div, 10)),
-                OperatorKind::Modulo => Some((BinaryOp::Mod, 10)),
-                OperatorKind::Exponent => Some((BinaryOp::Exp, 11)),
-                OperatorKind::Not | OperatorKind::Increment | OperatorKind::Decrement => None,
+                OperatorKind::BitOr => Some((BinaryOp::BitOr, 6)),
+                OperatorKind::BitXor => Some((BinaryOp::BitXor, 7)),
+                OperatorKind::BitAnd => Some((BinaryOp::BitAnd, 8)),
+                OperatorKind::Equals => Some((BinaryOp::Equals, 9)),
+                OperatorKind::StrictEquals => Some((BinaryOp::StrictEquals, 9)),
+                OperatorKind::NotEquals => Some((BinaryOp::NotEquals, 9)),
+                OperatorKind::StrictNotEquals => Some((BinaryOp::StrictNotEquals, 9)),
+                OperatorKind::Less => Some((BinaryOp::Less, 10)),
+                OperatorKind::Greater => Some((BinaryOp::Greater, 10)),
+                OperatorKind::LessOrEqual => Some((BinaryOp::LessOrEqual, 10)),
+                OperatorKind::GreaterOrEqual => Some((BinaryOp::GreaterOrEqual, 10)),
+                OperatorKind::Pipeline => Some((BinaryOp::Pipeline, 11)),
+                OperatorKind::LeftShift => Some((BinaryOp::LeftShift, 12)),
+                OperatorKind::RightShift => Some((BinaryOp::RightShift, 12)),
+                OperatorKind::UnsignedRightShift => Some((BinaryOp::UnsignedRightShift, 12)),
+                OperatorKind::Plus => Some((BinaryOp::Add, 13)),
+                OperatorKind::Minus => Some((BinaryOp::Sub, 13)),
+                OperatorKind::Multiply => Some((BinaryOp::Mul, 14)),
+                OperatorKind::Divide => Some((BinaryOp::Div, 14)),
+                OperatorKind::Modulo => Some((BinaryOp::Mod, 14)),
+                OperatorKind::Exponent => Some((BinaryOp::Exp, 15)),
+                OperatorKind::Not | OperatorKind::BitwiseNot | OperatorKind::Increment | OperatorKind::Decrement => {
+                    None
+                }
             },
-            TokenKind::Keyword(KeywordKind::Instanceof) => Some((BinaryOp::Instanceof, 7)),
-            TokenKind::Keyword(KeywordKind::In) => Some((BinaryOp::In, 7)),
+            TokenKind::Keyword(KeywordKind::Instanceof) => Some((BinaryOp::Instanceof, 10)),
+            TokenKind::Keyword(KeywordKind::In) => Some((BinaryOp::In, 10)),
             _ => None,
         }
     }
