@@ -372,7 +372,14 @@ impl<'src> Lexer<'src> {
                     TokenKind::Operator(OperatorKind::Multiply)
                 }
             }
-            '%' => TokenKind::Operator(OperatorKind::Modulo),
+            '%' => {
+                if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::ModAssign)
+                } else {
+                    TokenKind::Operator(OperatorKind::Modulo)
+                }
+            }
             '/' => {
                 if self.current_char() == '/' {
                     self.advance();
@@ -450,7 +457,15 @@ impl<'src> Lexer<'src> {
                 }
             }
             '<' => {
-                if self.current_char() == '=' {
+                if self.current_char() == '<' {
+                    self.advance();
+                    if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::ShlAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::LeftShift)
+                    }
+                } else if self.current_char() == '=' {
                     self.advance();
                     TokenKind::Operator(OperatorKind::LessOrEqual)
                 } else {
@@ -458,7 +473,23 @@ impl<'src> Lexer<'src> {
                 }
             }
             '>' => {
-                if self.current_char() == '=' {
+                if self.current_char() == '>' {
+                    self.advance();
+                    if self.current_char() == '>' {
+                        self.advance();
+                        if self.current_char() == '=' {
+                            self.advance();
+                            TokenKind::Operator(OperatorKind::UshrAssign)
+                        } else {
+                            TokenKind::Operator(OperatorKind::UnsignedRightShift)
+                        }
+                    } else if self.current_char() == '=' {
+                        self.advance();
+                        TokenKind::Operator(OperatorKind::ShrAssign)
+                    } else {
+                        TokenKind::Operator(OperatorKind::RightShift)
+                    }
+                } else if self.current_char() == '=' {
                     self.advance();
                     TokenKind::Operator(OperatorKind::GreaterOrEqual)
                 } else {
@@ -474,13 +505,11 @@ impl<'src> Lexer<'src> {
                     } else {
                         TokenKind::Operator(OperatorKind::And)
                     }
+                } else if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::BitAndAssign)
                 } else {
-                    self.diagnostics.push(Diagnostic {
-                        severity: Severity::Error,
-                        message: "одиночный '&' не поддерживается (используйте '&&')".to_string(),
-                        span: Span { start, end: self.position },
-                    });
-                    TokenKind::Unknown
+                    TokenKind::Operator(OperatorKind::BitAnd)
                 }
             }
             '|' => {
@@ -495,15 +524,22 @@ impl<'src> Lexer<'src> {
                 } else if self.current_char() == '>' {
                     self.advance();
                     TokenKind::Operator(OperatorKind::Pipeline)
+                } else if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::BitOrAssign)
                 } else {
-                    self.diagnostics.push(Diagnostic {
-                        severity: Severity::Error,
-                        message: "одиночный '|' не поддерживается (используйте '||' или '|>')".to_string(),
-                        span: Span { start, end: self.position },
-                    });
-                    TokenKind::Unknown
+                    TokenKind::Operator(OperatorKind::BitOr)
                 }
             }
+            '^' => {
+                if self.current_char() == '=' {
+                    self.advance();
+                    TokenKind::Operator(OperatorKind::BitXorAssign)
+                } else {
+                    TokenKind::Operator(OperatorKind::BitXor)
+                }
+            }
+            '~' => TokenKind::Operator(OperatorKind::BitwiseNot),
             '(' => TokenKind::Punctuation(PunctuationKind::LParen),
             ')' => TokenKind::Punctuation(PunctuationKind::RParen),
             '{' => {
@@ -691,23 +727,19 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_single_ampersand_rejected() {
+    fn diagnostic_single_ampersand_is_bitand() {
         let source = SourceFile::new("test.yop".to_string(), "а & б".to_string());
-        let (_tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(
-            diags.iter().any(|d| d.message.contains("одиночный '&'")),
-            "expected single-& diagnostic, got: {diags:?}"
-        );
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitAnd)));
     }
 
     #[test]
-    fn diagnostic_single_pipe_rejected() {
+    fn diagnostic_single_pipe_is_bitor() {
         let source = SourceFile::new("test.yop".to_string(), "а | б".to_string());
-        let (_tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(
-            diags.iter().any(|d| d.message.contains("одиночный '|'")),
-            "expected single-| diagnostic, got: {diags:?}"
-        );
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitOr)));
     }
 
     #[test]
