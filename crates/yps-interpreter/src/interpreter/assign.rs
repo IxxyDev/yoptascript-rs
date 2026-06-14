@@ -341,6 +341,18 @@ impl Interpreter {
                     Self::descend_set(child, &path[1..], value, span)
                 }
             }
+            (AccessSegment::Index(Value::Symbol { id, .. }), Value::Object(map)) => {
+                let key = crate::symbols::symbol_key(*id);
+                if is_last {
+                    map.try_borrow_mut()
+                        .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
+                        .insert(key, value);
+                    Ok(())
+                } else {
+                    let child = map.borrow().get(&key).cloned().unwrap_or(Value::Undefined);
+                    Self::descend_set(child, &path[1..], value, span)
+                }
+            }
             (AccessSegment::Index(idx), val) => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", val.type_name(), idx.type_name()),
                 span,

@@ -365,7 +365,7 @@ impl Interpreter {
         }
     }
 
-    fn destructure_pattern(
+    pub(super) fn destructure_pattern(
         &mut self,
         pattern: &Pattern,
         value: Value,
@@ -510,6 +510,75 @@ impl Interpreter {
             }
             Value::TypedArray { buffer, offset, length, kind } => {
                 crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
+            }
+            Value::Object(ref map) => {
+                let iter_key = crate::symbols::symbol_key(crate::stdlib::symbol::ITERATOR_ID);
+                let iter_method = map.borrow().get(&iter_key).cloned();
+                if let Some(method) = iter_method {
+                    let this = val.clone();
+                    let iterator_obj = match method {
+                        Value::Function { ref name, ref params, ref body, ref env, .. } => {
+                            self.call_method_with_this(Rc::clone(name), params, body, env, vec![], Some(this), span)?
+                        }
+                        other => self.call_function(other, vec![], span)?,
+                    };
+                    let next_method_name = "следующий";
+                    self.env.push_scope();
+                    self.env.define(variable.name.clone(), Value::Undefined, false);
+                    loop {
+                        let next_fn = self.eval_member(iterator_obj.clone(), next_method_name, span)?;
+                        let result = match next_fn {
+                            Value::Function { ref name, ref params, ref body, ref env, .. } => self
+                                .call_method_with_this(
+                                    Rc::clone(name),
+                                    params,
+                                    body,
+                                    env,
+                                    vec![],
+                                    Some(iterator_obj.clone()),
+                                    span,
+                                )?,
+                            other => self.call_function(other, vec![], span)?,
+                        };
+                        let done = match &result {
+                            Value::Object(r) => r.borrow().get(crate::symbols::ITER_DONE).cloned(),
+                            _ => None,
+                        };
+                        if matches!(done, Some(Value::Boolean(true))) {
+                            break;
+                        }
+                        let item = match &result {
+                            Value::Object(r) => {
+                                r.borrow().get(crate::symbols::ITER_VALUE).cloned().unwrap_or(Value::Undefined)
+                            }
+                            _ => Value::Undefined,
+                        };
+                        let item = if is_await { self.do_await(item, span)? } else { item };
+                        self.env.set(&variable.name, item);
+                        let body_result = self.exec_stmt(body);
+                        match body_result {
+                            Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
+                                LoopOp::Break => break,
+                                LoopOp::Continue => continue,
+                                LoopOp::Exit(cf) => {
+                                    self.env.pop_scope();
+                                    return Ok(Some(cf));
+                                }
+                            },
+                            Ok(None) => {}
+                            Err(e) => {
+                                self.env.pop_scope();
+                                return Err(e);
+                            }
+                        }
+                    }
+                    self.env.pop_scope();
+                    return Ok(None);
+                }
+                return Err(RuntimeError::new(
+                    "Нельзя итерировать по типу 'объект' (нет Symbol.iterator)".to_string(),
+                    span,
+                ));
             }
             other => {
                 return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span));

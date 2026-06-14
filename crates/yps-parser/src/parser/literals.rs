@@ -342,14 +342,33 @@ impl<'a> Parser<'a> {
                         return Err(());
                     }
                     self.advance();
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+                        self.advance();
+                        let params = self.parse_function_params()?;
+                        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+                            let span = self.current().span;
+                            self.push_error(span, "Ожидалась ')' после параметров метода");
+                            return Err(());
+                        }
+                        self.advance();
+                        let body = self.parse_block()?;
+                        let func_span = body.span;
+                        let value = Expr::ArrowFunction {
+                            params: params.into(),
+                            body: Rc::new(body),
+                            is_async: false,
+                            span: func_span,
+                        };
+                        entries.push(ObjectEntry::Property { key: PropKey::Computed(key_expr), value });
+                    } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
+                        self.advance();
+                        let value = self.parse_expr()?;
+                        entries.push(ObjectEntry::Property { key: PropKey::Computed(key_expr), value });
+                    } else {
                         let span = self.current().span;
-                        self.push_error(span, "Ожидалось ':' после ключа объекта");
+                        self.push_error(span, "Ожидалось ':' или '(' после вычисляемого ключа объекта");
                         return Err(());
                     }
-                    self.advance();
-                    let value = self.parse_expr()?;
-                    entries.push(ObjectEntry::Property { key: PropKey::Computed(key_expr), value });
                 } else if matches!(self.current().kind, TokenKind::StringLiteral) {
                     let string_expr = self.parse_string();
                     let key_expr = match &string_expr {

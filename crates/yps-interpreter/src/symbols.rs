@@ -22,6 +22,7 @@ pub const ADD_INITIALIZER_BUILTIN: &str = "__добавитьИнициализ�
 
 pub const GETTER_PREFIX: &str = "__get_";
 pub const SETTER_PREFIX: &str = "__set_";
+const SYMBOL_KEY_PREFIX: &str = "\x00sym\x00";
 
 pub const TO_PRIMITIVE_METHOD: &str = "вПримитив";
 pub const VALUE_OF_METHOD: &str = "вЧисло";
@@ -39,6 +40,15 @@ pub fn setter_key(prop: &str) -> String {
 }
 
 #[must_use]
+pub fn symbol_key(id: u64) -> String {
+    format!("{SYMBOL_KEY_PREFIX}{id}")
+}
+
+#[must_use]
 pub fn is_internal_key(k: &str) -> bool {
-    k == CLASS_TAG || k == PROTO || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
+    k == CLASS_TAG
+        || k == PROTO
+        || k.starts_with(GETTER_PREFIX)
+        || k.starts_with(SETTER_PREFIX)
+        || k.starts_with(SYMBOL_KEY_PREFIX)
 }

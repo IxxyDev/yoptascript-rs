@@ -36,31 +36,61 @@ impl<'a> Parser<'a> {
                 false
             };
 
-            if !matches!(self.current().kind, TokenKind::Identifier) {
-                self.position = saved_pos;
-                self.diagnostics.truncate(saved_diag_len);
-                return Ok(None);
-            }
-            let span = self.current().span;
-            let name_str = self.source.slice(span).to_string();
-            self.advance();
-            let name = Identifier { name: name_str, span };
-
-            let default = if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
-                self.advance();
-                match self.parse_expr() {
-                    Ok(expr) => Some(expr),
+            if matches!(
+                self.current().kind,
+                TokenKind::Punctuation(PunctuationKind::LBrace | PunctuationKind::LBracket)
+            ) {
+                let pat = match self.parse_pattern() {
+                    Ok(p) => p,
                     Err(()) => {
                         self.position = saved_pos;
                         self.diagnostics.truncate(saved_diag_len);
                         return Ok(None);
                     }
-                }
+                };
+                let pat_span = pat.span();
+                let synthetic = Identifier { name: "__пат__".to_string(), span: pat_span };
+                let default = if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                    self.advance();
+                    match self.parse_expr() {
+                        Ok(expr) => Some(expr),
+                        Err(()) => {
+                            self.position = saved_pos;
+                            self.diagnostics.truncate(saved_diag_len);
+                            return Ok(None);
+                        }
+                    }
+                } else {
+                    None
+                };
+                params.push(Param { name: synthetic, default, is_rest, pattern: Some(pat) });
             } else {
-                None
-            };
+                if !matches!(self.current().kind, TokenKind::Identifier) {
+                    self.position = saved_pos;
+                    self.diagnostics.truncate(saved_diag_len);
+                    return Ok(None);
+                }
+                let span = self.current().span;
+                let name_str = self.source.slice(span).to_string();
+                self.advance();
+                let name = Identifier { name: name_str, span };
 
-            params.push(Param { name, default, is_rest });
+                let default = if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                    self.advance();
+                    match self.parse_expr() {
+                        Ok(expr) => Some(expr),
+                        Err(()) => {
+                            self.position = saved_pos;
+                            self.diagnostics.truncate(saved_diag_len);
+                            return Ok(None);
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                params.push(Param { name, default, is_rest, pattern: None });
+            }
 
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                 self.advance();
@@ -89,7 +119,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_single_param_arrow(&mut self) -> Result<Expr, ()> {
         let start = self.current().span.start;
         let ident = self.parse_identifier()?;
-        let param = Param { name: ident, default: None, is_rest: false };
+        let param = Param { name: ident, default: None, is_rest: false, pattern: None };
         self.advance();
         self.parse_arrow_body(vec![param], start)
     }
@@ -138,16 +168,31 @@ impl<'a> Parser<'a> {
                     false
                 };
 
-                let name = self.parse_identifier()?;
-
-                let default = if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
-                    self.advance();
-                    Some(self.parse_expr()?)
+                if matches!(
+                    self.current().kind,
+                    TokenKind::Punctuation(PunctuationKind::LBrace | PunctuationKind::LBracket)
+                ) {
+                    let pat = self.parse_pattern()?;
+                    let pat_span = pat.span();
+                    let synthetic = Identifier { name: "__пат__".to_string(), span: pat_span };
+                    let default = if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                        self.advance();
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
+                    params.push(Param { name: synthetic, default, is_rest, pattern: Some(pat) });
                 } else {
-                    None
-                };
-
-                params.push(Param { name, default, is_rest });
+                    let name = self.parse_identifier()?;
+                    let default =
+                        if !is_rest && matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
+                            self.advance();
+                            Some(self.parse_expr()?)
+                        } else {
+                            None
+                        };
+                    params.push(Param { name, default, is_rest, pattern: None });
+                }
 
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                     self.advance();
@@ -281,7 +326,7 @@ impl<'a> Parser<'a> {
                         } else {
                             None
                         };
-                    params.push(Param { name, default, is_rest });
+                    params.push(Param { name, default, is_rest, pattern: None });
                     if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
                         self.advance();
                     } else {
@@ -308,7 +353,7 @@ impl<'a> Parser<'a> {
             && matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::Arrow))
         {
             let ident = self.parse_identifier()?;
-            let param = Param { name: ident, default: None, is_rest: false };
+            let param = Param { name: ident, default: None, is_rest: false, pattern: None };
             self.advance();
             self.parse_arrow_body_with_async(vec![param], start, true)
         } else {

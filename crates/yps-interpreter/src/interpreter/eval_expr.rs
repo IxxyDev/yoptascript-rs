@@ -468,7 +468,11 @@ impl Interpreter {
                                 PropKey::Identifier(ident) => ident.name.clone(),
                                 PropKey::Computed(expr) => {
                                     let k = self.eval_expr(expr)?;
-                                    k.to_string()
+                                    if let Value::Symbol { id, .. } = &k {
+                                        crate::symbols::symbol_key(*id)
+                                    } else {
+                                        k.to_string()
+                                    }
                                 }
                             };
                             let val = self.eval_expr(value)?;
@@ -482,7 +486,9 @@ impl Interpreter {
                             };
                             match val {
                                 Value::Object(src) => {
-                                    for (k, v) in src.borrow().iter() {
+                                    for (k, v) in
+                                        src.borrow().iter().filter(|(k, _)| !crate::symbols::is_internal_key(k))
+                                    {
                                         map.insert(k.clone(), v.clone());
                                     }
                                 }
@@ -499,7 +505,11 @@ impl Interpreter {
                                 PropKey::Identifier(ident) => ident.name.clone(),
                                 PropKey::Computed(expr) => {
                                     let k = self.eval_expr(expr)?;
-                                    k.to_string()
+                                    if let Value::Symbol { id, .. } = &k {
+                                        crate::symbols::symbol_key(*id)
+                                    } else {
+                                        k.to_string()
+                                    }
                                 }
                             };
                             let getter_fn = Value::Function {
@@ -517,7 +527,11 @@ impl Interpreter {
                                 PropKey::Identifier(ident) => ident.name.clone(),
                                 PropKey::Computed(expr) => {
                                     let k = self.eval_expr(expr)?;
-                                    k.to_string()
+                                    if let Value::Symbol { id, .. } = &k {
+                                        crate::symbols::symbol_key(*id)
+                                    } else {
+                                        k.to_string()
+                                    }
                                 }
                             };
                             let setter_fn = Value::Function {
