@@ -1035,6 +1035,7 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
         UnaryOp::Plus => "+",
         UnaryOp::Minus => "-",
         UnaryOp::Not => "!",
+        UnaryOp::BitwiseNot => "~",
         UnaryOp::Typeof => "чезажижан",
         UnaryOp::Delete => "ёбнуть",
         UnaryOp::Void => "куку",
@@ -1083,6 +1084,19 @@ fn binary_op_str(op: BinaryOp) -> &'static str {
         BinaryOp::Pipeline => "|>",
         BinaryOp::Instanceof => "шкура",
         BinaryOp::In => "из",
+        BinaryOp::BitAnd => "&",
+        BinaryOp::BitOr => "|",
+        BinaryOp::BitXor => "^",
+        BinaryOp::LeftShift => "<<",
+        BinaryOp::RightShift => ">>",
+        BinaryOp::UnsignedRightShift => ">>>",
+        BinaryOp::ModAssign => "%=",
+        BinaryOp::BitAndAssign => "&=",
+        BinaryOp::BitOrAssign => "|=",
+        BinaryOp::BitXorAssign => "^=",
+        BinaryOp::ShlAssign => "<<=",
+        BinaryOp::ShrAssign => ">>=",
+        BinaryOp::UshrAssign => ">>>=",
     }
 }
 
