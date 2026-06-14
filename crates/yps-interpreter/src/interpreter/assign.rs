@@ -32,6 +32,13 @@ impl Interpreter {
             BinaryOp::MulAssign => BinaryOp::Mul,
             BinaryOp::DivAssign => BinaryOp::Div,
             BinaryOp::ExpAssign => BinaryOp::Exp,
+            BinaryOp::ModAssign => BinaryOp::Mod,
+            BinaryOp::BitAndAssign => BinaryOp::BitAnd,
+            BinaryOp::BitOrAssign => BinaryOp::BitOr,
+            BinaryOp::BitXorAssign => BinaryOp::BitXor,
+            BinaryOp::ShlAssign => BinaryOp::LeftShift,
+            BinaryOp::ShrAssign => BinaryOp::RightShift,
+            BinaryOp::UshrAssign => BinaryOp::UnsignedRightShift,
             _ => unreachable!(),
         };
         let result = self.eval_binary(arith_op, old, right, span)?;

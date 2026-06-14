@@ -7,7 +7,7 @@ use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, Temp
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{Value, to_int_n, to_uint_n};
 
 use super::Interpreter;
 use super::coercion;
@@ -104,6 +104,13 @@ impl Interpreter {
                         | BinaryOp::MulAssign
                         | BinaryOp::DivAssign
                         | BinaryOp::ExpAssign
+                        | BinaryOp::ModAssign
+                        | BinaryOp::BitAndAssign
+                        | BinaryOp::BitOrAssign
+                        | BinaryOp::BitXorAssign
+                        | BinaryOp::ShlAssign
+                        | BinaryOp::ShrAssign
+                        | BinaryOp::UshrAssign
                 ) {
                     return self.eval_compound_assignment(*op, lhs, rhs, *span);
                 }
@@ -575,6 +582,18 @@ impl Interpreter {
                 _ => Err(RuntimeError::new(format!("Нельзя применить '+' к типу '{}'", val.type_name()), span)),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
+            UnaryOp::BitwiseNot => {
+                let n = match &val {
+                    Value::Number(n) => *n,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Нельзя применить '~' к типу '{}'", val.type_name()),
+                            span,
+                        ));
+                    }
+                };
+                Ok(Value::Number(!(to_int_n(n, 32) as i32) as f64))
+            }
             UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string())),
             UnaryOp::Delete => Ok(Value::Boolean(true)),
             UnaryOp::Void => Ok(Value::Undefined),
@@ -670,6 +689,36 @@ impl Interpreter {
                     span,
                 )),
             },
+            BinaryOp::BitAnd => {
+                let a = to_int_n(coercion::to_number(&left), 32) as i32;
+                let b = to_int_n(coercion::to_number(&right), 32) as i32;
+                Ok(Value::Number((a & b) as f64))
+            }
+            BinaryOp::BitOr => {
+                let a = to_int_n(coercion::to_number(&left), 32) as i32;
+                let b = to_int_n(coercion::to_number(&right), 32) as i32;
+                Ok(Value::Number((a | b) as f64))
+            }
+            BinaryOp::BitXor => {
+                let a = to_int_n(coercion::to_number(&left), 32) as i32;
+                let b = to_int_n(coercion::to_number(&right), 32) as i32;
+                Ok(Value::Number((a ^ b) as f64))
+            }
+            BinaryOp::LeftShift => {
+                let a = to_int_n(coercion::to_number(&left), 32) as i32;
+                let b = (to_uint_n(coercion::to_number(&right), 32) & 0x1f) as u32;
+                Ok(Value::Number((a << b) as f64))
+            }
+            BinaryOp::RightShift => {
+                let a = to_int_n(coercion::to_number(&left), 32) as i32;
+                let b = (to_uint_n(coercion::to_number(&right), 32) & 0x1f) as u32;
+                Ok(Value::Number((a >> b) as f64))
+            }
+            BinaryOp::UnsignedRightShift => {
+                let a = to_uint_n(coercion::to_number(&left), 32) as u32;
+                let b = (to_uint_n(coercion::to_number(&right), 32) & 0x1f) as u32;
+                Ok(Value::Number((a >> b) as f64))
+            }
             BinaryOp::And
             | BinaryOp::Or
             | BinaryOp::NullishCoalescing
@@ -683,7 +732,14 @@ impl Interpreter {
             | BinaryOp::MinusAssign
             | BinaryOp::MulAssign
             | BinaryOp::DivAssign
-            | BinaryOp::ExpAssign => unreachable!("handled in eval_expr"),
+            | BinaryOp::ExpAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::UshrAssign => unreachable!("handled in eval_expr"),
         }
     }
 
