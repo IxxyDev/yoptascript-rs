@@ -5,6 +5,7 @@ use yps_parser::{
 use yps_parser::{TERNARY_PRECEDENCE, UNARY_PRECEDENCE, binary_is_right_assoc, binary_precedence};
 
 use crate::comments::CommentMap;
+use crate::sourcemap::{SourceMap, SourceMapBuilder};
 
 const INDENT: &str = "    ";
 const MAX_WIDTH: usize = 100;
@@ -14,25 +15,36 @@ const POSTFIX_PRECEDENCE: u8 = 13;
 const CALL_PRECEDENCE: u8 = 14;
 
 pub fn print_program(program: &Program) -> String {
-    let mut p = Printer { out: String::new(), depth: 0, comments: None };
+    let mut p = Printer { out: String::new(), depth: 0, comments: None, sm: None, gen_line: 0 };
     p.print_program(program);
     p.out
 }
 
 pub fn print_program_with_comments(program: &Program, comments: &CommentMap) -> String {
-    let mut p = Printer { out: String::new(), depth: 0, comments: Some(comments) };
+    let mut p = Printer { out: String::new(), depth: 0, comments: Some(comments), sm: None, gen_line: 0 };
     p.print_program(program);
     p.out
+}
+
+pub fn print_program_with_map(program: &Program, comments: Option<&CommentMap>, source: &str) -> (String, SourceMap) {
+    let mut p =
+        Printer { out: String::new(), depth: 0, comments, sm: Some(SourceMapBuilder::new(source)), gen_line: 0 };
+    p.print_program(program);
+    let map = p.sm.unwrap().build("", "");
+    (p.out, map)
 }
 
 struct Printer<'a> {
     out: String,
     depth: usize,
     comments: Option<&'a CommentMap>,
+    sm: Option<SourceMapBuilder>,
+    gen_line: u32,
 }
 
 impl Printer<'_> {
     fn write(&mut self, s: &str) {
+        self.gen_line += s.bytes().filter(|&b| b == b'\n').count() as u32;
         self.out.push_str(s);
     }
 
@@ -43,6 +55,7 @@ impl Printer<'_> {
     }
 
     fn newline(&mut self) {
+        self.gen_line += 1;
         self.out.push('\n');
     }
 
@@ -55,7 +68,9 @@ impl Printer<'_> {
 
     fn capture<F: FnOnce(&mut Self)>(&mut self, f: F) -> String {
         let saved = std::mem::take(&mut self.out);
+        let saved_line = self.gen_line;
         f(self);
+        self.gen_line = saved_line;
         std::mem::replace(&mut self.out, saved)
     }
 
@@ -104,6 +119,16 @@ impl Printer<'_> {
         self.depth -= 1;
         self.indent();
         self.write(close);
+    }
+
+    fn record_mapping(&mut self, span_start: usize) {
+        if let Some(sm) = &mut self.sm {
+            let gen_col = match self.out.rfind('\n') {
+                Some(idx) => self.out[idx + 1..].encode_utf16().count() as u32,
+                None => self.out.encode_utf16().count() as u32,
+            };
+            sm.add_mapping(self.gen_line, gen_col, span_start);
+        }
     }
 
     fn emit_leading(&mut self, stmt: &Stmt) {
@@ -182,6 +207,7 @@ impl Printer<'_> {
     }
 
     fn print_stmt(&mut self, stmt: &Stmt) {
+        self.record_mapping(stmt.span().start);
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
                 self.write(if *is_const { "участковый" } else { "гыы" });
