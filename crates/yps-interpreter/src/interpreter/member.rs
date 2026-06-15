@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{ClassDef, Value};
 
 use super::Interpreter;
 
@@ -232,11 +233,11 @@ impl Interpreter {
         }
     }
 
-    pub(crate) fn class_prototype_object(cls: &std::rc::Rc<crate::value::ClassDef>) -> Value {
+    pub(crate) fn class_prototype_object(cls: &Rc<ClassDef>) -> Value {
         cls.prototype_cache
             .get_or_init(|| {
-                let mut map = std::collections::HashMap::new();
-                let mut current: Option<&crate::value::ClassDef> = Some(cls);
+                let mut map = HashMap::new();
+                let mut current: Option<&ClassDef> = Some(cls);
                 while let Some(c) = current {
                     for (name, (params, body, env)) in &c.methods {
                         map.entry(name.clone()).or_insert_with(|| Value::Function {
@@ -250,8 +251,8 @@ impl Interpreter {
                     }
                     current = c.parent.as_deref();
                 }
-                map.insert("конструктор".to_string(), Value::WeakClass(std::rc::Rc::downgrade(cls)));
-                map.insert(symbols::PROTO.to_string(), Value::WeakClass(std::rc::Rc::downgrade(cls)));
+                map.insert("конструктор".to_string(), Value::WeakClass(Rc::downgrade(cls)));
+                map.insert(symbols::PROTO.to_string(), Value::WeakClass(Rc::downgrade(cls)));
                 Value::object(map)
             })
             .clone()
