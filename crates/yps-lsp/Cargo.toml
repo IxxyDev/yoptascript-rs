@@ -1,0 +1,18 @@
+[package]
+name = "yps-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "yps-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+yps-lexer = { path = "../yps-lexer" }
+yps-parser = { path = "../yps-parser" }
+yps-interpreter = { path = "../yps-interpreter" }

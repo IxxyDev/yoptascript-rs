@@ -4,6 +4,7 @@ members = [
     "crates/yps-fmt",
     "crates/yps-interpreter",
     "crates/yps-lexer",
+    "crates/yps-lsp",
     "crates/yps-parser",
 ]
 resolver = "3"
