@@ -7,6 +7,10 @@ ignore = []
 multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+skip = [
+    { name = "bitflags", version = "1" },
+    { name = "hashbrown", version = "0.14" },
+]
 
 [licenses]
 confidence-threshold = 0.8
