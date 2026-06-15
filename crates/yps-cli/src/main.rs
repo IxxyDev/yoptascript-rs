@@ -45,18 +45,20 @@ fn main() {
 
 fn run_fmt(args: &[String]) {
     if args.is_empty() {
-        eprintln!("Использование: yps fmt <файл.yop> [--write|-w] [--check]");
+        eprintln!("Использование: yps fmt <файл.yop> [--write|-w] [--check] [--source-map]");
         process::exit(1);
     }
 
     let filename = &args[0];
     let mut write_in_place = false;
     let mut check_only = false;
+    let mut source_map = false;
 
     for flag in &args[1..] {
         match flag.as_str() {
             "--write" | "-w" => write_in_place = true,
             "--check" => check_only = true,
+            "--source-map" => source_map = true,
             other => {
                 eprintln!("Неизвестный флаг: {other}");
                 process::exit(1);
@@ -72,33 +74,77 @@ fn run_fmt(args: &[String]) {
         }
     };
 
+    let handle_fmt_err = |e: yps_fmt::FormatError| -> ! {
+        match e {
+            yps_fmt::FormatError::ParseError(diags) => {
+                let sf = SourceFile::new(filename.clone(), source.clone());
+                for d in &diags {
+                    let (line, col) = sf.position(d.span.start);
+                    eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
+                }
+                eprintln!("Форматирование отклонено: файл содержит синтаксические ошибки");
+            }
+            yps_fmt::FormatError::RoundTripFailed(msg) => {
+                eprintln!("Форматирование отклонено: самопроверка не прошла: {msg}");
+            }
+            yps_fmt::FormatError::CommentRefused(msg) => {
+                eprintln!("Форматирование отклонено: {msg}");
+            }
+        }
+        process::exit(1)
+    };
+
+    if source_map {
+        let (outcome, mut map) = match yps_fmt::format_source_with_map(&source) {
+            Ok(r) => r,
+            Err(e) => handle_fmt_err(e),
+        };
+
+        let map_path = format!("{filename}.map");
+        map.file = map_path.clone();
+        map.source_name = filename.clone();
+
+        if check_only {
+            process::exit(if outcome.already_formatted { 0 } else { 1 });
+        }
+
+        if write_in_place {
+            let tmp_path = format!("{filename}.fmt_tmp");
+            if let Err(e) = fs::write(&tmp_path, &outcome.text) {
+                eprintln!("Не удалось записать временный файл '{tmp_path}': {e}");
+                process::exit(1);
+            }
+            if let Err(e) = fs::rename(&tmp_path, filename) {
+                eprintln!("Не удалось переименовать '{tmp_path}' в '{filename}': {e}");
+                let _ = fs::remove_file(&tmp_path);
+                process::exit(1);
+            }
+            if let Err(e) = fs::write(&map_path, map.to_json()) {
+                eprintln!("Не удалось записать source map '{map_path}': {e}");
+                process::exit(1);
+            }
+        } else {
+            let stdout = io::stdout();
+            let mut handle = stdout.lock();
+            if let Err(e) = handle.write_all(outcome.text.as_bytes()) {
+                eprintln!("Ошибка записи в stdout: {e}");
+                process::exit(1);
+            }
+            if let Err(e) = writeln!(handle, "{}", map.to_json()) {
+                eprintln!("Ошибка записи source map в stdout: {e}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
     let outcome = match yps_fmt::format_source(&source) {
         Ok(o) => o,
-        Err(yps_fmt::FormatError::ParseError(diags)) => {
-            let sf = SourceFile::new(filename.clone(), source.clone());
-            for d in &diags {
-                let (line, col) = sf.position(d.span.start);
-                eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
-            }
-            eprintln!("Форматирование отклонено: файл содержит синтаксические ошибки");
-            process::exit(1);
-        }
-        Err(yps_fmt::FormatError::RoundTripFailed(msg)) => {
-            eprintln!("Форматирование отклонено: самопроверка не прошла: {msg}");
-            process::exit(1);
-        }
-        Err(yps_fmt::FormatError::CommentRefused(msg)) => {
-            eprintln!("Форматирование отклонено: {msg}");
-            process::exit(1);
-        }
+        Err(e) => handle_fmt_err(e),
     };
 
     if check_only {
-        if outcome.already_formatted {
-            process::exit(0);
-        } else {
-            process::exit(1);
-        }
+        process::exit(if outcome.already_formatted { 0 } else { 1 });
     }
 
     if write_in_place {
