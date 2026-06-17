@@ -309,6 +309,12 @@ pub struct ArrayStore(pub Vec<Value>);
 #[derive(Clone, Default, Debug)]
 pub struct ObjectStore(pub HashMap<String, Value>);
 
+#[derive(Clone, Default)]
+pub struct MapStore(pub IndexMap<MapKey, Value>);
+
+#[derive(Clone, Default)]
+pub struct SetStore(pub IndexSet<MapKey>);
+
 impl Deref for ArrayStore {
     type Target = Vec<Value>;
     fn deref(&self) -> &Self::Target {
@@ -349,6 +355,50 @@ impl Drop for ObjectStore {
     }
 }
 
+impl Deref for MapStore {
+    type Target = IndexMap<MapKey, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MapStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for SetStore {
+    type Target = IndexSet<MapKey>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SetStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for MapStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = Vec::with_capacity(self.0.len() * 2);
+        for (k, v) in std::mem::take(&mut self.0) {
+            stack.push(k.0);
+            stack.push(v);
+        }
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Drop for SetStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = std::mem::take(&mut self.0).into_iter().map(|k| k.0).collect();
+        drain_value_tree(&mut stack);
+    }
+}
+
 fn drain_value_tree(stack: &mut Vec<Value>) {
     while let Some(value) = stack.pop() {
         match value {
@@ -367,6 +417,23 @@ fn drain_value_tree(stack: &mut Vec<Value>) {
                     stack.extend(map.into_values());
                 }
             }
+            Value::Map(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    for (k, v) in std::mem::take(&mut inner.0) {
+                        stack.push(k.0);
+                        stack.push(v);
+                    }
+                }
+            }
+            Value::Set(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    stack.extend(std::mem::take(&mut inner.0).into_iter().map(|k| k.0));
+                }
+            }
             _ => {}
         }
     }
@@ -380,8 +447,8 @@ pub enum Value {
     Boolean(bool),
     Array(Rc<RefCell<ArrayStore>>),
     Object(Rc<RefCell<ObjectStore>>),
-    Map(Rc<RefCell<IndexMap<MapKey, Value>>>),
-    Set(Rc<RefCell<IndexSet<MapKey>>>),
+    Map(Rc<RefCell<MapStore>>),
+    Set(Rc<RefCell<SetStore>>),
     Function {
         name: Rc<str>,
         params: Rc<[Param]>,
@@ -478,8 +545,8 @@ pub type WeakSetStore = Rc<RefCell<HashMap<usize, WeakKey>>>;
 pub enum WeakKey {
     Object(Weak<RefCell<ObjectStore>>),
     Array(Weak<RefCell<ArrayStore>>),
-    Map(Weak<RefCell<IndexMap<MapKey, Value>>>),
-    Set(Weak<RefCell<IndexSet<MapKey>>>),
+    Map(Weak<RefCell<MapStore>>),
+    Set(Weak<RefCell<SetStore>>),
 }
 
 impl WeakKey {
@@ -542,11 +609,11 @@ impl Value {
     }
 
     pub fn map(entries: IndexMap<MapKey, Value>) -> Value {
-        Value::Map(Rc::new(RefCell::new(entries)))
+        Value::Map(Rc::new(RefCell::new(MapStore(entries))))
     }
 
     pub fn set(items: IndexSet<MapKey>) -> Value {
-        Value::Set(Rc::new(RefCell::new(items)))
+        Value::Set(Rc::new(RefCell::new(SetStore(items))))
     }
 
     pub(crate) fn proxy_parts(&self) -> Option<(Rc<Value>, Rc<Value>)> {

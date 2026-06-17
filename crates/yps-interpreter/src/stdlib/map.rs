@@ -16,7 +16,7 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     }
     match &args[0] {
         Value::Array(entries) => entries_to_map(&entries.borrow(), span),
-        Value::Map(m) => Ok(Value::map(m.borrow().clone())),
+        Value::Map(m) => Ok(Value::map(m.borrow().0.clone())),
         Value::Undefined | Value::Null => Ok(Value::map(IndexMap::new())),
         other => Err(RuntimeError::new(
             format!("'Карта' ожидает массив пар или карту, получено '{}'", other.type_name()),
@@ -36,7 +36,7 @@ pub fn call_static(
             require_args(&args, 1, span, "Карта.отПар")?;
             match &args[0] {
                 Value::Array(entries) => entries_to_map(&entries.borrow(), span),
-                Value::Map(m) => Ok(Value::map(m.borrow().clone())),
+                Value::Map(m) => Ok(Value::map(m.borrow().0.clone())),
                 other => Err(RuntimeError::new(
                     format!("'Карта.отПар' ожидает массив пар, получено '{}'", other.type_name()),
                     span,
