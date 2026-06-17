@@ -117,6 +117,7 @@ pub(crate) fn to_primitive_builtin(value: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::{ArrayStore, ObjectStore};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::rc::Rc;
@@ -158,7 +159,7 @@ mod tests {
 
     #[test]
     fn to_ecma_string_object_is_object_object() {
-        let obj = Value::Object(Rc::new(RefCell::new(HashMap::new())));
+        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore(HashMap::new()))));
         assert_eq!(to_ecma_string(&obj), "[object Object]");
     }
 
@@ -174,13 +175,18 @@ mod tests {
 
     #[test]
     fn to_ecma_string_array_joins_with_comma() {
-        let arr = Value::Array(Rc::new(RefCell::new(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+        let arr = Value::Array(Rc::new(RefCell::new(ArrayStore(vec![
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+        ]))));
         assert_eq!(to_ecma_string(&arr), "1,2,3");
     }
 
     #[test]
     fn to_ecma_string_array_null_undefined_blank() {
-        let arr = Value::Array(Rc::new(RefCell::new(vec![Value::Null, Value::Undefined, Value::Number(1.0)])));
+        let arr =
+            Value::Array(Rc::new(RefCell::new(ArrayStore(vec![Value::Null, Value::Undefined, Value::Number(1.0)]))));
         assert_eq!(to_ecma_string(&arr), ",,1");
     }
 
@@ -208,7 +214,7 @@ mod tests {
 
     #[test]
     fn to_primitive_builtin_object_stringifies() {
-        let obj = Value::Object(Rc::new(RefCell::new(HashMap::new())));
+        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore(HashMap::new()))));
         assert_eq!(to_primitive_builtin(&obj), Value::String("[object Object]".to_string()));
     }
 }

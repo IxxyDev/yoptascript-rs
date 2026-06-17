@@ -115,7 +115,7 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("СигналОтмены.") {
         if stripped == "любой" {
             let sigs = match args.into_iter().next().unwrap_or(Value::Undefined) {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 other => {
                     return Some(Err(RuntimeError::new(
                         format!("'СигналОтмены.любой' ожидает массив, получено '{}'", other.type_name()),

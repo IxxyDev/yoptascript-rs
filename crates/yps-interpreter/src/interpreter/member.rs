@@ -210,7 +210,7 @@ impl Interpreter {
     }
 
     pub(crate) fn resolve_class_for_object(
-        map: &Rc<std::cell::RefCell<std::collections::HashMap<String, Value>>>,
+        map: &Rc<std::cell::RefCell<crate::value::ObjectStore>>,
         env: &crate::environment::Environment,
     ) -> Option<std::rc::Rc<crate::value::ClassDef>> {
         let proto = map.borrow().get(symbols::PROTO).cloned();

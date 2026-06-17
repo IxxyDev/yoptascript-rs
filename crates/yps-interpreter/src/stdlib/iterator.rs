@@ -18,6 +18,7 @@ fn borrow_iter_mut<'a>(
 }
 
 const MAX_ITERATOR_DEPTH: usize = 200;
+const MAX_MATERIALIZED_ELEMENTS: usize = 10_000_000;
 
 fn adapter_depth(state: &IteratorState, budget: usize) -> usize {
     if budget == 0 {
@@ -333,7 +334,15 @@ pub fn drain(
             next(interp, &mut state, span)?
         };
         match v {
-            Some(val) => out.push(val),
+            Some(val) => {
+                if out.len() >= MAX_MATERIALIZED_ELEMENTS {
+                    return Err(RuntimeError::new(
+                        "итератор материализует слишком много элементов — используй взять(n)",
+                        span,
+                    ));
+                }
+                out.push(val);
+            }
             None => return Ok(out),
         }
     }
@@ -504,7 +513,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
 
 pub fn state_from_value(value: Value, span: Span, ctx: &str) -> Result<IteratorState, RuntimeError> {
     match value {
-        Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().clone(), index: 0 }),
+        Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().0.clone(), index: 0 }),
         Value::String(s) => Ok(IteratorState::Chars { chars: s.chars().collect(), index: 0 }),
         Value::Set(values) => Ok(IteratorState::Array {
             values: values.borrow().iter().map(|k| k.as_value().clone()).collect(),

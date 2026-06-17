@@ -199,8 +199,16 @@ fn run_interpret(filename: &str) {
     if let Some(parent) = PathBuf::from(filename).parent().map(PathBuf::from) {
         interpreter.set_base_path(parent);
     }
-    if let Err(e) = interpreter.run(&program) {
-        print_runtime_error(&source, &e, filename);
-        process::exit(1);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| interpreter.run(&program)));
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            print_runtime_error(&source, &e, filename);
+            process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("Внутренняя ошибка интерпретатора: выполнение прервано");
+            process::exit(70);
+        }
     }
 }
