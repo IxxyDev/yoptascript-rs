@@ -78,6 +78,7 @@ pub enum GenFrame {
     },
     Delegate {
         inner: Rc<RefCell<IteratorState>>,
+        bind: Option<BindTarget>,
     },
     TryCatch {
         catch_param: Option<String>,
