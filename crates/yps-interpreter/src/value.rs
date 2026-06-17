@@ -733,7 +733,12 @@ impl Value {
                 if !seen.insert(ptr) {
                     return write!(f, "[Циклично]");
                 }
-                let snapshot: Vec<(String, Value)> = map.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let snapshot: Vec<(String, Value)> = map
+                    .borrow()
+                    .iter()
+                    .filter(|(k, _)| !crate::symbols::is_internal_key(k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
                 write!(f, "{{")?;
                 for (i, (k, v)) in snapshot.iter().enumerate() {
                     if i > 0 {
