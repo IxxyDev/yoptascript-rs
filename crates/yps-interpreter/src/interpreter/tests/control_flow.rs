@@ -597,3 +597,53 @@ fn labeled_break_in_generator_errors() {
         err.message
     );
 }
+
+#[test]
+fn for_loop_closures_capture_per_iteration() {
+    let interp = run_code(
+        r#"
+        гыы фс = [];
+        го (гыы и = 0; и < 3; и += 1) { фс.втолкнуть(() => и); }
+        гыы р = [фс[0](), фс[1](), фс[2]()];
+        "#,
+    );
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)]));
+}
+
+#[test]
+fn for_of_closures_capture_per_iteration() {
+    let interp = run_code(
+        r#"
+        гыы гс = [];
+        го (гыы х сашаГрей [10, 20, 30]) { гс.втолкнуть(() => х); }
+        гыы р = [гс[0](), гс[1](), гс[2]()];
+        "#,
+    );
+    assert_struct_eq(
+        interp.get("р"),
+        Value::array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]),
+    );
+}
+
+#[test]
+fn for_loop_continue_capture_skips_iteration() {
+    let interp = run_code(
+        r#"
+        гыы фс = [];
+        го (гыы и = 0; и < 4; и += 1) { вилкойвглаз (и === 1) { двигай; } фс.втолкнуть(() => и); }
+        гыы р = [фс[0](), фс[1](), фс[2]()];
+        "#,
+    );
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(0.0), Value::Number(2.0), Value::Number(3.0)]));
+}
+
+#[test]
+fn for_loop_sum_still_accumulates() {
+    let interp = run_code(
+        r#"
+        гыы с = 0;
+        го (гыы и = 0; и < 5; и += 1) { с += и; }
+        "#,
+    );
+    assert_eq!(interp.get("с"), Some(Value::Number(10.0)));
+}
