@@ -562,6 +562,10 @@ impl Interpreter {
 
     pub(super) fn has_dispose_method(value: &Value, env: &Environment) -> bool {
         if let Value::Object(map) = value {
+            let dispose_sym = symbols::symbol_key(crate::stdlib::symbol::DISPOSE_ID);
+            if let Some(Value::Function { .. }) = map.borrow().get(&dispose_sym) {
+                return true;
+            }
             if let Some(Value::Function { .. }) = map.borrow().get(symbols::DISPOSE_METHOD) {
                 return true;
             }
@@ -581,7 +585,11 @@ impl Interpreter {
 
     pub(super) fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
         if let Value::Object(map) = &resource {
-            let dispose_fn = map.borrow().get(symbols::DISPOSE_METHOD).cloned();
+            let dispose_sym = symbols::symbol_key(crate::stdlib::symbol::DISPOSE_ID);
+            let dispose_fn = {
+                let borrowed = map.borrow();
+                borrowed.get(&dispose_sym).or_else(|| borrowed.get(symbols::DISPOSE_METHOD)).cloned()
+            };
             if let Some(Value::Function { params, body, env, .. }) = dispose_fn {
                 self.call_method_with_this(
                     Rc::from("<dispose>"),
