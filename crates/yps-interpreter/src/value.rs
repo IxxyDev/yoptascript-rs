@@ -680,6 +680,9 @@ impl fmt::Debug for Value {
     }
 }
 
+const VALUE_STACK_RED_ZONE: usize = 256 * 1024;
+const VALUE_STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut seen: std::collections::HashSet<*const ()> = std::collections::HashSet::new();
@@ -689,6 +692,14 @@ impl fmt::Display for Value {
 
 impl Value {
     fn fmt_with_seen(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        seen: &mut std::collections::HashSet<*const ()>,
+    ) -> fmt::Result {
+        stacker::maybe_grow(VALUE_STACK_RED_ZONE, VALUE_STACK_GROW_SIZE, || self.fmt_with_seen_inner(f, seen))
+    }
+
+    fn fmt_with_seen_inner(
         &self,
         f: &mut fmt::Formatter<'_>,
         seen: &mut std::collections::HashSet<*const ()>,
