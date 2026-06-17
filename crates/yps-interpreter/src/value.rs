@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
 use indexmap::{IndexMap, IndexSet};
@@ -302,14 +303,83 @@ pub struct ClassDef {
     pub prototype_cache: std::cell::OnceCell<Value>,
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct ArrayStore(pub Vec<Value>);
+
+#[derive(Clone, Default, Debug)]
+pub struct ObjectStore(pub HashMap<String, Value>);
+
+impl Deref for ArrayStore {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ArrayStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for ObjectStore {
+    type Target = HashMap<String, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ObjectStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for ArrayStore {
+    fn drop(&mut self) {
+        let mut stack = std::mem::take(&mut self.0);
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Drop for ObjectStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = std::mem::take(&mut self.0).into_values().collect();
+        drain_value_tree(&mut stack);
+    }
+}
+
+fn drain_value_tree(stack: &mut Vec<Value>) {
+    while let Some(value) = stack.pop() {
+        match value {
+            Value::Array(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    stack.append(&mut inner.0);
+                }
+            }
+            Value::Object(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    let map = std::mem::take(&mut inner.0);
+                    stack.extend(map.into_values());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
     BigInt(i128),
     String(String),
     Boolean(bool),
-    Array(Rc<RefCell<Vec<Value>>>),
-    Object(Rc<RefCell<HashMap<String, Value>>>),
+    Array(Rc<RefCell<ArrayStore>>),
+    Object(Rc<RefCell<ObjectStore>>),
     Map(Rc<RefCell<IndexMap<MapKey, Value>>>),
     Set(Rc<RefCell<IndexSet<MapKey>>>),
     Function {
@@ -406,8 +476,8 @@ pub type WeakSetStore = Rc<RefCell<HashMap<usize, WeakKey>>>;
 
 #[derive(Clone)]
 pub enum WeakKey {
-    Object(Weak<RefCell<HashMap<String, Value>>>),
-    Array(Weak<RefCell<Vec<Value>>>),
+    Object(Weak<RefCell<ObjectStore>>),
+    Array(Weak<RefCell<ArrayStore>>),
     Map(Weak<RefCell<IndexMap<MapKey, Value>>>),
     Set(Weak<RefCell<IndexSet<MapKey>>>),
 }
@@ -464,11 +534,11 @@ pub struct FinRegEntry {
 
 impl Value {
     pub fn array(items: Vec<Value>) -> Value {
-        Value::Array(Rc::new(RefCell::new(items)))
+        Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
     }
 
     pub fn object(map: HashMap<String, Value>) -> Value {
-        Value::Object(Rc::new(RefCell::new(map)))
+        Value::Object(Rc::new(RefCell::new(ObjectStore(map))))
     }
 
     pub fn map(entries: IndexMap<MapKey, Value>) -> Value {

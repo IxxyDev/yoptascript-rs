@@ -504,7 +504,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
 
 pub fn state_from_value(value: Value, span: Span, ctx: &str) -> Result<IteratorState, RuntimeError> {
     match value {
-        Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().clone(), index: 0 }),
+        Value::Array(values) => Ok(IteratorState::Array { values: values.borrow().0.clone(), index: 0 }),
         Value::String(s) => Ok(IteratorState::Chars { chars: s.chars().collect(), index: 0 }),
         Value::Set(values) => Ok(IteratorState::Array {
             values: values.borrow().iter().map(|k| k.as_value().clone()).collect(),

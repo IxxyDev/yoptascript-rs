@@ -3,7 +3,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{as_number, builtin, object_of, require_args};
-use crate::value::{Value, same_value_zero};
+use crate::value::{ArrayStore, Value, same_value_zero};
 
 pub fn build_object() -> Value {
     object_of(&[
@@ -27,7 +27,7 @@ pub fn call_static(
         "извне" => {
             require_args(&args, 1, span, "Помойка.извне")?;
             match &args[0] {
-                Value::Array(a) => Ok(Value::array(a.borrow().clone())),
+                Value::Array(a) => Ok(Value::array(a.borrow().0.clone())),
                 Value::String(s) => Ok(Value::array(s.chars().map(|c| Value::String(c.to_string())).collect())),
                 other => Err(RuntimeError::new(format!("Помойка.извне не поддерживает '{}'", other.type_name()), span)),
             }
@@ -152,7 +152,7 @@ pub fn call(
             Ok(Value::Array(rc))
         }
         "concat" | "склеитьМассивы" => {
-            let mut new_arr = rc.borrow().clone();
+            let mut new_arr = rc.borrow().0.clone();
             for a in args {
                 match a {
                     Value::Array(inner) => new_arr.extend(inner.borrow().iter().cloned()),
@@ -162,15 +162,15 @@ pub fn call(
             Ok(Value::array(new_arr))
         }
         "sort" | "сортировать" => {
-            let mut snapshot = rc.borrow().clone();
+            let mut snapshot = rc.borrow().0.clone();
             sort_snapshot(interp, &mut snapshot, args, span)?;
-            *rc.borrow_mut() = snapshot;
+            *rc.borrow_mut() = ArrayStore(snapshot);
             Ok(Value::Array(rc))
         }
         "map" | "преобразовать" => {
             require_args(&args, 1, span, "map")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let mut result = Vec::with_capacity(snapshot.len());
             for (i, el) in snapshot.into_iter().enumerate() {
                 let v = interp.call_function(
@@ -185,7 +185,7 @@ pub fn call(
         "filter" | "отфильтровать" => {
             require_args(&args, 1, span, "filter")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let mut result = Vec::new();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let keep = interp.call_function(
@@ -204,7 +204,7 @@ pub fn call(
             let mut iter = args.into_iter();
             let callback = iter.next().unwrap();
             let initial = iter.next();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let mut acc = match initial {
                 Some(v) => v,
                 None => {
@@ -238,7 +238,7 @@ pub fn call(
             let mut iter = args.into_iter();
             let callback = iter.next().unwrap();
             let initial = iter.next();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let len = snapshot.len();
             match initial {
                 Some(v) => {
@@ -271,7 +271,7 @@ pub fn call(
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             for (i, el) in snapshot.into_iter().enumerate() {
                 interp.call_function(
                     callback.clone(),
@@ -284,7 +284,7 @@ pub fn call(
         "find" | "найти" => {
             require_args(&args, 1, span, "find")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let matched = interp.call_function(
                     callback.clone(),
@@ -300,7 +300,7 @@ pub fn call(
         "findIndex" | "найтиИндексПо" => {
             require_args(&args, 1, span, "findIndex")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let matched = interp.call_function(
                     callback.clone(),
@@ -316,7 +316,7 @@ pub fn call(
         "some" | "некоторые" => {
             require_args(&args, 1, span, "some")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let matched = interp.call_function(
                     callback.clone(),
@@ -332,7 +332,7 @@ pub fn call(
         "every" | "все" => {
             require_args(&args, 1, span, "every")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let matched = interp.call_function(
                     callback.clone(),
@@ -355,13 +355,13 @@ pub fn call(
         }
         "flat" | "плоский" => {
             let depth = if args.is_empty() { 1.0 } else { as_number(&args[0], span, "flat")? };
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             Ok(Value::array(flatten(snapshot, depth as isize)))
         }
         "flatMap" | "плоскоПреобразовать" => {
             require_args(&args, 1, span, "flatMap")?;
             let callback = args.into_iter().next().unwrap();
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let mut result = Vec::new();
             for (i, el) in snapshot.into_iter().enumerate() {
                 let v = interp.call_function(
@@ -411,30 +411,30 @@ pub fn call(
             Ok(Value::Number(-1.0))
         }
         "toReversed" | "перевёрнутый" => {
-            let mut new_arr = rc.borrow().clone();
+            let mut new_arr = rc.borrow().0.clone();
             new_arr.reverse();
             Ok(Value::array(new_arr))
         }
         "toSorted" | "отсортированный" => {
-            let mut new_arr = rc.borrow().clone();
+            let mut new_arr = rc.borrow().0.clone();
             sort_snapshot(interp, &mut new_arr, args, span)?;
             Ok(Value::array(new_arr))
         }
         "splice" | "вырезать" => {
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let (new_arr, removed) = splice_impl(snapshot, &args, span)?;
-            *rc.borrow_mut() = new_arr;
+            *rc.borrow_mut() = ArrayStore(new_arr);
             Ok(Value::array(removed))
         }
         "toSpliced" | "вырезанный" => {
-            let snapshot = rc.borrow().clone();
+            let snapshot = rc.borrow().0.clone();
             let (new_arr, _removed) = splice_impl(snapshot, &args, span)?;
             Ok(Value::array(new_arr))
         }
         "with" | "сЗаменой" => {
             require_args(&args, 2, span, "with")?;
             let idx = as_number(&args[0], span, "with")? as isize;
-            let mut new_arr = rc.borrow().clone();
+            let mut new_arr = rc.borrow().0.clone();
             let len = new_arr.len() as isize;
             let real = if idx < 0 { len + idx } else { idx };
             if real < 0 || real >= len {
@@ -504,7 +504,7 @@ fn flatten(arr: Vec<Value>, depth: isize) -> Vec<Value> {
     for v in arr {
         match v {
             Value::Array(inner) if depth > 0 => {
-                result.extend(flatten(inner.borrow().clone(), depth - 1));
+                result.extend(flatten(inner.borrow().0.clone(), depth - 1));
             }
             other => result.push(other),
         }

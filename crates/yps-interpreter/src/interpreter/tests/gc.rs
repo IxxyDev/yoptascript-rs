@@ -71,7 +71,7 @@ fn iterator_map_callback_survives_cycle_collection() {
     let v = run_more(&mut i, "ит.вМассив();");
     match v {
         Some(Value::Array(arr)) => {
-            assert_eq!(arr.borrow().clone(), vec![Value::Number(5.0), Value::Number(10.0)]);
+            assert_eq!(arr.borrow().0.clone(), vec![Value::Number(5.0), Value::Number(10.0)]);
         }
         other => panic!("ожидался массив, получено {other:?}"),
     }
