@@ -63,6 +63,9 @@ fn parse_http_url(url: &str, span: Span) -> Result<ParsedUrl, RuntimeError> {
         }
         None => (authority.to_string(), 80),
     };
+    if !header_safe(&host) || !header_safe(path) {
+        return Err(RuntimeError::new("URL содержит управляющие символы (CR/LF) в хосте или пути".to_string(), span));
+    }
     Ok(ParsedUrl { host, port, path: path.to_string() })
 }
 
@@ -201,6 +204,18 @@ mod tests {
         let p = parse_http_url("http://localhost:8080/api", Span { start: 0, end: 0 }).unwrap();
         assert_eq!(p.port, 8080);
         assert_eq!(p.host, "localhost");
+    }
+
+    #[test]
+    fn crlf_in_path_rejected() {
+        let err = parse_http_url("http://host/foo\r\nX-Injected: 1", Span { start: 0, end: 0 }).unwrap_err();
+        assert!(err.message.contains("управляющие символы"));
+    }
+
+    #[test]
+    fn crlf_in_host_rejected() {
+        let err = parse_http_url("http://ho\r\nst/foo", Span { start: 0, end: 0 }).unwrap_err();
+        assert!(err.message.contains("управляющие символы"));
     }
 
     #[test]
