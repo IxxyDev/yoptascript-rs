@@ -54,11 +54,20 @@ pub fn call_static(
 fn stringify(v: &Value, span: Span) -> Result<Value, RuntimeError> {
     let mut out = String::new();
     let mut seen: HashSet<*const ()> = HashSet::new();
-    stringify_into(v, &mut out, span, &mut seen)?;
+    stringify_into(v, &mut out, span, &mut seen, 0)?;
     Ok(Value::String(out))
 }
 
-fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*const ()>) -> Result<(), RuntimeError> {
+fn stringify_into(
+    v: &Value,
+    out: &mut String,
+    span: Span,
+    seen: &mut HashSet<*const ()>,
+    depth: usize,
+) -> Result<(), RuntimeError> {
+    if depth >= MAX_JSON_DEPTH {
+        return Err(RuntimeError::new("Превышена максимальная глубина вложенности JSON", span));
+    }
     match v {
         Value::Null | Value::Undefined => out.push_str("null"),
         Value::Boolean(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -87,7 +96,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
                 if i > 0 {
                     out.push(',');
                 }
-                stringify_into(el, out, span, seen)?;
+                stringify_into(el, out, span, seen, depth + 1)?;
             }
             out.push(']');
             seen.remove(&ptr);
@@ -113,7 +122,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
                 first = false;
                 write_json_string(out, k);
                 out.push(':');
-                stringify_into(val, out, span, seen)?;
+                stringify_into(val, out, span, seen, depth + 1)?;
             }
             out.push('}');
             seen.remove(&ptr);
@@ -168,7 +177,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
                     out.push(',');
                 }
                 let num = kind.read_le(&bytes, offset + i * size);
-                stringify_into(&Value::Number(num), out, span, seen)?;
+                stringify_into(&Value::Number(num), out, span, seen, depth + 1)?;
             }
             out.push(']');
         }
@@ -186,7 +195,7 @@ fn stringify_into(v: &Value, out: &mut String, span: Span, seen: &mut HashSet<*c
         | Value::AbortRejectPromise { .. } => {
             return Err(RuntimeError::new("КонтроллёрОтмены/СигналОтмены нельзя сериализовать в JSON", span));
         }
-        Value::Proxy { target, .. } => stringify_into(target, out, span, seen)?,
+        Value::Proxy { target, .. } => stringify_into(target, out, span, seen, depth + 1)?,
     }
     Ok(())
 }
@@ -424,5 +433,29 @@ fn utf8_char_len(b: u8) -> usize {
         3
     } else {
         4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deep_array(depth: usize) -> Value {
+        let mut v = Value::Number(1.0);
+        for _ in 0..depth {
+            v = Value::array(vec![v]);
+        }
+        v
+    }
+
+    #[test]
+    fn stringify_rejects_excessive_depth() {
+        let err = stringify(&deep_array(200), Span { start: 0, end: 0 }).unwrap_err();
+        assert!(err.message.contains("глубин"));
+    }
+
+    #[test]
+    fn stringify_allows_moderate_depth() {
+        assert!(stringify(&deep_array(50), Span { start: 0, end: 0 }).is_ok());
     }
 }
