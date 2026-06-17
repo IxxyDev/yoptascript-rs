@@ -104,6 +104,20 @@ impl Environment {
         }
     }
 
+    pub fn fork_current(&mut self) {
+        let new_frame = {
+            let frame = self.current.borrow();
+            EnvFrame {
+                bindings: frame.bindings.clone(),
+                constants: frame.constants.clone(),
+                disposables: Vec::new(),
+                parent: frame.parent.clone(),
+            }
+        };
+        self.current = Rc::new(RefCell::new(new_frame));
+        self.registry.register(&self.current);
+    }
+
     pub fn snapshot(&self) -> Rc<RefCell<EnvFrame>> {
         Rc::clone(&self.current)
     }

@@ -79,6 +79,7 @@ impl Interpreter {
                             }
                         }
                     }
+                    self.env.fork_current();
                     if let Some(upd) = update {
                         self.eval_expr(upd)?;
                     }
@@ -140,6 +141,7 @@ impl Interpreter {
                 self.env.push_scope();
                 self.env.define(variable.name.clone(), Value::Undefined, false);
                 for item in items {
+                    self.env.fork_current();
                     self.env.set(&variable.name, item);
                     if let Some(cf) = self.exec_stmt(body)? {
                         match cf.for_loop(label.as_deref()) {
@@ -468,6 +470,7 @@ impl Interpreter {
                     None => break,
                 };
                 let item = if is_await { self.do_await(item, span)? } else { item };
+                self.env.fork_current();
                 self.env.set(&variable.name, item);
                 let body_result = self.exec_stmt(body);
                 let cf = match body_result {
@@ -588,6 +591,7 @@ impl Interpreter {
         self.env.define(variable.name.clone(), Value::Undefined, false);
         for item in items {
             let item = if is_await { self.do_await(item, span)? } else { item };
+            self.env.fork_current();
             self.env.set(&variable.name, item);
             if let Some(cf) = self.exec_stmt(body)? {
                 match cf.for_loop(label.as_deref()) {
