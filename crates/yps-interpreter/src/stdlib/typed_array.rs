@@ -220,7 +220,7 @@ pub fn call(
                 Some(_) => return Err(RuntimeError::new("'набор': смещение должно быть неотрицательным целым", span)),
             };
             let items: Vec<Value> = match source {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 Value::TypedArray { buffer: sb, offset: so, length: sl, kind: sk } => ta_elements(&sb, so, sl, sk),
                 other => {
                     return Err(RuntimeError::new(

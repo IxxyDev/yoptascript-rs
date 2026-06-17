@@ -120,7 +120,7 @@ pub fn call_static(
             let collection = iter.next().unwrap();
             let callback = iter.next().unwrap();
             let items: Vec<Value> = match collection {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 Value::Set(s) => s.borrow().iter().map(|k| k.as_value().clone()).collect(),
                 Value::Map(entries) => {
                     entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect()
