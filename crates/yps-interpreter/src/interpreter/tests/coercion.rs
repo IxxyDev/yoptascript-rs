@@ -218,3 +218,89 @@ fn to_primitive_hook_returning_object_is_type_error() {
     );
     assert!(err.message.contains("вПримитив"), "ожидался TypeError о вПримитив, получено: {}", err.message);
 }
+
+#[test]
+fn symbol_to_primitive_key_invoked() {
+    let i = run_code(
+        r#"
+        гыы об = {};
+        об[Симбол.вПримитив] = йопта(п) { отвечаю 42; };
+        гыы рез = об + 8;
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(50.0)));
+}
+
+#[test]
+fn symbol_to_primitive_key_takes_precedence_over_string_methods() {
+    let i = run_code(
+        r#"
+        гыы об = { вЧисло: йопта() { отвечаю 1; }, вСтроку: йопта() { отвечаю "s"; } };
+        об[Симбол.вПримитив] = йопта(п) { отвечаю 100; };
+        гыы рез = об + 0;
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(100.0)));
+}
+
+#[test]
+fn symbol_to_primitive_key_non_primitive_throws() {
+    let err = run_code_err(
+        r#"
+        гыы об = {};
+        об[Симбол.вПримитив] = йопта(п) { отвечаю {}; };
+        гыы рез = об + 1;
+        "#,
+    );
+    assert!(err.message.contains("вПримитив"), "ожидался TypeError о вПримитив, получено: {}", err.message);
+}
+
+#[test]
+fn symbol_to_string_tag_used_in_string_coercion() {
+    let i = run_code(
+        r#"
+        гыы об = {};
+        об[Симбол.строковыйТег] = "МойТип";
+        гыы рез = об + "";
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("[object МойТип]".to_string())));
+}
+
+#[test]
+fn bare_object_string_coercion_unchanged_without_tag() {
+    let i = run_code(
+        r#"
+        гыы об = {};
+        гыы рез = об + "";
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".to_string())));
+}
+
+#[test]
+fn symbol_to_string_tag_non_string_ignored() {
+    let i = run_code(
+        r#"
+        гыы об = {};
+        об[Симбол.строковыйТег] = 123;
+        гыы рез = об + "";
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".to_string())));
+}
+
+#[test]
+fn symbol_keys_do_not_leak_into_object_display() {
+    let i = run_code(
+        r#"
+        гыы об = { а: 1 };
+        об[Симбол.строковыйТег] = "Т";
+        об[Симбол("скрытый")] = 9;
+        гыы рез = строка(об);
+        "#,
+    );
+    let Some(Value::String(s)) = i.get("рез") else { panic!("ожидалась строка") };
+    assert!(!s.contains("sym"), "внутренний символьный ключ протёк в Display: {s}");
+    assert_eq!(s, "{а: 1}");
+}

@@ -225,14 +225,23 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
             }
-            GenFrame::Delegate { inner } => {
+            GenFrame::Delegate { inner, bind } => {
                 let inner_rc = inner.clone();
+                let bind = bind.take();
                 let sent = g.pending_send.take().unwrap_or(Value::Undefined);
                 let outcome = delegate_step(interp, &inner_rc, GenInput::Send(sent), span)?;
                 match outcome {
-                    DelegateOutcome::Yielded(v) => return Ok(GenStep::Yielded(v)),
-                    DelegateOutcome::Done(_ret) => {
+                    DelegateOutcome::Yielded(v) => {
+                        if let Some(GenFrame::Delegate { bind: slot, .. }) = g.frames.last_mut() {
+                            *slot = bind;
+                        }
+                        return Ok(GenStep::Yielded(v));
+                    }
+                    DelegateOutcome::Done(ret) => {
                         g.frames.pop();
+                        if let Some(target) = bind {
+                            apply_bind(&mut g.env, target, ret);
+                        }
                     }
                 }
             }
@@ -350,7 +359,7 @@ fn step_block_stmt(
                 let arg = argument.as_deref().ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", *ys))?;
                 let val = interp.eval_expr(arg)?;
                 let iter_rc = value_to_iterator(val, *ys)?;
-                g.frames.push(GenFrame::Delegate { inner: iter_rc });
+                g.frames.push(GenFrame::Delegate { inner: iter_rc, bind: None });
                 Ok(None)
             } else {
                 let val = match argument.as_deref() {
@@ -362,12 +371,6 @@ fn step_block_stmt(
         }
         Stmt::VarDecl { pattern, init, is_const, span: vs } => {
             if let Expr::Yield { argument, delegate, span: ys } = init {
-                if *delegate {
-                    return Err(RuntimeError::new(
-                        "'поебалуна' не допускается в декларации; используйте отдельный оператор",
-                        *ys,
-                    ));
-                }
                 let name = match pattern {
                     yps_parser::ast::Pattern::Identifier(ident) => ident.name.clone(),
                     _ => {
@@ -377,6 +380,17 @@ fn step_block_stmt(
                         ));
                     }
                 };
+                if *delegate {
+                    let arg =
+                        argument.as_deref().ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", *ys))?;
+                    let val = interp.eval_expr(arg)?;
+                    let iter_rc = value_to_iterator(val, *ys)?;
+                    g.frames.push(GenFrame::Delegate {
+                        inner: iter_rc,
+                        bind: Some(BindTarget::Variable { name, is_const: *is_const }),
+                    });
+                    return Ok(None);
+                }
                 let val = match argument.as_deref() {
                     Some(a) => interp.eval_expr(a)?,
                     None => Value::Undefined,
@@ -393,10 +407,15 @@ fn step_block_stmt(
                 && let Expr::Identifier(ident) = lhs.as_ref()
             {
                 if *delegate {
-                    return Err(RuntimeError::new(
-                        "'поебалуна' не допускается в присваивании; используйте отдельный оператор",
-                        *ys,
-                    ));
+                    let arg =
+                        argument.as_deref().ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", *ys))?;
+                    let val = interp.eval_expr(arg)?;
+                    let iter_rc = value_to_iterator(val, *ys)?;
+                    g.frames.push(GenFrame::Delegate {
+                        inner: iter_rc,
+                        bind: Some(BindTarget::Reassign(ident.name.clone())),
+                    });
+                    return Ok(None);
                 }
                 let val = match argument.as_deref() {
                     Some(a) => interp.eval_expr(a)?,
@@ -724,7 +743,7 @@ fn unwind(
                 g.frames.pop();
                 continue;
             }
-            GenFrame::Delegate { inner } => {
+            GenFrame::Delegate { inner, .. } => {
                 let inner_rc = inner.clone();
                 match &kind {
                     Unwind::Return(v) => {

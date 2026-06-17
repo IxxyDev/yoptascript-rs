@@ -153,3 +153,33 @@ fn symbol_to_string_method() {
     );
     assert_eq!(interp.get("стр"), Some(Value::String("Симбол(м)".to_string())));
 }
+
+#[test]
+fn using_accepts_symbol_dispose_key() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        {
+            гыы р = {};
+            р[Симбол.расход] = () => { счёт = счёт + 1; };
+            юзай рес = р;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn using_symbol_dispose_invoked_with_this() {
+    let interp = run_code(
+        r#"
+        гыы видимое = 0;
+        {
+            гыы р = { данные: 5 };
+            р[Симбол.расход] = йопта() { видимое = тырыпыры.данные; };
+            юзай рес = р;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("видимое"), Some(Value::Number(5.0)));
+}

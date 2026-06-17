@@ -805,11 +805,14 @@ impl Interpreter {
 
     fn object_to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
         let to_primitive_arg = vec![Value::String("умолчание".to_string())];
-        if let Some(res) = self.try_call_object_method(value, symbols::TO_PRIMITIVE_METHOD, to_primitive_arg, span)? {
-            if coercion::is_primitive(&res) {
-                return Ok(res);
+        let to_primitive_sym = symbols::symbol_key(crate::stdlib::symbol::TO_PRIMITIVE_ID);
+        for hook in [to_primitive_sym.as_str(), symbols::TO_PRIMITIVE_METHOD] {
+            if let Some(res) = self.try_call_object_method(value, hook, to_primitive_arg.clone(), span)? {
+                if coercion::is_primitive(&res) {
+                    return Ok(res);
+                }
+                return Err(RuntimeError::new("'вПримитив' вернул не примитив", span));
             }
-            return Err(RuntimeError::new("'вПримитив' вернул не примитив", span));
         }
 
         let mut had_method = false;
@@ -826,7 +829,22 @@ impl Interpreter {
             return Err(RuntimeError::new("Не удалось привести объект к примитиву", span));
         }
 
+        if let Some(tag) = self.to_string_tag(value) {
+            return Ok(Value::String(format!("[object {tag}]")));
+        }
+
         Ok(coercion::to_primitive_builtin(value))
+    }
+
+    fn to_string_tag(&self, value: &Value) -> Option<String> {
+        let Value::Object(map) = value else {
+            return None;
+        };
+        let key = symbols::symbol_key(crate::stdlib::symbol::TO_STRING_TAG_ID);
+        match map.borrow().get(&key) {
+            Some(Value::String(tag)) => Some(tag.clone()),
+            _ => None,
+        }
     }
 
     fn try_call_object_method(

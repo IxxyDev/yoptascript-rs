@@ -674,3 +674,44 @@ fn generator_throw_in_finally_overrides_gen_return() {
     );
     assert_eq!(err.thrown, Some(Box::new(Value::String("из-финалли".to_string()))));
 }
+
+#[test]
+fn generator_yield_delegate_return_value_captured_in_decl() {
+    let i = run_code(
+        r#"
+        пиздюли вн() {
+            поебалу 1;
+            отвечаю "итог";
+        }
+        пиздюли внеш() {
+            гыы р = поебалуна вн();
+            поебалу р;
+        }
+        гыы ит = внеш();
+        гыы первое = ит.следующий().значение;
+        гыы второе = ит.следующий().значение;
+        "#,
+    );
+    assert_eq!(i.get("первое"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("второе"), Some(Value::String("итог".to_string())));
+}
+
+#[test]
+fn generator_yield_delegate_return_value_captured_with_const() {
+    let i = run_code(
+        r#"
+        пиздюли вн() {
+            поебалу 1;
+            отвечаю 7;
+        }
+        пиздюли внеш() {
+            участковый р = поебалуна вн();
+            поебалу р;
+        }
+        гыы ит = внеш();
+        ит.следующий();
+        гыы захвачено = ит.следующий().значение;
+        "#,
+    );
+    assert_eq!(i.get("захвачено"), Some(Value::Number(7.0)));
+}

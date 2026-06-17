@@ -267,7 +267,7 @@ impl Marker {
             match frame {
                 GenFrame::Block { .. } | GenFrame::While { .. } | GenFrame::DoWhile { .. } | GenFrame::For { .. } => {}
                 GenFrame::ForIter { iter, .. } => self.work.push(Work::Iter(Rc::clone(iter))),
-                GenFrame::Delegate { inner } => self.work.push(Work::Iter(Rc::clone(inner))),
+                GenFrame::Delegate { inner, .. } => self.work.push(Work::Iter(Rc::clone(inner))),
                 GenFrame::TryCatch { state, .. } => match state {
                     TryState::FinallyAfterThrow(value) | TryState::FinallyAfterReturn(value) => self.push_value(value),
                     TryState::Trying
