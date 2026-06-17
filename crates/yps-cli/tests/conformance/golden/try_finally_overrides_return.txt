@@ -1,0 +1,3 @@
+из-finally
+finally-побочный
+ок
