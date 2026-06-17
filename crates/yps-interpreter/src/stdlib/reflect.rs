@@ -50,7 +50,7 @@ pub fn call_static(
             let func = args[0].clone();
             let args_val = args[2].clone();
             let call_args = match args_val {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 Value::Undefined | Value::Null => vec![],
                 other => {
                     return Err(RuntimeError::new(
@@ -65,7 +65,7 @@ pub fn call_static(
             require_args(&args, 2, span, "Отражение.построить")?;
             let constructor = args[0].clone();
             let call_args = match args[1].clone() {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 Value::Undefined | Value::Null => vec![],
                 other => {
                     return Err(RuntimeError::new(

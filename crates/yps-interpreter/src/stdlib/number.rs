@@ -73,6 +73,9 @@ fn coerce_to_f64(v: &Value) -> Option<f64> {
 }
 
 fn parse_int(s: &str, radix: u32) -> Value {
+    if !(2..=36).contains(&radix) {
+        return Value::Number(f64::NAN);
+    }
     let trimmed = s.trim_start();
     if trimmed.is_empty() {
         return Value::Number(f64::NAN);
@@ -83,13 +86,13 @@ fn parse_int(s: &str, radix: u32) -> Value {
         _ => (1.0, trimmed),
     };
     let mut chars = rest.chars();
-    let mut value: i128 = 0;
+    let mut value: f64 = 0.0;
     let mut consumed = false;
     while let Some(c) = chars.clone().next() {
         let digit = c.to_digit(radix);
         match digit {
             Some(d) => {
-                value = value * radix as i128 + d as i128;
+                value = value * radix as f64 + d as f64;
                 consumed = true;
                 chars.next();
             }
@@ -99,7 +102,7 @@ fn parse_int(s: &str, radix: u32) -> Value {
     if !consumed {
         return Value::Number(f64::NAN);
     }
-    Value::Number(sign * value as f64)
+    Value::Number(sign * value)
 }
 
 fn parse_float(s: &str) -> Value {
@@ -151,10 +154,44 @@ pub fn call_instance(
     match method {
         "вСтроку" => Ok((Value::String(Value::Number(n).to_string()), None)),
         "фиксированный" => {
-            let digits =
-                if args.is_empty() { 0 } else { as_number(&args[0], span, "фиксированный")? as usize };
+            let digits = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "фиксированный")? };
+            if !digits.is_finite() || !(0.0..=100.0).contains(&digits) {
+                return Err(RuntimeError::new(
+                    format!("'фиксированный': точность должна быть в диапазоне 0..=100, получено {digits}"),
+                    span,
+                ));
+            }
+            let digits = digits as usize;
             Ok((Value::String(format!("{n:.*}", digits)), None))
         }
         _ => Err(RuntimeError::new(format!("У числа нет метода '{method}'"), span)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_int_rejects_radix_above_36() {
+        assert!(matches!(parse_int("z", 99), Value::Number(n) if n.is_nan()));
+    }
+
+    #[test]
+    fn parse_int_rejects_radix_below_2() {
+        assert!(matches!(parse_int("1", 1), Value::Number(n) if n.is_nan()));
+        assert!(matches!(parse_int("1", 0), Value::Number(n) if n.is_nan()));
+    }
+
+    #[test]
+    fn parse_int_no_overflow_panic_on_long_input() {
+        let s = "9".repeat(80);
+        assert!(matches!(parse_int(&s, 10), Value::Number(n) if n.is_finite() && n > 0.0));
+    }
+
+    #[test]
+    fn parse_int_basic() {
+        assert_eq!(parse_int("ff", 16), Value::Number(255.0));
+        assert_eq!(parse_int("-10", 2), Value::Number(-2.0));
     }
 }

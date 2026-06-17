@@ -266,14 +266,14 @@ fn test_stdlib_object_keys_values_entries() {
         "#,
     );
     if let Some(Value::Array(keys)) = interp.get("к") {
-        let mut keys = keys.borrow().clone();
+        let mut keys = keys.borrow().0.clone();
         keys.sort_by_key(|v| v.to_string());
         assert_eq!(keys, vec![Value::String("а".to_string()), Value::String("б".to_string())]);
     } else {
         panic!("Expected Array");
     }
     if let Some(Value::Array(values)) = interp.get("з") {
-        let mut values = values.borrow().clone();
+        let mut values = values.borrow().0.clone();
         values.sort_by_key(|v| v.to_string());
         assert_eq!(values, vec![Value::Number(1.0), Value::Number(2.0)]);
     } else {

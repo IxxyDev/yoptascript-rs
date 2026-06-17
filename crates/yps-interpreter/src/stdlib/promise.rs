@@ -152,7 +152,7 @@ pub fn call(
 
 fn expect_array(v: Value, ctx: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
     match v {
-        Value::Array(a) => Ok(a.borrow().clone()),
+        Value::Array(a) => Ok(a.borrow().0.clone()),
         other => Err(RuntimeError::new(format!("'{ctx}' ожидает массив, получено '{}'", other.type_name()), span)),
     }
 }

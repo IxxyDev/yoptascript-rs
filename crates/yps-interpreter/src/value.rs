@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
 use indexmap::{IndexMap, IndexSet};
@@ -302,16 +303,152 @@ pub struct ClassDef {
     pub prototype_cache: std::cell::OnceCell<Value>,
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct ArrayStore(pub Vec<Value>);
+
+#[derive(Clone, Default, Debug)]
+pub struct ObjectStore(pub HashMap<String, Value>);
+
+#[derive(Clone, Default)]
+pub struct MapStore(pub IndexMap<MapKey, Value>);
+
+#[derive(Clone, Default)]
+pub struct SetStore(pub IndexSet<MapKey>);
+
+impl Deref for ArrayStore {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ArrayStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for ObjectStore {
+    type Target = HashMap<String, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ObjectStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for ArrayStore {
+    fn drop(&mut self) {
+        let mut stack = std::mem::take(&mut self.0);
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Drop for ObjectStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = std::mem::take(&mut self.0).into_values().collect();
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Deref for MapStore {
+    type Target = IndexMap<MapKey, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MapStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for SetStore {
+    type Target = IndexSet<MapKey>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SetStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for MapStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = Vec::with_capacity(self.0.len() * 2);
+        for (k, v) in std::mem::take(&mut self.0) {
+            stack.push(k.0);
+            stack.push(v);
+        }
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Drop for SetStore {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = std::mem::take(&mut self.0).into_iter().map(|k| k.0).collect();
+        drain_value_tree(&mut stack);
+    }
+}
+
+fn drain_value_tree(stack: &mut Vec<Value>) {
+    while let Some(value) = stack.pop() {
+        match value {
+            Value::Array(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    stack.append(&mut inner.0);
+                }
+            }
+            Value::Object(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    let map = std::mem::take(&mut inner.0);
+                    stack.extend(map.into_values());
+                }
+            }
+            Value::Map(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    for (k, v) in std::mem::take(&mut inner.0) {
+                        stack.push(k.0);
+                        stack.push(v);
+                    }
+                }
+            }
+            Value::Set(rc) => {
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(mut inner) = rc.try_borrow_mut()
+                {
+                    stack.extend(std::mem::take(&mut inner.0).into_iter().map(|k| k.0));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
     BigInt(i128),
     String(String),
     Boolean(bool),
-    Array(Rc<RefCell<Vec<Value>>>),
-    Object(Rc<RefCell<HashMap<String, Value>>>),
-    Map(Rc<RefCell<IndexMap<MapKey, Value>>>),
-    Set(Rc<RefCell<IndexSet<MapKey>>>),
+    Array(Rc<RefCell<ArrayStore>>),
+    Object(Rc<RefCell<ObjectStore>>),
+    Map(Rc<RefCell<MapStore>>),
+    Set(Rc<RefCell<SetStore>>),
     Function {
         name: Rc<str>,
         params: Rc<[Param]>,
@@ -406,10 +543,10 @@ pub type WeakSetStore = Rc<RefCell<HashMap<usize, WeakKey>>>;
 
 #[derive(Clone)]
 pub enum WeakKey {
-    Object(Weak<RefCell<HashMap<String, Value>>>),
-    Array(Weak<RefCell<Vec<Value>>>),
-    Map(Weak<RefCell<IndexMap<MapKey, Value>>>),
-    Set(Weak<RefCell<IndexSet<MapKey>>>),
+    Object(Weak<RefCell<ObjectStore>>),
+    Array(Weak<RefCell<ArrayStore>>),
+    Map(Weak<RefCell<MapStore>>),
+    Set(Weak<RefCell<SetStore>>),
 }
 
 impl WeakKey {
@@ -464,19 +601,19 @@ pub struct FinRegEntry {
 
 impl Value {
     pub fn array(items: Vec<Value>) -> Value {
-        Value::Array(Rc::new(RefCell::new(items)))
+        Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
     }
 
     pub fn object(map: HashMap<String, Value>) -> Value {
-        Value::Object(Rc::new(RefCell::new(map)))
+        Value::Object(Rc::new(RefCell::new(ObjectStore(map))))
     }
 
     pub fn map(entries: IndexMap<MapKey, Value>) -> Value {
-        Value::Map(Rc::new(RefCell::new(entries)))
+        Value::Map(Rc::new(RefCell::new(MapStore(entries))))
     }
 
     pub fn set(items: IndexSet<MapKey>) -> Value {
-        Value::Set(Rc::new(RefCell::new(items)))
+        Value::Set(Rc::new(RefCell::new(SetStore(items))))
     }
 
     pub(crate) fn proxy_parts(&self) -> Option<(Rc<Value>, Rc<Value>)> {
@@ -680,6 +817,9 @@ impl fmt::Debug for Value {
     }
 }
 
+const VALUE_STACK_RED_ZONE: usize = 256 * 1024;
+const VALUE_STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut seen: std::collections::HashSet<*const ()> = std::collections::HashSet::new();
@@ -689,6 +829,14 @@ impl fmt::Display for Value {
 
 impl Value {
     fn fmt_with_seen(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        seen: &mut std::collections::HashSet<*const ()>,
+    ) -> fmt::Result {
+        stacker::maybe_grow(VALUE_STACK_RED_ZONE, VALUE_STACK_GROW_SIZE, || self.fmt_with_seen_inner(f, seen))
+    }
+
+    fn fmt_with_seen_inner(
         &self,
         f: &mut fmt::Formatter<'_>,
         seen: &mut std::collections::HashSet<*const ()>,

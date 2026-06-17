@@ -19,7 +19,7 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
             }
             Ok(Value::set(out))
         }
-        Value::Set(s) => Ok(Value::set(s.borrow().clone())),
+        Value::Set(s) => Ok(Value::set(s.borrow().0.clone())),
         Value::Undefined | Value::Null => Ok(Value::set(IndexSet::new())),
         other => {
             Err(RuntimeError::new(format!("'Набор' ожидает массив или набор, получено '{}'", other.type_name()), span))
@@ -113,7 +113,7 @@ pub fn call(
 }
 
 fn set_op<F>(
-    set: &std::rc::Rc<std::cell::RefCell<IndexSet<MapKey>>>,
+    set: &std::rc::Rc<std::cell::RefCell<crate::value::SetStore>>,
     args: Vec<Value>,
     span: Span,
     keep: F,
@@ -140,7 +140,7 @@ where
 
 fn extract_set_like(v: &Value, span: Span) -> Result<IndexSet<MapKey>, RuntimeError> {
     match v {
-        Value::Set(s) => Ok(s.borrow().clone()),
+        Value::Set(s) => Ok(s.borrow().0.clone()),
         Value::Array(a) => {
             let a = a.borrow();
             let mut out: IndexSet<MapKey> = IndexSet::with_capacity(a.len());

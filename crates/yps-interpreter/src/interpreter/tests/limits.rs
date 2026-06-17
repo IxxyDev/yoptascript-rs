@@ -101,7 +101,7 @@ fn iterator_chain_within_limit_works() {
         "#,
     );
     let arr = match i.get("рез") {
-        Some(Value::Array(a)) => a.borrow().clone(),
+        Some(Value::Array(a)) => a.borrow().0.clone(),
         other => panic!("ожидался массив, получено {other:?}"),
     };
     assert_eq!(arr, vec![Value::Number(51.0), Value::Number(52.0), Value::Number(53.0)]);

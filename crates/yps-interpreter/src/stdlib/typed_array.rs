@@ -6,10 +6,12 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::value::{SharedBuffer, TypedArrayKind, Value};
 
+const MAX_BUFFER_BYTES: usize = 512 * 1024 * 1024;
+
 fn checked_byte_len(length: usize, size: usize, span: Span) -> Result<usize, RuntimeError> {
     match length.checked_mul(size) {
-        Some(bytes) if bytes <= isize::MAX as usize => Ok(bytes),
-        _ => Err(RuntimeError::new("длина типизированного массива слишком велика", span)),
+        Some(bytes) if bytes <= MAX_BUFFER_BYTES => Ok(bytes),
+        _ => Err(RuntimeError::new("запрошенная длина буфера слишком велика", span)),
     }
 }
 
@@ -166,7 +168,8 @@ pub fn construct_array_buffer(args: Vec<Value>, span: Span) -> Result<Value, Run
     if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
         return Err(RuntimeError::new("'ОбластьБайтов' ожидает неотрицательное целое число байт", span));
     }
-    Ok(Value::ArrayBuffer(Rc::new(RefCell::new(vec![0u8; n as usize]))))
+    let byte_len = checked_byte_len(n as usize, 1, span)?;
+    Ok(Value::ArrayBuffer(Rc::new(RefCell::new(vec![0u8; byte_len]))))
 }
 
 pub fn ta_elements(buffer: &SharedBuffer, offset: usize, length: usize, kind: TypedArrayKind) -> Vec<Value> {
@@ -220,7 +223,7 @@ pub fn call(
                 Some(_) => return Err(RuntimeError::new("'набор': смещение должно быть неотрицательным целым", span)),
             };
             let items: Vec<Value> = match source {
-                Value::Array(a) => a.borrow().clone(),
+                Value::Array(a) => a.borrow().0.clone(),
                 Value::TypedArray { buffer: sb, offset: so, length: sl, kind: sk } => ta_elements(&sb, so, sl, sk),
                 other => {
                     return Err(RuntimeError::new(
@@ -256,5 +259,32 @@ pub fn call(
             Ok((Value::TypedArray { buffer: new_buffer, offset: 0, length: new_length, kind }, None))
         }
         _ => Err(RuntimeError::new(format!("У типизированного массива нет метода '{method}'"), span)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    #[test]
+    fn checked_byte_len_rejects_oversized() {
+        assert!(checked_byte_len(500_000_000, 8, span()).is_err());
+        assert!(checked_byte_len(usize::MAX, 8, span()).is_err());
+    }
+
+    #[test]
+    fn checked_byte_len_allows_reasonable() {
+        assert_eq!(checked_byte_len(1024, 8, span()).unwrap(), 8192);
+        assert_eq!(checked_byte_len(0, 8, span()).unwrap(), 0);
+    }
+
+    #[test]
+    fn array_buffer_rejects_oversized() {
+        assert!(construct_array_buffer(vec![Value::Number(1e15)], span()).is_err());
+        assert!(construct_array_buffer(vec![Value::Number(16.0)], span()).is_ok());
     }
 }

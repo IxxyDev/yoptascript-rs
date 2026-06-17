@@ -125,7 +125,7 @@ impl Interpreter {
             Stmt::ForIn { variable, iterable, body, span, .. } => {
                 let val = self.eval_expr(iterable)?;
                 let items: Vec<Value> = match val {
-                    Value::Array(elements) => elements.borrow().clone(),
+                    Value::Array(elements) => elements.borrow().0.clone(),
                     Value::TypedArray { buffer, offset, length, kind } => {
                         crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
                     }
@@ -385,7 +385,7 @@ impl Interpreter {
             }
             Pattern::Array { elements, rest, .. } => {
                 let items: Vec<Value> = match &value {
-                    Value::Array(arr) => arr.borrow().clone(),
+                    Value::Array(arr) => arr.borrow().0.clone(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Невозможно деструктурировать {} как массив", value.type_name()),
@@ -411,7 +411,7 @@ impl Interpreter {
             }
             Pattern::Object { properties, rest, .. } => {
                 let map: std::collections::HashMap<String, Value> = match value {
-                    Value::Object(map) => map.borrow().clone(),
+                    Value::Object(map) => map.borrow().0.clone(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Невозможно деструктурировать {} как объект", value.type_name()),
@@ -505,7 +505,7 @@ impl Interpreter {
             return Ok(None);
         }
         let items: Vec<Value> = match val {
-            Value::Array(elements) => elements.borrow().clone(),
+            Value::Array(elements) => elements.borrow().0.clone(),
             Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
             Value::Set(s) => s.borrow().iter().map(|k| k.as_value().clone()).collect(),
             Value::Map(entries) => {
