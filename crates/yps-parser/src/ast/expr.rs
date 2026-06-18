@@ -69,8 +69,8 @@ pub enum Expr {
 }
 
 impl Expr {
-    #[allow(dead_code)]
-    pub(crate) const fn span(&self) -> Span {
+    #[must_use]
+    pub const fn span(&self) -> Span {
         match self {
             Self::Identifier(id) => id.span,
             Self::Literal(lit) => match lit {
