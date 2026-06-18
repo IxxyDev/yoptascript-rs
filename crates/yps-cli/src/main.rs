@@ -39,7 +39,55 @@ fn main() {
     } else if args[1] == "repl" {
         repl::run_repl();
     } else {
-        run_interpret(&args[1]);
+        let use_vm = args[1..].iter().any(|a| a == "--vm");
+        match args[1..].iter().find(|a| !a.starts_with("--")) {
+            Some(file) if use_vm => run_vm(file),
+            Some(file) => run_interpret(file),
+            None => {
+                eprintln!("Не указан файл для выполнения");
+                process::exit(1);
+            }
+        }
+    }
+}
+
+fn run_vm(filename: &str) {
+    let code = match fs::read_to_string(filename) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Не удалось прочитать файл '{filename}': {e}");
+            process::exit(1);
+        }
+    };
+
+    let source = SourceFile::new(filename.to_string(), code);
+
+    let lexer = Lexer::new(&source);
+    let (tokens, lex_diagnostics) = lexer.tokenize();
+    if !lex_diagnostics.is_empty() {
+        print_diagnostics(&source, &lex_diagnostics, filename);
+        process::exit(1);
+    }
+
+    let parser = Parser::new(&tokens, &source);
+    let (program, parse_diagnostics) = parser.parse_program();
+    if !parse_diagnostics.is_empty() {
+        print_diagnostics(&source, &parse_diagnostics, filename);
+        process::exit(1);
+    }
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yps_vm::execute(&program)));
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let (line, col) = source.position(e.span().start);
+            eprintln!("{filename}:{line}:{col}: {e}");
+            process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("Внутренняя ошибка VM: выполнение прервано");
+            process::exit(70);
+        }
     }
 }
 

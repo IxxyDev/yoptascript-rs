@@ -1043,6 +1043,7 @@ dependencies = [
  "yps-interpreter",
  "yps-lexer",
  "yps-parser",
+ "yps-vm",
 ]
 
 [[package]]
@@ -1086,6 +1087,14 @@ version = "0.1.0"
 dependencies = [
  "stacker",
  "yps-lexer",
+]
+
+[[package]]
+name = "yps-vm"
+version = "0.1.0"
+dependencies = [
+ "yps-lexer",
+ "yps-parser",
 ]
 
 [[package]]
