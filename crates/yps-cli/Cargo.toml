@@ -12,3 +12,4 @@ yps-fmt = { path = "../yps-fmt" }
 yps-interpreter = { path = "../yps-interpreter" }
 yps-lexer = { path = "../yps-lexer" }
 yps-parser = { path = "../yps-parser" }
+yps-vm = { path = "../yps-vm" }
