@@ -110,6 +110,48 @@ fn import_json_with_type_attribute() {
     assert_eq!(interp.get("первое"), Some(Value::String("а".to_string())));
 }
 
+fn run_with_files(files: &[(&str, &str)], entry: &str, main_src: &str) -> Interpreter {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let id = SEQ.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("yps_cyclic_{}_{id}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, content) in files {
+        std::fs::write(dir.join(name), content).unwrap();
+    }
+    let _ = entry;
+
+    let source = SourceFile::new("test".to_string(), main_src.to_string());
+    let (tokens, lex_diags) = Lexer::new(&source).tokenize();
+    assert!(lex_diags.is_empty(), "Ошибки лексера: {lex_diags:?}");
+    let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
+    assert!(parse_diags.is_empty(), "Ошибки парсера: {parse_diags:?}");
+    let mut interp = Interpreter::new();
+    interp.set_base_path(dir.clone());
+    interp.run(&program).expect("Ошибка интерпретатора");
+    let _ = std::fs::remove_dir_all(&dir);
+    interp
+}
+
+#[test]
+fn cyclic_import_live_binding_deferred_access() {
+    let a = r#"
+        спиздить { получитьБ } из "./b";
+        предъява гыы значениеА = 100;
+        предъява йопта вызватьБ() { отвечаю получитьБ(); }
+    "#;
+    let b = r#"
+        спиздить { значениеА } из "./a";
+        предъява йопта получитьБ() { отвечаю значениеА * 2; }
+    "#;
+    let main = r#"
+        спиздить { вызватьБ } из "./a";
+        гыы итог = вызватьБ();
+    "#;
+    let interp = run_with_files(&[("a.yop", a), ("b.yop", b)], "main", main);
+    assert_eq!(interp.get("итог"), Some(Value::Number(200.0)));
+}
+
 #[test]
 fn import_attributes_russian_alias_satr() {
     let json = r#"{ "ключ": 7 }"#;

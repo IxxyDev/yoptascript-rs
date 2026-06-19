@@ -8,8 +8,64 @@ pub type Slot = u32;
 #[derive(Debug, Clone)]
 pub enum Constant {
     Number(f64),
+    BigInt(i128),
     Str(Rc<str>),
     Proto(Rc<FnProto>),
+    Class(Rc<ClassBlueprint>),
+    Template(Rc<TemplateStrings>),
+    RegExp { pattern: Rc<str>, flags: Rc<str> },
+    Import(Rc<ImportRequest>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportRequest {
+    pub source: String,
+    pub is_json: bool,
+    pub specifiers: Vec<ImportBinding>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportBinding {
+    Default { local: String },
+    Named { imported: String, local: String },
+    Namespace { local: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateStrings {
+    pub cooked: Vec<String>,
+    pub raw: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberKind {
+    Method,
+    Getter,
+    Setter,
+    StaticMethod,
+    StaticGetter,
+    StaticSetter,
+    Field,
+    StaticField,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassMemberDesc {
+    pub kind: MemberKind,
+    pub name: String,
+    pub has_value: bool,
+    pub is_static: bool,
+    pub is_private: bool,
+    pub decorator_count: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassBlueprint {
+    pub name: String,
+    pub has_parent: bool,
+    pub has_constructor: bool,
+    pub members: Vec<ClassMemberDesc>,
+    pub class_decorator_count: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -23,6 +79,9 @@ pub struct FnProto {
     pub name: String,
     pub arity: usize,
     pub has_rest: bool,
+    pub is_method: bool,
+    pub is_generator: bool,
+    pub is_async: bool,
     pub upvalues: Vec<UpvalueDesc>,
     pub chunk: Chunk,
 }
@@ -36,6 +95,7 @@ pub enum Op {
     False,
     Pop,
     Dup,
+    Dup2,
 
     Neg,
     Pos,
@@ -64,6 +124,7 @@ pub enum Op {
     Gt,
     Le,
     Ge,
+    In,
 
     DefineGlobal(ConstIdx, bool),
     GetGlobal(ConstIdx),
@@ -74,22 +135,69 @@ pub enum Op {
     SetUpvalue(Slot),
     CloseUpvalue,
 
+    MakeRegex(ConstIdx),
+
     Jump(usize),
     JumpIfFalse(usize),
     JumpIfFalsePeek(usize),
     JumpIfTruePeek(usize),
     JumpIfNullishPeek(usize),
+    JumpIfNotNullishPeek(usize),
+
+    Throw,
+    PushHandler(usize, bool),
+    PopHandler,
+
+    ForInKeys,
+    ForOfValues,
+    ForIterInit,
+    ForIterNext(usize),
+    ForIterClose,
+    ArrayLen,
 
     Call(u16),
+    CallSpread,
     Closure(ConstIdx),
     Return,
+    Yield,
+    YieldDelegate,
+    Await,
+    DynamicImport,
 
     NewArray(u32),
+    ArrPush,
+    AppendSpread,
+    ArrayRest(u32),
+    ObjectRest(u32),
     NewObject(u32),
+    ObjSet,
+    SpreadObject,
+    DefineGetter,
+    DefineSetter,
     GetIndex,
     SetIndex,
     GetProp(ConstIdx),
     SetProp(ConstIdx),
+    DeleteProp(ConstIdx),
+    DeleteIndex,
+
+    RegisterDisposable,
+    DisposeScope(u32),
+
+    Import(ConstIdx),
+    RecordExport(ConstIdx),
+
+    BuildClass(ConstIdx),
+    New(u16),
+    NewSpread,
+    Invoke(ConstIdx, u16),
+    Instanceof,
+    SuperCall(u16),
+    SuperCallSpread,
+    SuperGet(ConstIdx),
+    SuperInvoke(ConstIdx, u16),
+    SuperInvokeSpread(ConstIdx),
+    TaggedTemplate(ConstIdx),
 }
 
 #[derive(Debug, Default)]
@@ -121,7 +229,10 @@ impl Chunk {
             | Op::JumpIfFalse(t)
             | Op::JumpIfFalsePeek(t)
             | Op::JumpIfTruePeek(t)
-            | Op::JumpIfNullishPeek(t) => *t = target,
+            | Op::JumpIfNullishPeek(t)
+            | Op::JumpIfNotNullishPeek(t)
+            | Op::PushHandler(t, _)
+            | Op::ForIterNext(t) => *t = target,
             other => panic!("patch_jump on non-jump op: {other:?}"),
         }
     }

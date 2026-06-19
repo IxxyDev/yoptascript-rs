@@ -19,6 +19,168 @@ pub struct Closure {
     pub upvalues: Vec<Upvalue>,
 }
 
+pub const GETTER_PREFIX: &str = "__get_";
+pub const SETTER_PREFIX: &str = "__set_";
+const ACCESSOR_SUFFIX: &str = "__";
+
+pub const CLASS_TAG: &str = "__class__";
+pub const PROTO_KEY: &str = "__proto__";
+
+#[must_use]
+pub fn getter_key(prop: &str) -> String {
+    format!("{GETTER_PREFIX}{prop}{ACCESSOR_SUFFIX}")
+}
+
+#[must_use]
+pub fn setter_key(prop: &str) -> String {
+    format!("{SETTER_PREFIX}{prop}{ACCESSOR_SUFFIX}")
+}
+
+#[must_use]
+pub fn is_internal_key(k: &str) -> bool {
+    k == CLASS_TAG || k == PROTO_KEY || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
+}
+
+pub type MethodDef = Rc<Closure>;
+
+#[derive(Debug, Default)]
+pub struct ClassMembers {
+    pub methods: Vec<(String, MethodDef)>,
+    pub getters: Vec<(String, MethodDef)>,
+    pub setters: Vec<(String, MethodDef)>,
+    pub static_methods: Vec<(String, MethodDef)>,
+    pub static_getters: Vec<(String, MethodDef)>,
+    pub static_setters: Vec<(String, MethodDef)>,
+    pub field_inits: Vec<(String, Option<MethodDef>, Option<Value>)>,
+}
+
+#[derive(Debug)]
+pub struct ClassDef {
+    pub name: String,
+    pub parent: Option<Rc<ClassDef>>,
+    pub constructor: Option<MethodDef>,
+    pub members: ClassMembers,
+    pub static_fields: RefCell<ObjMap>,
+}
+
+impl ClassMembers {
+    fn lookup<'a>(list: &'a [(String, MethodDef)], name: &str) -> Option<&'a MethodDef> {
+        list.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+    }
+}
+
+impl ClassDef {
+    pub fn find_method(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.methods, name) {
+                return Some(Rc::clone(m));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_method_owner(self: &Rc<Self>, name: &str) -> Option<Rc<ClassDef>> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if ClassMembers::lookup(&c.members.methods, name).is_some() {
+                return Some(Rc::clone(c));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_getter(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.getters, name) {
+                return Some((Rc::clone(m), Some(Rc::clone(c))));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_setter(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.setters, name) {
+                return Some((Rc::clone(m), Some(Rc::clone(c))));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_static_method(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.static_methods, name) {
+                return Some((Rc::clone(m), Some(Rc::clone(c))));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_static_getter(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.static_getters, name) {
+                return Some(Rc::clone(m));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_static_setter(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = ClassMembers::lookup(&c.members.static_setters, name) {
+                return Some(Rc::clone(m));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_static_field(self: &Rc<Self>, name: &str) -> Option<Value> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(v) = c.static_fields.borrow().get(name) {
+                return Some(v.clone());
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn find_static_field_owner(self: &Rc<Self>, name: &str) -> Option<Rc<ClassDef>> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if c.static_fields.borrow().contains_key(name) {
+                return Some(Rc::clone(c));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
+    pub fn is_subclass_of(self: &Rc<Self>, target: &Rc<ClassDef>) -> bool {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if Rc::ptr_eq(c, target) {
+                return true;
+            }
+            cur = c.parent.as_ref();
+        }
+        false
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ObjMap {
     entries: Vec<(String, Value)>,
@@ -44,11 +206,25 @@ impl ObjMap {
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
         self.entries.iter().map(|(k, v)| (k, v))
     }
+
+    pub fn remove(&mut self, key: &str) -> bool {
+        if let Some(pos) = self.entries.iter().position(|(k, _)| k == key) {
+            self.entries.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
+    }
 }
 
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
+    BigInt(i128),
     Str(Rc<str>),
     Bool(bool),
     Null,
@@ -57,6 +233,76 @@ pub enum Value {
     Object(Rc<RefCell<ObjMap>>),
     Function(Rc<Closure>),
     Builtin(Rc<str>),
+    Class(Rc<ClassDef>),
+    RegExp { pattern: Rc<str>, flags: Rc<str>, compiled: Rc<crate::regexp::YopRegex>, last_index: Rc<RefCell<usize>> },
+    Generator(Rc<RefCell<GenState>>),
+    ForIter(Rc<RefCell<ForIter>>),
+    Promise { state: Rc<RefCell<PromiseState>> },
+    PromiseCapability { state: Rc<RefCell<PromiseState>>, kind: CapKind },
+    PromiseThenHandler { handler: Box<Value>, resolve: Box<Value>, reject: Box<Value>, is_fulfill: bool },
+    PromiseFinallyHandler { cb: Box<Value>, cap: Box<Value> },
+    PromiseAggregateHandler { state: Rc<RefCell<AggregateState>>, index: usize, role: AggregateRole },
+    Host(yps_interpreter::value::Value),
+}
+
+#[derive(Clone)]
+pub enum PromiseState {
+    Pending { on_resolve: Vec<Value>, on_reject: Vec<Value> },
+    Fulfilled(Value),
+    Rejected(Value),
+}
+
+#[derive(Clone, Copy)]
+pub enum CapKind {
+    Resolve,
+    Reject,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AggregateKind {
+    All,
+    AllSettled,
+    Any,
+    Race,
+}
+
+#[derive(Clone, Copy)]
+pub enum AggregateRole {
+    Fulfill,
+    Reject,
+}
+
+pub struct AggregateState {
+    pub kind: AggregateKind,
+    pub remaining: usize,
+    pub results: Vec<Value>,
+    pub resolve: Value,
+    pub reject: Value,
+    pub settled: bool,
+}
+
+pub enum ForIter {
+    Values { values: Vec<Value>, index: usize },
+    Generator(Rc<RefCell<GenState>>),
+}
+
+pub struct GenState {
+    pub closure: Rc<Closure>,
+    pub owner: Option<Rc<ClassDef>>,
+    pub started: bool,
+    pub completed: bool,
+    pub stack: Vec<Value>,
+    pub frames: Vec<crate::vm::CallFrame>,
+    pub handlers: Vec<crate::vm::Handler>,
+    pub open_upvalues: Vec<Upvalue>,
+    pub this: Value,
+    pub args: Vec<Value>,
+    pub delegate: Option<Delegate>,
+}
+
+pub enum Delegate {
+    Generator(Rc<RefCell<GenState>>),
+    Values { values: Vec<Value>, index: usize },
 }
 
 impl Value {
@@ -69,8 +315,10 @@ impl Value {
             Value::Undefined | Value::Null => false,
             Value::Bool(b) => *b,
             Value::Number(n) => *n != 0.0,
+            Value::BigInt(n) => *n != 0,
             Value::Str(s) => !s.is_empty(),
             Value::Array(a) => !a.borrow().is_empty(),
+            Value::Host(iv) => iv.is_truthy(),
             _ => true,
         }
     }
@@ -78,11 +326,21 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",
+            Value::BigInt(_) => "бигцелое",
             Value::Str(_) => "строка",
             Value::Bool(_) => "булево",
             Value::Array(_) => "массив",
             Value::Object(_) => "объект",
             Value::Function(_) | Value::Builtin(_) => "функция",
+            Value::Class(_) => "класс",
+            Value::RegExp { .. } => "регэксп",
+            Value::Generator(_) | Value::ForIter(_) => "итератор",
+            Value::Promise { .. } => "обещание",
+            Value::PromiseCapability { .. }
+            | Value::PromiseThenHandler { .. }
+            | Value::PromiseFinallyHandler { .. }
+            | Value::PromiseAggregateHandler { .. } => "функция",
+            Value::Host(iv) => iv.type_name(),
             Value::Undefined => "неопределено",
             Value::Null => "нулл",
         }
@@ -91,12 +349,23 @@ impl Value {
     pub fn typeof_str(&self) -> &'static str {
         match self {
             Value::Number(_) => "число",
+            Value::BigInt(_) => "бигцелое",
             Value::Str(_) => "строка",
             Value::Bool(_) => "булево",
             Value::Undefined => "неопределено",
             Value::Null => "объект",
-            Value::Function(_) | Value::Builtin(_) => "функция",
-            Value::Array(_) | Value::Object(_) => "объект",
+            Value::Function(_) | Value::Builtin(_) | Value::Class(_) => "функция",
+            Value::PromiseCapability { .. }
+            | Value::PromiseThenHandler { .. }
+            | Value::PromiseFinallyHandler { .. }
+            | Value::PromiseAggregateHandler { .. } => "функция",
+            Value::Array(_)
+            | Value::Object(_)
+            | Value::RegExp { .. }
+            | Value::Generator(_)
+            | Value::ForIter(_)
+            | Value::Promise { .. } => "объект",
+            Value::Host(iv) => iv.typeof_str(),
         }
     }
 
@@ -121,6 +390,7 @@ impl Value {
         match self {
             Value::Str(s) => s.to_string(),
             Value::Number(n) => number_to_string(*n),
+            Value::BigInt(n) => n.to_string(),
             Value::Bool(b) => {
                 if *b {
                     "true".to_string()
@@ -130,7 +400,13 @@ impl Value {
             }
             Value::Null => "null".to_string(),
             Value::Undefined => "undefined".to_string(),
-            Value::Object(_) => "[object Object]".to_string(),
+            Value::Object(_) | Value::RegExp { .. } => "[object Object]".to_string(),
+            Value::Generator(_) | Value::ForIter(_) => "[итератор]".to_string(),
+            Value::Promise { .. }
+            | Value::PromiseCapability { .. }
+            | Value::PromiseThenHandler { .. }
+            | Value::PromiseFinallyHandler { .. }
+            | Value::PromiseAggregateHandler { .. } => self.to_string(),
             Value::Array(elements) => {
                 let snapshot = elements.borrow();
                 let parts: Vec<String> = snapshot
@@ -142,7 +418,8 @@ impl Value {
                     .collect();
                 parts.join(",")
             }
-            Value::Function(_) | Value::Builtin(_) => self.to_string(),
+            Value::Function(_) | Value::Builtin(_) | Value::Class(_) => self.to_string(),
+            Value::Host(iv) => iv.to_string(),
         }
     }
 
@@ -151,16 +428,11 @@ impl Value {
             Value::Number(n) => {
                 if *n == 0.0 && n.is_sign_negative() {
                     write!(f, "-0")
-                } else if n.is_nan() {
-                    write!(f, "NaN")
-                } else if n.is_infinite() {
-                    write!(f, "{}", if *n > 0.0 { "Infinity" } else { "-Infinity" })
-                } else if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
-                    write!(f, "{}", *n as i64)
                 } else {
-                    write!(f, "{n}")
+                    write!(f, "{}", number_to_string(*n))
                 }
             }
+            Value::BigInt(n) => write!(f, "{n}n"),
             Value::Str(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Undefined => write!(f, "undefined"),
@@ -188,10 +460,15 @@ impl Value {
                 }
                 let snapshot = map.borrow();
                 write!(f, "{{")?;
-                for (i, (k, v)) in snapshot.iter().enumerate() {
-                    if i > 0 {
+                let mut first = true;
+                for (k, v) in snapshot.iter() {
+                    if is_internal_key(k) {
+                        continue;
+                    }
+                    if !first {
                         write!(f, ", ")?;
                     }
+                    first = false;
                     write!(f, "{k}: ")?;
                     v.fmt_with_seen(f, seen)?;
                 }
@@ -201,6 +478,22 @@ impl Value {
             Value::Function(c) if c.proto.name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function(c) => write!(f, "[функция {}]", c.proto.name),
             Value::Builtin(name) => write!(f, "[встроенная {name}]"),
+            Value::Class(cls) => write!(f, "[класс {}]", cls.name),
+            Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
+            Value::Generator(_) | Value::ForIter(_) => write!(f, "[итератор]"),
+            Value::Promise { state } => match &*state.borrow() {
+                PromiseState::Pending { .. } => write!(f, "[обещание ждёт]"),
+                PromiseState::Fulfilled(v) => write!(f, "[обещание решено: {v}]"),
+                PromiseState::Rejected(v) => write!(f, "[обещание отвергнуто: {v}]"),
+            },
+            Value::PromiseCapability { kind, .. } => match kind {
+                CapKind::Resolve => write!(f, "[капабилити решить]"),
+                CapKind::Reject => write!(f, "[капабилити отвергнуть]"),
+            },
+            Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
+            Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
+            Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
+            Value::Host(iv) => write!(f, "{iv}"),
         }
     }
 }
@@ -221,6 +514,7 @@ impl fmt::Debug for Value {
 pub fn strict_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x == y,
+        (Value::BigInt(x), Value::BigInt(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Null, Value::Null) => true,
@@ -229,6 +523,14 @@ pub fn strict_eq(a: &Value, b: &Value) -> bool {
         (Value::Object(x), Value::Object(y)) => Rc::ptr_eq(x, y),
         (Value::Function(x), Value::Function(y)) => Rc::ptr_eq(x, y),
         (Value::Builtin(x), Value::Builtin(y)) => x == y,
+        (Value::Class(x), Value::Class(y)) => Rc::ptr_eq(x, y),
+        (Value::RegExp { pattern: pa, flags: fa, .. }, Value::RegExp { pattern: pb, flags: fb, .. }) => {
+            pa == pb && fa == fb
+        }
+        (Value::Generator(x), Value::Generator(y)) => Rc::ptr_eq(x, y),
+        (Value::ForIter(x), Value::ForIter(y)) => Rc::ptr_eq(x, y),
+        (Value::Promise { state: x }, Value::Promise { state: y }) => Rc::ptr_eq(x, y),
+        (Value::Host(x), Value::Host(y)) => x == y,
         _ => false,
     }
 }
@@ -236,14 +538,33 @@ pub fn strict_eq(a: &Value, b: &Value) -> bool {
 pub fn abstract_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Null | Value::Undefined, Value::Null | Value::Undefined) => true,
-        (Value::Number(_), Value::Number(_)) | (Value::Str(_), Value::Str(_)) | (Value::Bool(_), Value::Bool(_)) => {
-            strict_eq(a, b)
-        }
+        (Value::Number(_), Value::Number(_))
+        | (Value::BigInt(_), Value::BigInt(_))
+        | (Value::Str(_), Value::Str(_))
+        | (Value::Bool(_), Value::Bool(_)) => strict_eq(a, b),
         (Value::Number(x), Value::Str(y)) => *x == string_to_number(y),
         (Value::Str(x), Value::Number(y)) => string_to_number(x) == *y,
+        (Value::BigInt(x), Value::Str(y)) => bigint_eq_str(*x, y),
+        (Value::Str(x), Value::BigInt(y)) => bigint_eq_str(*y, x),
+        (Value::BigInt(x), Value::Number(y)) => bigint_eq_number(*x, *y),
+        (Value::Number(x), Value::BigInt(y)) => bigint_eq_number(*y, *x),
         (Value::Bool(_), _) => abstract_eq(&Value::Number(a.to_number()), b),
         (_, Value::Bool(_)) => abstract_eq(a, &Value::Number(b.to_number())),
         _ => strict_eq(a, b),
+    }
+}
+
+fn bigint_eq_number(a: i128, b: f64) -> bool {
+    if !b.is_finite() || b.fract() != 0.0 {
+        return false;
+    }
+    (a as f64) == b && (b as i128) == a
+}
+
+fn bigint_eq_str(a: i128, s: &str) -> bool {
+    match s.trim().parse::<i128>() {
+        Ok(n) => n == a,
+        Err(_) => false,
     }
 }
 
@@ -257,10 +578,28 @@ pub fn number_to_string(n: f64) -> String {
     if n == 0.0 {
         return "0".to_string();
     }
-    if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
+    let abs = n.abs();
+    if !(1e-6..1e21).contains(&abs) {
+        return format_exponential(n);
+    }
+    if n.fract() == 0.0 && abs < 9.007_199_254_740_992e15 {
         return format!("{}", n as i64);
     }
     format!("{n}")
+}
+
+fn format_exponential(n: f64) -> String {
+    let raw = format!("{n:e}");
+    match raw.split_once('e') {
+        Some((mantissa, exp)) => {
+            if let Some(rest) = exp.strip_prefix('-') {
+                format!("{mantissa}e-{rest}")
+            } else {
+                format!("{mantissa}e+{exp}")
+            }
+        }
+        None => raw,
+    }
 }
 
 pub fn string_to_number(s: &str) -> f64 {

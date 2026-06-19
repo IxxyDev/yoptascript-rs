@@ -15,9 +15,9 @@ fn continue_outside_loop_errors() {
 }
 
 #[test]
-fn division_by_zero_errors() {
-    let err = run_code_err("гыы х = 5 / 0;");
-    assert!(err.message.contains("Деление на ноль"), "got: {}", err.message);
+fn division_by_zero_yields_infinity() {
+    let interp = run_code("гыы х = 5 / 0;");
+    assert_eq!(interp.get("х"), Some(Value::Number(f64::INFINITY)));
 }
 
 #[test]
@@ -80,9 +80,12 @@ fn calling_non_function_errors() {
 }
 
 #[test]
-fn unary_minus_on_string_errors() {
-    let err = run_code_err(r#"гыы х = -"абв";"#);
-    assert!(err.message.contains("'-'") || err.message.contains("тип"), "got: {}", err.message);
+fn unary_minus_on_garbage_string_yields_nan() {
+    let interp = run_code(r#"гыы х = -"абв";"#);
+    match interp.get("х") {
+        Some(Value::Number(n)) => assert!(n.is_nan(), "ожидался NaN, получено {n}"),
+        other => panic!("ожидалось число NaN, получено {other:?}"),
+    }
 }
 
 #[test]

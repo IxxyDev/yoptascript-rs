@@ -1,6 +1,7 @@
 pub mod builtins;
 pub mod environment;
 pub mod error;
+pub mod host_callback;
 pub mod interpreter;
 pub mod stdlib;
 pub mod symbols;

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
+
 use yps_lexer::Span;
 use yps_parser::ast::{Block, ClassMember, Expr, Param};
 
@@ -13,7 +15,7 @@ use super::{ControlFlow, Interpreter};
 
 impl Interpreter {
     pub(super) fn build_decorator_context(&self, kind: &str, name: &str, is_static: bool, is_private: bool) -> Value {
-        let mut ctx = HashMap::new();
+        let mut ctx = IndexMap::new();
         ctx.insert(symbols::DEC_KIND.to_string(), Value::String(kind.to_string()));
         ctx.insert(symbols::DEC_NAME.to_string(), Value::String(name.to_string()));
         ctx.insert(symbols::DEC_STATIC.to_string(), Value::Boolean(is_static));
@@ -260,7 +262,7 @@ impl Interpreter {
             constructor,
             methods,
             static_methods,
-            static_fields,
+            static_fields: std::cell::RefCell::new(static_fields),
             field_inits,
             getters,
             setters,
@@ -308,7 +310,7 @@ impl Interpreter {
             _ => return Err(RuntimeError::new(format!("'{}' не является классом", class_val.type_name()), span)),
         };
 
-        let mut seed = HashMap::new();
+        let mut seed = IndexMap::new();
         seed.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
         seed.insert(symbols::PROTO.to_string(), Value::Class(Rc::clone(&class_def)));
         let mut instance_val = Value::object(seed);
@@ -679,12 +681,22 @@ impl Interpreter {
         None
     }
 
-    pub(super) fn find_static_field_in_class<'a>(class_def: &'a ClassDef, name: &str) -> Option<&'a Value> {
-        if let Some(v) = class_def.static_fields.get(name) {
-            return Some(v);
+    pub(super) fn find_static_field_in_class(class_def: &ClassDef, name: &str) -> Option<Value> {
+        if let Some(v) = class_def.static_fields.borrow().get(name) {
+            return Some(v.clone());
         }
         if let Some(ref parent) = class_def.parent {
             return Self::find_static_field_in_class(parent, name);
+        }
+        None
+    }
+
+    pub(super) fn find_static_field_owner(class_def: &Rc<ClassDef>, name: &str) -> Option<Rc<ClassDef>> {
+        if class_def.static_fields.borrow().contains_key(name) {
+            return Some(Rc::clone(class_def));
+        }
+        if let Some(ref parent) = class_def.parent {
+            return Self::find_static_field_owner(parent, name);
         }
         None
     }

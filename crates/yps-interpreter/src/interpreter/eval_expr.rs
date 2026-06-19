@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, TemplatePart, UnaryOp};
@@ -10,6 +11,7 @@ use crate::symbols;
 use crate::value::{Value, to_int_n, to_uint_n};
 
 use super::Interpreter;
+use super::call::RelOp;
 use super::coercion;
 
 impl Interpreter {
@@ -346,7 +348,7 @@ impl Interpreter {
                 Ok(Value::String(result))
             }
             Expr::TaggedTemplate { tag, quasis, expressions, span } => {
-                let mut strings_map = HashMap::new();
+                let mut strings_map = IndexMap::new();
                 let mut raw_vec = Vec::with_capacity(quasis.len());
                 for (i, q) in quasis.iter().enumerate() {
                     strings_map.insert(i.to_string(), Value::String(q.cooked.clone()));
@@ -402,7 +404,7 @@ impl Interpreter {
                 };
                 match self.load_module(&path, *span) {
                     Ok(exports) => {
-                        let mut map = HashMap::new();
+                        let mut map = IndexMap::new();
                         for (k, v) in exports {
                             map.insert(k, v);
                         }
@@ -416,11 +418,14 @@ impl Interpreter {
 
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
         match lit {
-            Literal::Number { raw, span } => raw
-                .replace('_', "")
-                .parse::<f64>()
-                .map(Value::Number)
-                .map_err(|_| RuntimeError::new(format!("Невалидное число: '{raw}'"), *span)),
+            Literal::Number { raw, span } => {
+                let n = coercion::string_to_number(&raw.replace('_', ""));
+                if n.is_nan() {
+                    Err(RuntimeError::new(format!("Невалидное число: '{raw}'"), *span))
+                } else {
+                    Ok(Value::Number(n))
+                }
+            }
             Literal::BigInt { value, .. } => Ok(Value::BigInt(*value)),
             Literal::String { value, .. } => Ok(Value::String(value.clone())),
             Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
@@ -467,7 +472,7 @@ impl Interpreter {
                 Ok(Value::array(values))
             }
             Literal::Object { entries, span } => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for entry in entries {
                     match entry {
                         ObjectEntry::Property { key, value } => {
@@ -570,16 +575,14 @@ impl Interpreter {
     fn eval_unary(&self, op: UnaryOp, val: Value, span: Span) -> Result<Value, RuntimeError> {
         match op {
             UnaryOp::Minus => match val {
-                Value::Number(n) => Ok(Value::Number(-n)),
                 Value::BigInt(n) => {
                     n.checked_neg().map(Value::BigInt).ok_or_else(|| RuntimeError::new("Переполнение бигцелого", span))
                 }
-                _ => Err(RuntimeError::new(format!("Нельзя применить '-' к типу '{}'", val.type_name()), span)),
+                _ => Ok(Value::Number(-coercion::to_number(&val))),
             },
             UnaryOp::Plus => match val {
-                Value::Number(n) => Ok(Value::Number(n)),
                 Value::BigInt(_) => Err(RuntimeError::new("Нельзя применить унарный '+' к бигцелому", span)),
-                _ => Err(RuntimeError::new(format!("Нельзя применить '+' к типу '{}'", val.type_name()), span)),
+                _ => Ok(Value::Number(coercion::to_number(&val))),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
             UnaryOp::BitwiseNot => {
@@ -635,24 +638,17 @@ impl Interpreter {
             BinaryOp::Add => self.add_values(&left, &right, span),
             BinaryOp::Sub => self.numeric_op(&left, &right, span, |a, b| a - b),
             BinaryOp::Mul => self.numeric_op(&left, &right, span, |a, b| a * b),
-            BinaryOp::Div => {
-                if let (Value::Number(_), Value::Number(b)) = (&left, &right)
-                    && *b == 0.0
-                {
-                    return Err(RuntimeError::new("Деление на ноль", span));
-                }
-                self.numeric_op(&left, &right, span, |a, b| a / b)
-            }
+            BinaryOp::Div => self.numeric_op(&left, &right, span, |a, b| a / b),
             BinaryOp::Mod => self.numeric_op(&left, &right, span, |a, b| a % b),
             BinaryOp::Exp => self.numeric_op(&left, &right, span, |a, b| a.powf(b)),
             BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
             BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
             BinaryOp::Equals => Ok(Value::Boolean(self.abstract_equals(&left, &right, span)?)),
             BinaryOp::NotEquals => Ok(Value::Boolean(!self.abstract_equals(&left, &right, span)?)),
-            BinaryOp::Less => self.compare_op(&left, &right, span, |a, b| a < b),
-            BinaryOp::Greater => self.compare_op(&left, &right, span, |a, b| a > b),
-            BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, |a, b| a <= b),
-            BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, |a, b| a >= b),
+            BinaryOp::Less => self.compare_op(&left, &right, span, RelOp::Less),
+            BinaryOp::Greater => self.compare_op(&left, &right, span, RelOp::Greater),
+            BinaryOp::LessOrEqual => self.compare_op(&left, &right, span, RelOp::LessOrEqual),
+            BinaryOp::GreaterOrEqual => self.compare_op(&left, &right, span, RelOp::GreaterOrEqual),
             BinaryOp::Pipeline => unreachable!("handled in eval_expr"),
             BinaryOp::Instanceof => {
                 let right_class = match &right {
@@ -668,21 +664,26 @@ impl Interpreter {
             }
             BinaryOp::In => match right {
                 Value::Proxy { target, handler } => {
-                    let key = left.to_string();
+                    let key = coercion::to_ecma_string(&left);
                     Ok(Value::Boolean(self.proxy_has(&target, &handler, &key, span)?))
                 }
                 Value::Object(map) => {
-                    let key = left.to_string();
+                    let key = coercion::to_ecma_string(&left);
                     Ok(Value::Boolean(map.borrow().contains_key(&key)))
                 }
                 Value::Array(arr) => {
-                    let key = match &left {
-                        Value::Number(n) => *n as usize,
-                        _ => {
-                            return Err(RuntimeError::new("Индекс массива должен быть числом", span));
+                    let len = arr.borrow().len();
+                    let contains = match &left {
+                        Value::Number(n) => n.fract() == 0.0 && *n >= 0.0 && (*n as usize) < len,
+                        other => {
+                            let key = coercion::to_ecma_string(other);
+                            match key.parse::<usize>() {
+                                Ok(idx) => idx < len,
+                                Err(_) => false,
+                            }
                         }
                     };
-                    Ok(Value::Boolean(key < arr.borrow().len()))
+                    Ok(Value::Boolean(contains))
                 }
                 _ => Err(RuntimeError::new(
                     format!("Правая сторона 'из' должна быть объектом или массивом, получено '{}'", right.type_name()),
@@ -789,7 +790,7 @@ impl Interpreter {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
+    pub(super) fn to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
         if !matches!(value, Value::Object(_)) {
             return Ok(coercion::to_primitive_builtin(value));
         }

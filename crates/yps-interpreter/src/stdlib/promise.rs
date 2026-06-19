@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -31,7 +32,7 @@ pub(crate) fn rejection_reason(e: RuntimeError) -> Value {
     match e.thrown {
         Some(val) => *val,
         None => {
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             map.insert(
                 crate::symbols::ERROR_NAME_FIELD.to_string(),
                 Value::String(crate::symbols::ERROR_NAME.to_string()),
@@ -92,7 +93,7 @@ pub fn call_static(
         }
         "сРешалками" => {
             let (promise, resolve, reject) = Interpreter::make_pending_promise();
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             map.insert("обещание".to_string(), promise);
             map.insert("решить".to_string(), resolve);
             map.insert("отвергнуть".to_string(), reject);
@@ -274,7 +275,7 @@ pub(crate) fn apply_aggregate(
             }
         }
         (AggregateKind::AllSettled, role) => {
-            let mut entry = HashMap::new();
+            let mut entry = IndexMap::new();
             match role {
                 AggregateRole::Fulfill => {
                     entry.insert("статус".to_string(), Value::String("выполнено".to_string()));
@@ -343,7 +344,7 @@ pub(crate) fn apply_aggregate(
 }
 
 fn aggregate_error(errors: Vec<Value>) -> Value {
-    let mut agg = HashMap::new();
+    let mut agg = IndexMap::new();
     agg.insert("name".to_string(), Value::String("ВсёОбосралось".to_string()));
     agg.insert("message".to_string(), Value::String("Все обещания отклонены".to_string()));
     agg.insert("errors".to_string(), Value::array(errors));

@@ -202,3 +202,78 @@ fn method_shorthand_in_object() {
     );
     assert_eq!(i.get("рез"), Some(Value::Number(10.0)));
 }
+
+#[test]
+fn object_keys_preserve_insertion_order() {
+    let i = run_code(
+        r#"
+        гыы о = { я: 1, б: 2, а: 3 };
+        гыы ключи = Кент.ключи(о).склеить(",");
+        гыы показ = строка(о);
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("я,б,а".to_string())));
+    assert_eq!(i.get("показ"), Some(Value::String("{я: 1, б: 2, а: 3}".to_string())));
+}
+
+#[test]
+fn object_delete_preserves_remaining_order() {
+    let i = run_code(
+        r#"
+        гыы о = { я: 1, б: 2, а: 3 };
+        ёбнуть о.б;
+        гыы ключи = Кент.ключи(о).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("я,а".to_string())));
+}
+
+#[test]
+fn numeric_literal_hex_octal_binary() {
+    let i = run_code(
+        r#"
+        гыы h = 0x10;
+        гыы h2 = 0X1f;
+        гыы b = 0b101;
+        гыы o = 0o17;
+        "#,
+    );
+    assert_eq!(i.get("h"), Some(Value::Number(16.0)));
+    assert_eq!(i.get("h2"), Some(Value::Number(31.0)));
+    assert_eq!(i.get("b"), Some(Value::Number(5.0)));
+    assert_eq!(i.get("o"), Some(Value::Number(15.0)));
+}
+
+#[test]
+fn numeric_literal_exponent() {
+    let i = run_code(
+        r#"
+        гыы a = 1e3;
+        гыы b = 1.5e-3;
+        гыы c = 2E3;
+        гыы d = 1e+10;
+        "#,
+    );
+    assert_eq!(i.get("a"), Some(Value::Number(1000.0)));
+    assert_eq!(i.get("b"), Some(Value::Number(0.0015)));
+    assert_eq!(i.get("c"), Some(Value::Number(2000.0)));
+    assert_eq!(i.get("d"), Some(Value::Number(1e10)));
+}
+
+#[test]
+fn number_print_v8_exponential() {
+    let i = run_code(
+        r#"
+        гыы a = строка(1e21);
+        гыы b = строка(1e-7);
+        гыы c = строка(1.5e21);
+        гыы d = строка(123456);
+        гыы e = строка(0.0000001);
+        "#,
+    );
+    assert_eq!(i.get("a"), Some(Value::String("1e+21".to_string())));
+    assert_eq!(i.get("b"), Some(Value::String("1e-7".to_string())));
+    assert_eq!(i.get("c"), Some(Value::String("1.5e+21".to_string())));
+    assert_eq!(i.get("d"), Some(Value::String("123456".to_string())));
+    assert_eq!(i.get("e"), Some(Value::String("1e-7".to_string())));
+}

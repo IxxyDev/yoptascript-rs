@@ -48,7 +48,9 @@ impl Interpreter {
         }
         match target {
             Value::Object(map) => {
-                map.borrow_mut().insert(key.to_string(), value);
+                if !map.borrow().frozen {
+                    map.borrow_mut().insert(key.to_string(), value);
+                }
                 Ok(())
             }
             Value::Array(arr) => {
@@ -100,8 +102,10 @@ impl Interpreter {
             let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string())], span)?;
             return Ok(result.is_truthy());
         }
-        if let Value::Object(map) = target {
-            map.borrow_mut().remove(key);
+        if let Value::Object(map) = target
+            && !map.borrow().frozen
+        {
+            map.borrow_mut().shift_remove(key);
         }
         Ok(true)
     }

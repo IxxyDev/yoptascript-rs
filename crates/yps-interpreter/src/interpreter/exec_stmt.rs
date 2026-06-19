@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 use yps_parser::ast::{Block, ExportKind, Expr, Identifier, ImportSpec, Pattern, Stmt};
@@ -209,7 +210,7 @@ impl Interpreter {
                                 let bound = if let Some(thrown) = err.thrown {
                                     *thrown
                                 } else {
-                                    let mut map = HashMap::new();
+                                    let mut map = IndexMap::new();
                                     map.insert(
                                         symbols::ERROR_NAME_FIELD.to_string(),
                                         Value::String(symbols::ERROR_NAME.to_string()),
@@ -279,23 +280,35 @@ impl Interpreter {
                 } else {
                     self.load_module(source, *span)?
                 };
+                let pending_module =
+                    if import_type == Some("json") { None } else { self.loading_module_path(source, *span) };
                 for spec in specifiers {
                     match spec {
                         ImportSpec::Default { local } => {
                             let val = exports.get("default").cloned().unwrap_or(Value::Undefined);
                             self.env.define(local.name.clone(), val, true);
+                            if let Some(path) = &pending_module {
+                                self.register_module_link(path.clone(), &local.name, "default");
+                            }
                         }
                         ImportSpec::Named { imported, local } => {
-                            let val = exports.get(&imported.name).cloned().ok_or_else(|| {
-                                RuntimeError::new(
-                                    format!("Модуль '{source}' не экспортирует '{}'", imported.name),
-                                    *span,
-                                )
-                            })?;
+                            let val = match exports.get(&imported.name) {
+                                Some(v) => v.clone(),
+                                None if pending_module.is_some() => Value::Undefined,
+                                None => {
+                                    return Err(RuntimeError::new(
+                                        format!("Модуль '{source}' не экспортирует '{}'", imported.name),
+                                        *span,
+                                    ));
+                                }
+                            };
                             self.env.define(local.name.clone(), val, true);
+                            if let Some(path) = &pending_module {
+                                self.register_module_link(path.clone(), &local.name, &imported.name);
+                            }
                         }
                         ImportSpec::Namespace { local } => {
-                            let mut map = HashMap::new();
+                            let mut map = IndexMap::new();
                             for (k, v) in exports.iter() {
                                 map.insert(k.clone(), v.clone());
                             }
@@ -311,7 +324,7 @@ impl Interpreter {
                     let result = self.exec_stmt(decl)?;
                     for name in names {
                         if let Some(val) = self.env.get(&name) {
-                            self.current_exports.insert(name, val);
+                            self.record_export(name, val);
                         }
                     }
                     Ok(result)
@@ -321,7 +334,7 @@ impl Interpreter {
                         let val = self.env.get(&ident.name).ok_or_else(|| {
                             RuntimeError::new(format!("Нельзя экспортировать неопределённое '{}'", ident.name), *span)
                         })?;
-                        self.current_exports.insert(ident.name.clone(), val);
+                        self.record_export(ident.name.clone(), val);
                     }
                     Ok(None)
                 }
@@ -410,8 +423,8 @@ impl Interpreter {
                 Ok(())
             }
             Pattern::Object { properties, rest, .. } => {
-                let map: std::collections::HashMap<String, Value> = match value {
-                    Value::Object(map) => map.borrow().0.clone(),
+                let map: IndexMap<String, Value> = match value {
+                    Value::Object(map) => map.borrow().map.clone(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Невозможно деструктурировать {} как объект", value.type_name()),
@@ -436,7 +449,7 @@ impl Interpreter {
                 if let Some(rest_pat) = rest {
                     let mut rest_map = map;
                     for key in &used_keys {
-                        rest_map.remove(key);
+                        rest_map.shift_remove(key);
                     }
                     self.destructure_pattern(rest_pat, Value::object(rest_map), is_const, span)?;
                 }
