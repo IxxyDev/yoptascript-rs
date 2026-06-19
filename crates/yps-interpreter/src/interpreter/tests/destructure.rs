@@ -245,3 +245,81 @@ fn destructure_default_expression_references_value() {
     assert_eq!(interp.get("ширина"), Some(Value::Number(4.0)));
     assert_eq!(interp.get("площадь"), Some(Value::Number(16.0)));
 }
+
+#[test]
+fn destructure_assign_swap() {
+    let interp = run_code(
+        r#"
+        гыы x = 1;
+        гыы y = 2;
+        [x, y] = [y, x];
+        "#,
+    );
+    assert_eq!(interp.get("x"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("y"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn destructure_assign_object_shorthand() {
+    let interp = run_code(
+        r#"
+        гыы a = 0;
+        ({ a } = { a: 7 });
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn destructure_assign_member_target() {
+    let interp = run_code(
+        r#"
+        гыы o = { p: 0 };
+        [o.p] = [9];
+        гыы r = o.p;
+        "#,
+    );
+    assert_eq!(interp.get("r"), Some(Value::Number(9.0)));
+}
+
+#[test]
+fn destructure_assign_nested() {
+    let interp = run_code(
+        r#"
+        гыы a = 0;
+        гыы b = 0;
+        [a, [b]] = [1, [2]];
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn destructure_assign_rest() {
+    let interp = run_code(
+        r#"
+        гыы a = 0;
+        гыы r = ноль;
+        [a, ...r] = [1, 2, 3];
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(1.0)));
+    match interp.get("r") {
+        Some(Value::Array(arr)) => {
+            assert_eq!(arr.borrow().0, vec![Value::Number(2.0), Value::Number(3.0)]);
+        }
+        other => panic!("ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn destructure_assign_object_renamed_target() {
+    let interp = run_code(
+        r#"
+        гыы x = 0;
+        ({ a: x } = { a: 5 });
+        "#,
+    );
+    assert_eq!(interp.get("x"), Some(Value::Number(5.0)));
+}

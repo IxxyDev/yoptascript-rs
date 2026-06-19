@@ -24,8 +24,7 @@ pub mod symbol;
 pub mod typed_array;
 pub mod weak;
 
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
@@ -227,7 +226,7 @@ pub(crate) fn builtin(name: &str) -> Value {
 }
 
 pub(crate) fn object_of(pairs: &[(&str, Value)]) -> Value {
-    let mut map = HashMap::new();
+    let mut map = IndexMap::new();
     for (k, v) in pairs {
         map.insert((*k).to_string(), v.clone());
     }

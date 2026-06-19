@@ -291,6 +291,117 @@ fn symbol_to_string_tag_non_string_ignored() {
 }
 
 #[test]
+fn div_by_zero_yields_ecma_infinity_and_nan() {
+    let i = run_code(
+        r#"
+        гыы пол = 1 / 0;
+        гыы отр = -1 / 0;
+        гыы нан = 0 / 0;
+        "#,
+    );
+    assert_eq!(i.get("пол"), Some(Value::Number(f64::INFINITY)));
+    assert_eq!(i.get("отр"), Some(Value::Number(f64::NEG_INFINITY)));
+    match i.get("нан") {
+        Some(Value::Number(n)) => assert!(n.is_nan(), "ожидался NaN, получено {n}"),
+        other => panic!("ожидалось число NaN, получено {other:?}"),
+    }
+}
+
+#[test]
+fn div_by_zero_infinity_relations() {
+    assert!(eval_bool("1 / 0 > 1000000"));
+    assert!(eval_bool("-1 / 0 < -1000000"));
+    assert!(!eval_bool("(0 / 0) === (0 / 0)"));
+}
+
+#[test]
+fn bigint_div_by_zero_is_catchable_error() {
+    let i = run_code(
+        r#"
+        гыы рез = "нет";
+        хапнуть {
+            гыы х = 10n / 0n;
+        } гоп (е) {
+            рез = "поймал";
+        }
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("поймал".to_string())));
+}
+
+#[test]
+fn unary_plus_via_to_number() {
+    let i = run_code(
+        r#"
+        гыы а = +"5";
+        гыы б = +"";
+        гыы в = +правда;
+        гыы г = +ноль;
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(5.0)));
+    assert_eq!(i.get("б"), Some(Value::Number(0.0)));
+    assert_eq!(i.get("в"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("г"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn unary_plus_nan_cases() {
+    let i = run_code(
+        r#"
+        гыы а = +"abc";
+        гыы б = +неибу;
+        "#,
+    );
+    for k in ["а", "б"] {
+        match i.get(k) {
+            Some(Value::Number(n)) => assert!(n.is_nan(), "ожидался NaN для {k}, получено {n}"),
+            other => panic!("ожидалось число NaN, получено {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn unary_minus_via_to_number() {
+    let i = run_code(r#"гыы а = -"3";"#);
+    assert_eq!(i.get("а"), Some(Value::Number(-3.0)));
+}
+
+#[test]
+fn unary_plus_bigint_is_error() {
+    let err = run_code_err(r#"гыы х = +10n;"#);
+    assert!(err.message.contains("бигцелому"), "ожидалась ошибка про бигцелое, получено: {}", err.message);
+}
+
+#[test]
+fn relational_string_comparison_lexicographic() {
+    assert!(eval_bool("\"10\" < \"9\""));
+    assert!(!eval_bool("\"10\" < 9"));
+}
+
+#[test]
+fn relational_coercion_to_number() {
+    assert!(eval_bool("правда < 2"));
+    assert!(eval_bool("ноль < 1"));
+    assert!(!eval_bool("неибу < 1"));
+    assert!(eval_bool("\"3\" <= 3"));
+    assert!(eval_bool("7 > 2"));
+    assert!(!eval_bool("2 >= 9"));
+}
+
+#[test]
+fn in_operator_object_via_property_key() {
+    assert!(eval_bool("\"x\" из {x: 1}"));
+    assert!(!eval_bool("\"y\" из {x: 1}"));
+}
+
+#[test]
+fn in_operator_array_checks_index_bounds() {
+    assert!(eval_bool("1 из [9, 8, 7]"));
+    assert!(!eval_bool("5 из [9, 8, 7]"));
+}
+
+#[test]
 fn symbol_keys_do_not_leak_into_object_display() {
     let i = run_code(
         r#"

@@ -13,6 +13,12 @@ use crate::value::{FinRegState, Value};
 
 pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    Script,
+    Repl,
+}
+
 mod assign;
 mod call;
 mod class;
@@ -23,6 +29,7 @@ mod event_loop;
 mod exec_stmt;
 mod gc;
 pub(crate) mod generator;
+mod host_api;
 mod member;
 mod module_loader;
 mod promise_rt;
@@ -38,7 +45,9 @@ pub struct Interpreter {
     pub(super) pending_initializers: Vec<Value>,
     pub(super) base_path: Option<PathBuf>,
     pub(super) module_cache: Rc<RefCell<HashMap<PathBuf, module_loader::ModuleState>>>,
+    pub(super) module_links: Rc<RefCell<Vec<module_loader::DeferredLink>>>,
     pub(super) current_exports: HashMap<String, Value>,
+    pub(super) export_cell: Option<module_loader::ExportCell>,
     pub(super) microtasks: VecDeque<Microtask>,
     pub(super) macrotasks: MacrotaskQueue,
     pub(super) await_depth: usize,
@@ -76,7 +85,9 @@ impl Interpreter {
             pending_initializers: Vec::new(),
             base_path: None,
             module_cache: Rc::new(RefCell::new(HashMap::new())),
+            module_links: Rc::new(RefCell::new(Vec::new())),
             current_exports: HashMap::new(),
+            export_cell: None,
             microtasks: VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
             await_depth: 0,
@@ -115,11 +126,11 @@ impl Interpreter {
     }
 
     pub fn run(&mut self, program: &Program) -> Result<(), RuntimeError> {
-        self.run_internal(program, false).map(|_| ())
+        self.run_internal(program, RunMode::Script).map(|_| ())
     }
 
     pub fn run_repl(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
-        let result = self.run_internal(program, true);
+        let result = self.run_internal(program, RunMode::Repl);
         self.clear_pending_tasks();
         if self.live_frames() > GC_THRESHOLD {
             let extra_roots: Vec<Value> = result.iter().flatten().cloned().collect();
@@ -137,12 +148,12 @@ impl Interpreter {
         self.macrotasks.clear();
     }
 
-    fn run_internal(&mut self, program: &Program, capture_last: bool) -> Result<Option<Value>, RuntimeError> {
+    fn run_internal(&mut self, program: &Program, mode: RunMode) -> Result<Option<Value>, RuntimeError> {
         self.call_stack.clear();
         self.hoist_functions(&program.items);
         let mut last: Option<Value> = None;
         for stmt in &program.items {
-            if capture_last {
+            if mode == RunMode::Repl {
                 if let yps_parser::ast::Stmt::Expr { expr, .. } = stmt {
                     self.pending_label.take();
                     let val = self.eval_expr(expr)?;
@@ -154,7 +165,9 @@ impl Interpreter {
                 }
             }
             let cf_opt = self.exec_stmt(stmt)?;
-            self.drain_microtasks(Span { start: 0, end: 0 })?;
+            if mode == RunMode::Repl {
+                self.drain_microtasks(Span { start: 0, end: 0 })?;
+            }
             if let Some(cf) = cf_opt {
                 match cf {
                     ControlFlow::Return(_) => return Ok(last),

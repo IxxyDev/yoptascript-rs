@@ -28,9 +28,7 @@ impl Interpreter {
             marker.push_value(value);
         }
         for module in self.module_cache.borrow().values() {
-            for value in module.exports().values() {
-                marker.push_value(value);
-            }
+            module.for_each_export_value(|value| marker.push_value(value));
         }
         for value in extra_roots {
             marker.push_value(value);
@@ -293,7 +291,7 @@ impl Marker {
         {
             self.work.push(Work::Frame(Rc::clone(env)));
         }
-        for value in class.static_fields.values() {
+        for value in class.static_fields.borrow().values() {
             self.push_value(value);
         }
         for (_, _, default) in &class.field_inits {

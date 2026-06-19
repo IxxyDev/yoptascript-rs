@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn top_level_microtasks_drain_after_whole_script() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        лог = втолкнуть(лог, 1);
+        СловоПацана.решить(2).потом((v) => { лог = втолкнуть(лог, v); });
+        лог = втолкнуть(лог, 4);
+        "#,
+    );
+    assert_struct_eq(interp.get("лог"), Value::array(vec![Value::Number(1.0), Value::Number(4.0), Value::Number(2.0)]));
+}
+
+#[test]
 fn чутка_fires_in_deadline_order() {
     let interp = run_code(
         r#"

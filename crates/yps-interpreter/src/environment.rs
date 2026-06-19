@@ -27,6 +27,10 @@ impl EnvFrame {
         self.disposables.clear();
         self.parent = None;
     }
+
+    pub(crate) fn rebind(&mut self, name: String, value: Value) {
+        self.bindings.insert(name, value);
+    }
 }
 
 #[derive(Debug)]

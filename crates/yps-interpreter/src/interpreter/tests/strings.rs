@@ -305,3 +305,91 @@ fn string_replace_dollar_patterns() {
     assert_eq!(interp.get("b"), Some(Value::String("[name]".to_string())));
     assert_eq!(interp.get("c"), Some(Value::String("a$b$c".to_string())));
 }
+
+#[test]
+fn string_length_utf16_emoji() {
+    let interp = run_code(
+        r#"
+        гыы a = "😀".длина;
+        гыы b = "a😀b".длина;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn string_length_utf16_bmp() {
+    let interp = run_code(
+        r#"
+        гыы a = "café".длина;
+        гыы b = "привет".длина;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn string_slice_utf16_code_units() {
+    let interp = run_code(
+        r#"
+        гыы a = "a😀b".отрезать(0, 1);
+        гыы b = "a😀b".отрезать(3, 4);
+        гыы c = "a😀b".подстрока(1, 3);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("😀".to_string())));
+}
+
+#[test]
+fn string_at_utf16_code_units() {
+    let interp = run_code(
+        r#"
+        гыы a = "a😀b".поИндексу(0);
+        гыы b = "a😀b".поИндексу(3);
+        гыы c = "a😀b".поИндексу(-1);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("b".to_string())));
+}
+
+#[test]
+fn string_char_code_at_basic() {
+    let interp = run_code(
+        r#"
+        гыы a = "A".charCodeAt(0);
+        гыы b = "b".charCodeAt(0);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(65.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(98.0)));
+}
+
+#[test]
+fn string_index_of_utf16() {
+    let interp = run_code(
+        r#"
+        гыы a = "a😀b".найтиПодстроку("b");
+        гыы b = "a😀b".содержит("b");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn string_index_access_utf16() {
+    let interp = run_code(
+        r#"
+        гыы a = "a😀b"[0];
+        гыы b = "a😀b"[3];
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
+}

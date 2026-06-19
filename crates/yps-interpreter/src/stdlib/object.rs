@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
@@ -20,6 +21,8 @@ pub fn build_object() -> Value {
         ("создать", builtin("Кент.создать")),
         ("прототип", builtin("Кент.прототип")),
         ("назначитьПрототип", builtin("Кент.назначитьПрототип")),
+        ("заморозить", builtin("Кент.заморозить")),
+        ("заморожен", builtin("Кент.заморожен")),
     ])
 }
 
@@ -86,6 +89,9 @@ pub fn call_static(
             for src in iter {
                 match src {
                     Value::Object(m) => {
+                        if target_rc.borrow().frozen {
+                            continue;
+                        }
                         let entries: Vec<(String, Value)> = m
                             .borrow()
                             .iter()
@@ -148,7 +154,7 @@ pub fn call_static(
                 });
                 entry.push(item);
             }
-            let mut result = HashMap::new();
+            let mut result = IndexMap::new();
             for k in order {
                 if let Some(vals) = groups.remove(&k) {
                     result.insert(k, Value::array(vals));
@@ -160,7 +166,7 @@ pub fn call_static(
             require_args(&args, 1, span, "Кент.изЗаписей")?;
             match &args[0] {
                 Value::Array(entries) => {
-                    let mut map = HashMap::new();
+                    let mut map = IndexMap::new();
                     for entry in entries.borrow().iter() {
                         match entry {
                             Value::Array(pair) if pair.borrow().len() >= 2 => {
@@ -192,7 +198,7 @@ pub fn call_static(
                     ));
                 }
             }
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             if !matches!(proto, Value::Null) {
                 map.insert(symbols::PROTO.to_string(), proto);
             }
@@ -231,8 +237,25 @@ pub fn call_static(
                 Value::Object(m) => m.clone(),
                 _ => unreachable!(),
             };
-            target_rc.borrow_mut().insert(symbols::PROTO.to_string(), proto);
+            if !target_rc.borrow().frozen {
+                target_rc.borrow_mut().insert(symbols::PROTO.to_string(), proto);
+            }
             Ok(target)
+        }
+        "заморозить" => {
+            require_args(&args, 1, span, "Кент.заморозить")?;
+            let target = args.into_iter().next().unwrap();
+            if let Value::Object(map) = &target {
+                map.borrow_mut().frozen = true;
+            }
+            Ok(target)
+        }
+        "заморожен" => {
+            require_args(&args, 1, span, "Кент.заморожен")?;
+            match &args[0] {
+                Value::Object(map) => Ok(Value::Boolean(map.borrow().frozen)),
+                _ => Ok(Value::Boolean(true)),
+            }
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
     }
