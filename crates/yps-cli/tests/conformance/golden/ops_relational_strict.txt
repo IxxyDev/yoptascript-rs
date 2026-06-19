@@ -1,8 +1,8 @@
-ошибка
-ошибка
-ошибка
-ошибка
-ошибка
+true
+false
+true
+false
+true
 false
 true
 true
