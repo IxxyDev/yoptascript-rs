@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -13,7 +15,7 @@ pub fn build_object() -> Value {
     object_of(&[("разобрать", builtin("Жсон.разобрать")), ("вСтроку", builtin("Жсон.вСтроку"))])
 }
 
-pub(crate) fn parse_str(source: &str, span: Span) -> Result<Value, RuntimeError> {
+pub fn parse_str(source: &str, span: Span) -> Result<Value, RuntimeError> {
     let mut parser = JsonParser { input: source.as_bytes(), pos: 0, depth: 0 };
     parser.skip_ws();
     let v = parser.parse_value(span)?;
@@ -273,7 +275,7 @@ impl<'a> JsonParser<'a> {
 
     fn parse_object(&mut self, span: Span) -> Result<Value, RuntimeError> {
         self.pos += 1;
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         self.skip_ws();
         if self.peek() == Some(b'}') {
             self.pos += 1;

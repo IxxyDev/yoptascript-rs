@@ -88,10 +88,28 @@ pub(crate) fn number_to_string(n: f64) -> String {
     if n == 0.0 {
         return "0".to_string();
     }
-    if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
+    let abs = n.abs();
+    if !(1e-6..1e21).contains(&abs) {
+        return format_exponential(n);
+    }
+    if n.fract() == 0.0 && abs < 9.007_199_254_740_992e15 {
         return format!("{}", n as i64);
     }
     format!("{n}")
+}
+
+fn format_exponential(n: f64) -> String {
+    let raw = format!("{n:e}");
+    match raw.split_once('e') {
+        Some((mantissa, exp)) => {
+            if let Some(rest) = exp.strip_prefix('-') {
+                format!("{mantissa}e-{rest}")
+            } else {
+                format!("{mantissa}e+{exp}")
+            }
+        }
+        None => raw,
+    }
 }
 
 pub(crate) fn is_primitive(value: &Value) -> bool {
@@ -118,8 +136,8 @@ pub(crate) fn to_primitive_builtin(value: &Value) -> Value {
 mod tests {
     use super::*;
     use crate::value::{ArrayStore, ObjectStore};
+    use indexmap::IndexMap;
     use std::cell::RefCell;
-    use std::collections::HashMap;
     use std::rc::Rc;
 
     #[test]
@@ -159,7 +177,7 @@ mod tests {
 
     #[test]
     fn to_ecma_string_object_is_object_object() {
-        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore(HashMap::new()))));
+        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore::new(IndexMap::new()))));
         assert_eq!(to_ecma_string(&obj), "[object Object]");
     }
 
@@ -208,13 +226,33 @@ mod tests {
     }
 
     #[test]
+    fn number_to_string_v8_exponential() {
+        assert_eq!(number_to_string(1e21), "1e+21");
+        assert_eq!(number_to_string(1.5e21), "1.5e+21");
+        assert_eq!(number_to_string(1e-7), "1e-7");
+        assert_eq!(number_to_string(0.0000001), "1e-7");
+        assert_eq!(number_to_string(123456.0), "123456");
+        assert_eq!(number_to_string(0.000001), "0.000001");
+        assert_eq!(number_to_string(0.0015), "0.0015");
+    }
+
+    #[test]
+    fn string_to_number_radix_prefixes() {
+        assert_eq!(string_to_number("0x10"), 16.0);
+        assert_eq!(string_to_number("0b101"), 5.0);
+        assert_eq!(string_to_number("0o17"), 15.0);
+        assert_eq!(string_to_number("1e3"), 1000.0);
+        assert_eq!(string_to_number("1.5e-3"), 0.0015);
+    }
+
+    #[test]
     fn to_primitive_builtin_passes_primitive_through() {
         assert_eq!(to_primitive_builtin(&Value::Number(5.0)), Value::Number(5.0));
     }
 
     #[test]
     fn to_primitive_builtin_object_stringifies() {
-        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore(HashMap::new()))));
+        let obj = Value::Object(Rc::new(RefCell::new(ObjectStore::new(IndexMap::new()))));
         assert_eq!(to_primitive_builtin(&obj), Value::String("[object Object]".to_string()));
     }
 }

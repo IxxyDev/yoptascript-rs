@@ -539,7 +539,7 @@ fn expect_count(value: &Value, span: Span, method: &str) -> Result<usize, Runtim
 }
 
 fn make_result(value: Value, done: bool) -> Value {
-    let mut map = std::collections::HashMap::new();
+    let mut map = indexmap::IndexMap::new();
     map.insert(symbols::ITER_VALUE.to_string(), value);
     map.insert(symbols::ITER_DONE.to_string(), Value::Boolean(done));
     Value::object(map)

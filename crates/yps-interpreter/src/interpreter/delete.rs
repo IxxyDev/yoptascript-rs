@@ -24,8 +24,9 @@ impl Interpreter {
                 path.reverse();
                 if path.len() == 1
                     && let Some(Value::Object(map)) = self.env.get(&root_name)
+                    && !map.borrow().frozen
                 {
-                    map.borrow_mut().remove(&property.name);
+                    map.borrow_mut().shift_remove(&property.name);
                 }
                 Ok(Value::Boolean(true))
             }
@@ -43,8 +44,10 @@ impl Interpreter {
                 if path.is_empty() {
                     match self.env.get(&root_name) {
                         Some(Value::Object(map)) => {
-                            let key = idx.to_string();
-                            map.borrow_mut().remove(&key);
+                            if !map.borrow().frozen {
+                                let key = idx.to_string();
+                                map.borrow_mut().shift_remove(&key);
+                            }
                         }
                         Some(Value::Array(arr)) => {
                             if let Value::Number(n) = idx

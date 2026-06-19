@@ -1,7 +1,8 @@
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -97,7 +98,7 @@ fn build_request(method: &str, parsed: &ParsedUrl, headers: &[(String, String)],
     s
 }
 
-fn parse_response(raw: &str) -> Result<(u16, HashMap<String, Value>, String), String> {
+fn parse_response(raw: &str) -> Result<(u16, IndexMap<String, Value>, String), String> {
     let split = raw.find("\r\n\r\n").ok_or_else(|| "ответ без разделителя заголовков".to_string())?;
     let head = &raw[..split];
     let body = &raw[split + 4..];
@@ -107,7 +108,7 @@ fn parse_response(raw: &str) -> Result<(u16, HashMap<String, Value>, String), St
     let _ = parts.next();
     let code: u16 =
         parts.next().and_then(|s| s.parse().ok()).ok_or_else(|| format!("не разобрать статус: '{status_line}'"))?;
-    let mut headers = HashMap::new();
+    let mut headers = IndexMap::new();
     for line in lines {
         if let Some((k, v)) = line.split_once(':') {
             headers.insert(k.trim().to_ascii_lowercase(), Value::String(v.trim().to_string()));
@@ -130,7 +131,7 @@ fn fetch(url: &str, opts: Value, span: Span) -> Result<Value, RuntimeError> {
     stream.read_to_string(&mut raw).map_err(|e| RuntimeError::new(format!("Ошибка чтения ответа: {e}"), span))?;
     let (code, headers, body) =
         parse_response(&raw).map_err(|e| RuntimeError::new(format!("Сеть.достать: {e}"), span))?;
-    let mut out = HashMap::new();
+    let mut out = IndexMap::new();
     out.insert("статус".to_string(), Value::Number(code as f64));
     out.insert("тело".to_string(), Value::String(body));
     out.insert("заголовки".to_string(), Value::object(headers));
