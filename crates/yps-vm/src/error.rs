@@ -26,11 +26,17 @@ impl std::error::Error for CompileError {}
 pub struct VmError {
     pub message: String,
     pub span: Span,
+    pub thrown: Option<Box<crate::value::Value>>,
 }
 
 impl VmError {
     pub fn new(message: impl Into<String>, span: Span) -> Self {
-        Self { message: message.into(), span }
+        Self { message: message.into(), span, thrown: None }
+    }
+
+    pub fn with_thrown(mut self, value: crate::value::Value) -> Self {
+        self.thrown = Some(Box::new(value));
+        self
     }
 }
 

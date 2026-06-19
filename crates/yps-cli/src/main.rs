@@ -76,7 +76,8 @@ fn run_vm(filename: &str) {
         process::exit(1);
     }
 
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yps_vm::execute(&program)));
+    let base = PathBuf::from(filename).parent().map(PathBuf::from);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yps_vm::execute_with_base(&program, base)));
     match outcome {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
