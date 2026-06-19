@@ -2,7 +2,9 @@
 
 A Rust implementation of [YoptaScript](https://github.com/samgozman/YoptaScript) — a Russian joke programming language whose keywords are slang words instead of standard JS tokens (`if` → `вилкойвглаз`, `function` → `йопта`, `return` → `отвечаю`, etc.).
 
-While the original [samgozman/YoptaScript](https://github.com/samgozman/YoptaScript) (2.2k★) is a JS-based transpiler, **yoptascript-rs** is a from-scratch reimplementation in Rust with its own lexer, parser, AST and tree-walking interpreter — built as a hands-on exercise in language implementation and Rust workspace design.
+While the original [samgozman/YoptaScript](https://github.com/samgozman/YoptaScript) (2.2k★) is a JS-based transpiler, **yoptascript-rs** is a from-scratch reimplementation in Rust with its own lexer, parser, AST, tree-walking interpreter and bytecode VM — built as a hands-on exercise in language implementation and Rust workspace design.
+
+The language surface tracks ES6–ES2026: closures, classes, generators, async/await, modules, destructuring, BigInt, RegExp, typed arrays, Map/Set/WeakMap, Proxy/Reflect, decorators and a русско-названная standard library (`Матан`, `Кент`, `Жсон`, …). Two backends run the same AST — a tree-walking interpreter and a stack bytecode VM (`yps run --vm`) — and a conformance suite asserts they produce byte-for-byte identical output.
 
 > ⚠️ The language uses Russian slang/profanity for keywords. This is an engineering exercise, not the language itself; semantics mirror JavaScript.
 
@@ -16,18 +18,20 @@ I was contributing to [Biome](https://github.com/biomejs/biome) (a Rust-based li
 
 ## Architecture
 
-A Cargo workspace with five crates:
+A Cargo workspace with seven crates:
 
 ```
 crates/
 ├── yps-lexer        # Tokenizer: source → token stream
 ├── yps-parser       # Recursive descent parser: tokens → AST
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
+├── yps-vm           # Bytecode compiler + stack VM (parity backend)
 ├── yps-fmt          # AST-based formatter with round-trip self-check
-└── yps-cli          # Command-line entry point (run, repl, fmt)
+├── yps-lsp          # Language server (diagnostics, hover, go-to-definition)
+└── yps-cli          # Command-line entry point (run, run --vm, repl, fmt)
 ```
 
-Pipeline: `source code → lexer → tokens → parser → AST → interpreter → result`
+Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
 
 The formatter (`yps fmt`) pretty-prints a `.yop` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
 
@@ -68,6 +72,9 @@ cargo build --release
 # Run a YoptaScript file
 cargo run -p yps-cli -- path/to/program.yop
 
+# Run it on the bytecode VM backend instead of the tree-walker
+cargo run -p yps-cli -- --vm path/to/program.yop
+
 # Start the REPL (line editing and up/down history via rustyline;
 # the runtime's other deliberate dependencies are the regex engines —
 # regex for plain patterns, fancy-regex for lookaround and backreferences)
@@ -90,6 +97,7 @@ just fuzz lexer
 - [x] Lexer: full keyword set from `DICTIONARY.md`, multi-token aliases
 - [x] Parser: expressions, control flow, functions, blocks
 - [x] Interpreter: tree-walking evaluator
+- [x] Bytecode VM: stack backend at full parity with the interpreter (`--vm`)
 - [x] Classes, inheritance, modifiers
 - [x] Async / Promises (`СловоПацана`)
 - [x] Module system (`спиздить` / `предъява`)
@@ -97,7 +105,7 @@ just fuzz lexer
 - [x] Weak collections: `СлабаяКарта`, `СлабыйНабор`, `СлабаяСсылка`, `РеестрФинализации`
 - [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
 - [x] Fuzzing: libFuzzer targets for lexer, parser and formatter round-trip (`fuzz/`, weekly CI job)
-- [x] Conformance suite: 87 golden cases checked against Node.js semantics (`crates/yps-cli/tests/conformance/`)
+- [x] Conformance suite: golden cases checked against Node.js semantics, plus a VM/interpreter parity suite (`crates/yps-cli/tests/`)
 
 This is an active learning project — see open issues for what's next.
 
@@ -125,7 +133,7 @@ Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-
 
 ```
 .
-├── crates/             # Workspace members (lexer, parser, interpreter, fmt, cli)
+├── crates/             # Workspace members (lexer, parser, interpreter, vm, fmt, lsp, cli)
 ├── examples/           # Sample .yop programs
 ├── docs/               # Language documentation
 ├── DICTIONARY.md       # Keyword mapping (JS ↔ YoptaScript)
