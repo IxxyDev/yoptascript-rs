@@ -292,7 +292,7 @@ pub struct ClassDef {
     pub constructor: Option<MethodDef>,
     pub methods: HashMap<String, MethodDef>,
     pub static_methods: HashMap<String, MethodDef>,
-    pub static_fields: HashMap<String, Value>,
+    pub static_fields: RefCell<HashMap<String, Value>>,
     pub field_inits: Vec<(String, Option<Rc<Block>>, Option<Value>)>,
     pub getters: HashMap<String, MethodDef>,
     pub setters: HashMap<String, MethodDef>,
@@ -307,7 +307,16 @@ pub struct ClassDef {
 pub struct ArrayStore(pub Vec<Value>);
 
 #[derive(Clone, Default, Debug)]
-pub struct ObjectStore(pub HashMap<String, Value>);
+pub struct ObjectStore {
+    pub map: IndexMap<String, Value>,
+    pub frozen: bool,
+}
+
+impl ObjectStore {
+    pub fn new(map: IndexMap<String, Value>) -> Self {
+        ObjectStore { map, frozen: false }
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct MapStore(pub IndexMap<MapKey, Value>);
@@ -329,15 +338,15 @@ impl DerefMut for ArrayStore {
 }
 
 impl Deref for ObjectStore {
-    type Target = HashMap<String, Value>;
+    type Target = IndexMap<String, Value>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.map
     }
 }
 
 impl DerefMut for ObjectStore {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.map
     }
 }
 
@@ -350,7 +359,7 @@ impl Drop for ArrayStore {
 
 impl Drop for ObjectStore {
     fn drop(&mut self) {
-        let mut stack: Vec<Value> = std::mem::take(&mut self.0).into_values().collect();
+        let mut stack: Vec<Value> = std::mem::take(&mut self.map).into_values().collect();
         drain_value_tree(&mut stack);
     }
 }
@@ -413,7 +422,7 @@ fn drain_value_tree(stack: &mut Vec<Value>) {
                 if Rc::strong_count(&rc) == 1
                     && let Ok(mut inner) = rc.try_borrow_mut()
                 {
-                    let map = std::mem::take(&mut inner.0);
+                    let map = std::mem::take(&mut inner.map);
                     stack.extend(map.into_values());
                 }
             }
@@ -604,8 +613,8 @@ impl Value {
         Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
     }
 
-    pub fn object(map: HashMap<String, Value>) -> Value {
-        Value::Object(Rc::new(RefCell::new(ObjectStore(map))))
+    pub fn object(map: IndexMap<String, Value>) -> Value {
+        Value::Object(Rc::new(RefCell::new(ObjectStore::new(map))))
     }
 
     pub fn map(entries: IndexMap<MapKey, Value>) -> Value {
@@ -845,14 +854,8 @@ impl Value {
             Value::Number(n) => {
                 if *n == 0.0 && n.is_sign_negative() {
                     write!(f, "-0")
-                } else if n.is_nan() {
-                    write!(f, "NaN")
-                } else if n.is_infinite() {
-                    write!(f, "{}", if *n > 0.0 { "Infinity" } else { "-Infinity" })
-                } else if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
-                    write!(f, "{}", *n as i64)
                 } else {
-                    write!(f, "{n}")
+                    write!(f, "{}", crate::interpreter::coercion::number_to_string(*n))
                 }
             }
             Value::BigInt(n) => write!(f, "{n}n"),

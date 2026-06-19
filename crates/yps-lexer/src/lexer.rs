@@ -307,6 +307,28 @@ impl<'src> Lexer<'src> {
     fn read_number(&mut self) -> Token {
         let start = self.position;
 
+        if self.current_char() == '0' {
+            let radix_marker = self.peek_char(1);
+            let radix = match radix_marker {
+                'x' | 'X' => Some(16u32),
+                'o' | 'O' => Some(8u32),
+                'b' | 'B' => Some(2u32),
+                _ => None,
+            };
+            if let Some(radix) = radix {
+                self.advance();
+                self.advance();
+                while self.current_char().is_digit(radix) || self.current_char() == '_' {
+                    self.advance();
+                }
+                if self.current_char() == 'n' {
+                    self.advance();
+                }
+                let end = self.position;
+                return Token { kind: TokenKind::Number, span: Span { start, end } };
+            }
+        }
+
         while self.current_char().is_ascii_digit() || self.current_char() == '_' {
             self.advance();
         }
@@ -321,7 +343,23 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        if !had_decimal && self.current_char() == 'n' {
+        let mut had_exponent = false;
+        if self.current_char() == 'e' || self.current_char() == 'E' {
+            let sign = self.peek_char(1);
+            let digit_offset = if sign == '+' || sign == '-' { 2 } else { 1 };
+            if self.peek_char(digit_offset).is_ascii_digit() {
+                self.advance();
+                if sign == '+' || sign == '-' {
+                    self.advance();
+                }
+                while self.current_char().is_ascii_digit() || self.current_char() == '_' {
+                    self.advance();
+                }
+                had_exponent = true;
+            }
+        }
+
+        if !had_decimal && !had_exponent && self.current_char() == 'n' {
             self.advance();
         }
 
@@ -840,5 +878,39 @@ mod tests {
         let source = SourceFile::new("test.yop".to_string(), "гыы с = \"а\0б\";".to_string());
         let (tokens, _diags) = Lexer::new(&source).tokenize();
         assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
+    }
+
+    fn lex_single_number(src: &str) -> String {
+        let source = SourceFile::new("test.yop".to_string(), src.to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        assert_eq!(tokens.len(), 2, "expected one Number token + Eof, got: {tokens:?}");
+        assert_eq!(tokens[0].kind, TokenKind::Number, "got: {:?}", tokens[0].kind);
+        assert_eq!(tokens[1].kind, TokenKind::Eof);
+        source.slice(tokens[0].span).to_string()
+    }
+
+    #[test]
+    fn number_radix_literals_single_token() {
+        assert_eq!(lex_single_number("0x1F"), "0x1F");
+        assert_eq!(lex_single_number("0X1f"), "0X1f");
+        assert_eq!(lex_single_number("0o17"), "0o17");
+        assert_eq!(lex_single_number("0O17"), "0O17");
+        assert_eq!(lex_single_number("0b101"), "0b101");
+        assert_eq!(lex_single_number("0B101"), "0B101");
+    }
+
+    #[test]
+    fn number_exponent_literals_single_token() {
+        assert_eq!(lex_single_number("1e21"), "1e21");
+        assert_eq!(lex_single_number("1.5e-7"), "1.5e-7");
+        assert_eq!(lex_single_number("2E3"), "2E3");
+        assert_eq!(lex_single_number("1e+10"), "1e+10");
+    }
+
+    #[test]
+    fn number_separators_preserved() {
+        assert_eq!(lex_single_number("1_000"), "1_000");
+        assert_eq!(lex_single_number("0xFF_FF"), "0xFF_FF");
     }
 }

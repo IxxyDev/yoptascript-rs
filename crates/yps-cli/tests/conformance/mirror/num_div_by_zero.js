@@ -1,4 +1,3 @@
-// DIVERGENCE: KNOWN_DIVERGENCES.md §4.4 division by zero throws a runtime error instead of yielding Infinity/NaN
 'use strict';
 
 function check(f) {

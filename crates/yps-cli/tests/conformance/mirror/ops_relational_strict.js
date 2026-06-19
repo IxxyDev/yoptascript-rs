@@ -1,4 +1,3 @@
-// DIVERGENCE: KNOWN_DIVERGENCES.md §4.2 relational operators require two numbers (no coercion); non-numeric operands throw
 'use strict';
 
 function check(f) {

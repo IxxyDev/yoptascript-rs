@@ -9,3 +9,7 @@ publish.workspace = true
 [dependencies]
 yps-lexer = { path = "../yps-lexer" }
 yps-parser = { path = "../yps-parser" }
+yps-interpreter = { path = "../yps-interpreter" }
+indexmap = "2"
+regex = "1"
+fancy-regex = "0.18.0"

@@ -494,3 +494,68 @@ fn arrow_field_captures_live_instance() {
     );
     assert_eq!(i.get("рез"), Some(Value::Number(10.0)));
 }
+
+#[test]
+fn static_field_mutation_via_this() {
+    let i = run_code(
+        r#"
+        клёво Счёт {
+            попонятия число = 0;
+            попонятия тик() {
+                тырыпыры.число = тырыпыры.число + 1;
+            }
+        }
+        Счёт.тик();
+        Счёт.тик();
+        Счёт.тик();
+        гыы рез = Счёт.число;
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn static_field_mutation_via_class_name() {
+    let i = run_code(
+        r#"
+        клёво Счёт {
+            попонятия число = 5;
+        }
+        Счёт.число = Счёт.число + 10;
+        гыы рез = Счёт.число;
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(15.0)));
+}
+
+#[test]
+fn object_freeze_blocks_writes_and_deletes() {
+    let i = run_code(
+        r#"
+        гыы о = { х: 1 };
+        Кент.заморозить(о);
+        о.х = 2;
+        о.у = 3;
+        гыы х = о.х;
+        гыы у = о.у;
+        гыы заморожен = Кент.заморожен(о);
+        "#,
+    );
+    assert_eq!(i.get("х"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("у"), Some(Value::Undefined));
+    assert_eq!(i.get("заморожен"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn object_not_frozen_by_default() {
+    let i = run_code(
+        r#"
+        гыы о = { х: 1 };
+        гыы заморожен = Кент.заморожен(о);
+        о.х = 7;
+        гыы х = о.х;
+        "#,
+    );
+    assert_eq!(i.get("заморожен"), Some(Value::Boolean(false)));
+    assert_eq!(i.get("х"), Some(Value::Number(7.0)));
+}

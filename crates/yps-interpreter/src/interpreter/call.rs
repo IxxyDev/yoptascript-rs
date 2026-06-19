@@ -10,7 +10,15 @@ use crate::error::RuntimeError;
 use crate::symbols;
 use crate::value::Value;
 
-use super::{ControlFlow, Interpreter};
+use super::{ControlFlow, Interpreter, coercion};
+
+#[derive(Clone, Copy)]
+pub(super) enum RelOp {
+    Less,
+    Greater,
+    LessOrEqual,
+    GreaterOrEqual,
+}
 
 impl Interpreter {
     pub(super) fn numeric_op(
@@ -34,15 +42,31 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         span: Span,
-        f: fn(f64, f64) -> bool,
+        op: RelOp,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Boolean(f(*a, *b))),
-            _ => Err(RuntimeError::new(
-                format!("Сравнение требует числа, получено '{}' и '{}'", left.type_name(), right.type_name()),
-                span,
-            )),
+        let lp = self.to_primitive(left, span)?;
+        let rp = self.to_primitive(right, span)?;
+        if let (Value::String(a), Value::String(b)) = (&lp, &rp) {
+            let result = match op {
+                RelOp::Less => a.as_bytes() < b.as_bytes(),
+                RelOp::Greater => a.as_bytes() > b.as_bytes(),
+                RelOp::LessOrEqual => a.as_bytes() <= b.as_bytes(),
+                RelOp::GreaterOrEqual => a.as_bytes() >= b.as_bytes(),
+            };
+            return Ok(Value::Boolean(result));
         }
+        let a = coercion::to_number(&lp);
+        let b = coercion::to_number(&rp);
+        if a.is_nan() || b.is_nan() {
+            return Ok(Value::Boolean(false));
+        }
+        let result = match op {
+            RelOp::Less => a < b,
+            RelOp::Greater => a > b,
+            RelOp::LessOrEqual => a <= b,
+            RelOp::GreaterOrEqual => a >= b,
+        };
+        Ok(Value::Boolean(result))
     }
 
     pub(crate) fn call_function(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
@@ -57,6 +81,9 @@ impl Interpreter {
         }
         match func {
             Value::BuiltinFunction(name) => {
+                if let Some(res) = crate::host_callback::invoke(&name, args.clone(), span) {
+                    return res;
+                }
                 if let Some(res) = self.try_call_timer_builtin(&name, args.clone(), span) {
                     return res;
                 }
@@ -346,6 +373,17 @@ impl Interpreter {
             (Value::Object(map), Value::Symbol { id, .. }) => {
                 let key = crate::symbols::symbol_key(*id);
                 Ok(map.borrow().get(&key).cloned().unwrap_or(Value::Undefined))
+            }
+            (Value::String(s), Value::Number(n)) => {
+                if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
+                    return Ok(Value::Undefined);
+                }
+                let i = *n as usize;
+                let units: Vec<u16> = s.encode_utf16().collect();
+                match units.get(i) {
+                    Some(unit) => Ok(Value::String(String::from_utf16_lossy(&[*unit]))),
+                    None => Ok(Value::Undefined),
+                }
             }
             (Value::TypedArray { buffer, offset, length, kind }, Value::Number(n)) => {
                 if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {

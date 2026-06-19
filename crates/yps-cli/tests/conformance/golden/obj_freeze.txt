@@ -1,1 +1,3 @@
-ошибка
+1
+undefined
+true

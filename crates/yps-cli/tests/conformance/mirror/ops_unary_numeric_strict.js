@@ -1,4 +1,3 @@
-// DIVERGENCE: KNOWN_DIVERGENCES.md §4.3 unary + and - require a number (no ToNumber coercion); other types throw
 'use strict';
 
 function check(f) {

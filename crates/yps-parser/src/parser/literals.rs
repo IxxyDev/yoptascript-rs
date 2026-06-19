@@ -70,7 +70,16 @@ impl<'a> Parser<'a> {
         self.advance();
         if let Some(stripped) = raw.strip_suffix('n') {
             let cleaned: String = stripped.chars().filter(|c| *c != '_').collect();
-            match cleaned.parse::<i128>() {
+            let parsed = if let Some(hex) = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")) {
+                i128::from_str_radix(hex, 16)
+            } else if let Some(oct) = cleaned.strip_prefix("0o").or_else(|| cleaned.strip_prefix("0O")) {
+                i128::from_str_radix(oct, 8)
+            } else if let Some(bin) = cleaned.strip_prefix("0b").or_else(|| cleaned.strip_prefix("0B")) {
+                i128::from_str_radix(bin, 2)
+            } else {
+                cleaned.parse::<i128>()
+            };
+            match parsed {
                 Ok(value) => Expr::Literal(Literal::BigInt { value, span }),
                 Err(_) => {
                     self.push_error(span, format!("Невалидный BigInt: '{raw}'"));

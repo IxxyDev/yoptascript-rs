@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -5,23 +6,41 @@ use std::rc::Rc;
 use yps_lexer::Span;
 use yps_parser::ast::Program;
 
+use crate::environment::EnvFrame;
 use crate::error::RuntimeError;
 use crate::stdlib::json;
 use crate::value::Value;
 
 use super::Interpreter;
 
+pub(crate) type ExportCell = Rc<RefCell<HashMap<String, Value>>>;
+
 pub(crate) enum ModuleState {
-    Loading(HashMap<String, Value>),
+    Loading(ExportCell),
     Loaded(HashMap<String, Value>),
 }
 
 impl ModuleState {
-    pub(crate) fn exports(&self) -> &HashMap<String, Value> {
+    pub(crate) fn exports_snapshot(&self) -> HashMap<String, Value> {
         match self {
-            ModuleState::Loading(e) | ModuleState::Loaded(e) => e,
+            ModuleState::Loading(cell) => cell.borrow().clone(),
+            ModuleState::Loaded(e) => e.clone(),
         }
     }
+
+    pub(crate) fn for_each_export_value(&self, mut f: impl FnMut(&Value)) {
+        match self {
+            ModuleState::Loading(cell) => cell.borrow().values().for_each(&mut f),
+            ModuleState::Loaded(e) => e.values().for_each(&mut f),
+        }
+    }
+}
+
+pub(crate) struct DeferredLink {
+    pub(crate) module: PathBuf,
+    pub(crate) target_env: Rc<RefCell<EnvFrame>>,
+    pub(crate) local: String,
+    pub(crate) imported: String,
 }
 
 impl Interpreter {
@@ -48,7 +67,7 @@ impl Interpreter {
             .map_err(|e| RuntimeError::new(format!("Не удалось разрешить путь модуля '{source}': {e}"), span))?;
 
         if let Some(state) = self.module_cache.borrow().get(&resolved) {
-            return Ok(state.exports().clone());
+            return Ok(state.exports_snapshot());
         }
 
         let code = std::fs::read_to_string(&resolved).map_err(|e| {
@@ -67,7 +86,7 @@ impl Interpreter {
         {
             let cache = self.module_cache.borrow();
             if let Some(state) = cache.get(&resolved) {
-                return Ok(state.exports().clone());
+                return Ok(state.exports_snapshot());
             }
         }
 
@@ -92,11 +111,15 @@ impl Interpreter {
             ));
         }
 
+        let export_cell: ExportCell = Rc::new(RefCell::new(HashMap::new()));
+
         let mut sub = Interpreter::new();
         sub.module_cache = Rc::clone(&self.module_cache);
+        sub.module_links = Rc::clone(&self.module_links);
         sub.base_path = resolved.parent().map(Path::to_path_buf);
+        sub.export_cell = Some(Rc::clone(&export_cell));
 
-        self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(HashMap::new()));
+        self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(Rc::clone(&export_cell)));
         match sub.run_module(&program, &resolved) {
             Ok(exports) => Ok(exports),
             Err(e) => {
@@ -109,8 +132,61 @@ impl Interpreter {
     pub fn run_module(&mut self, program: &Program, path: &Path) -> Result<HashMap<String, Value>, RuntimeError> {
         self.run(program)?;
         let exports = std::mem::take(&mut self.current_exports);
+        self.export_cell = None;
         self.module_cache.borrow_mut().insert(path.to_path_buf(), ModuleState::Loaded(exports.clone()));
+        self.apply_module_links(path, &exports);
         Ok(exports)
+    }
+
+    pub(super) fn record_export(&mut self, name: String, value: Value) {
+        if let Some(cell) = &self.export_cell {
+            cell.borrow_mut().insert(name.clone(), value.clone());
+        }
+        self.current_exports.insert(name, value);
+    }
+
+    pub(super) fn loading_module_path(&self, source: &str, span: Span) -> Option<PathBuf> {
+        let resolved = self.resolve_module_path(source, span).ok()?;
+        let cache = self.module_cache.borrow();
+        match cache.get(&resolved) {
+            Some(ModuleState::Loading(_)) => Some(resolved),
+            _ => None,
+        }
+    }
+
+    pub(super) fn register_module_link(&self, module: PathBuf, local: &str, imported: &str) {
+        self.module_links.borrow_mut().push(DeferredLink {
+            module,
+            target_env: self.env.snapshot(),
+            local: local.to_string(),
+            imported: imported.to_string(),
+        });
+    }
+
+    fn apply_module_links(&self, path: &Path, exports: &HashMap<String, Value>) {
+        let pending: Vec<DeferredLink> = {
+            let mut links = self.module_links.borrow_mut();
+            let mut drained = Vec::new();
+            links.retain(|link| {
+                if link.module == path {
+                    drained.push(DeferredLink {
+                        module: link.module.clone(),
+                        target_env: Rc::clone(&link.target_env),
+                        local: link.local.clone(),
+                        imported: link.imported.clone(),
+                    });
+                    false
+                } else {
+                    true
+                }
+            });
+            drained
+        };
+        for link in pending {
+            if let Some(value) = exports.get(&link.imported) {
+                link.target_env.borrow_mut().rebind(link.local, value.clone());
+            }
+        }
     }
 }
 
@@ -185,10 +261,10 @@ mod tests {
         exports.insert("x".to_string(), Value::Number(42.0));
 
         let cache: Rc<RefCell<HashMap<PathBuf, ModuleState>>> = Rc::new(RefCell::new(HashMap::new()));
-        cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(exports.clone()));
+        cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(Rc::new(RefCell::new(exports.clone()))));
 
         let state = cache.borrow();
-        let got = state.get(&resolved).unwrap().exports().clone();
+        let got = state.get(&resolved).unwrap().exports_snapshot();
         assert_eq!(got.get("x"), Some(&Value::Number(42.0)));
     }
 

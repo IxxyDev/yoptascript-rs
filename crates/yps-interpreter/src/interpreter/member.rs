@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -37,7 +38,7 @@ impl Interpreter {
             }
             Value::String(s) => {
                 if property == "length" || property == "длина" {
-                    return Ok(Value::Number(s.chars().count() as f64));
+                    return Ok(Value::Number(s.encode_utf16().count() as f64));
                 }
                 Ok(Value::Undefined)
             }
@@ -167,7 +168,7 @@ impl Interpreter {
                     return self.call_method_with_this(Rc::from(property), params, body, env, vec![], None, span);
                 }
                 if let Some(val) = Self::find_static_field_in_class(cls, property) {
-                    return Ok(val.clone());
+                    return Ok(val);
                 }
                 if let Some((params, body, env)) = Self::find_static_method_in_class(cls, property) {
                     return Ok(Value::Function {
@@ -236,7 +237,7 @@ impl Interpreter {
     pub(crate) fn class_prototype_object(cls: &Rc<ClassDef>) -> Value {
         cls.prototype_cache
             .get_or_init(|| {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 let mut current: Option<&ClassDef> = Some(cls);
                 while let Some(c) = current {
                     for (name, (params, body, env)) in &c.methods {

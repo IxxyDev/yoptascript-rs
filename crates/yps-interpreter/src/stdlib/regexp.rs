@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -256,7 +257,7 @@ fn char_index_at(s: &str, byte_pos: usize) -> i64 {
 }
 
 pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value {
-    let mut map: HashMap<String, Value> = HashMap::new();
+    let mut map: IndexMap<String, Value> = IndexMap::new();
     for (i, slot) in md.groups.iter().enumerate() {
         let key = i.to_string();
         match slot {
@@ -268,7 +269,7 @@ pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value 
     map.insert("index".to_string(), Value::Number(char_index_at(s, whole.start) as f64));
     map.insert("input".to_string(), Value::String(s.to_string()));
 
-    let mut groups: HashMap<String, Value> = HashMap::new();
+    let mut groups: IndexMap<String, Value> = IndexMap::new();
     let mut has_named = false;
     for (name, slot) in &md.named {
         has_named = true;
@@ -287,12 +288,12 @@ pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value 
                 Value::Number(char_index_at(s, g.end) as f64),
             ])
         };
-        let mut indices_obj: HashMap<String, Value> = HashMap::new();
+        let mut indices_obj: IndexMap<String, Value> = IndexMap::new();
         for (i, slot) in md.groups.iter().enumerate() {
             let v = slot.as_ref().map(pair).unwrap_or(Value::Null);
             indices_obj.insert(i.to_string(), v);
         }
-        let mut named_groups: HashMap<String, Value> = HashMap::new();
+        let mut named_groups: IndexMap<String, Value> = IndexMap::new();
         for (name, slot) in &md.named {
             let v = slot.as_ref().map(pair).unwrap_or(Value::Null);
             named_groups.insert(name.clone(), v);

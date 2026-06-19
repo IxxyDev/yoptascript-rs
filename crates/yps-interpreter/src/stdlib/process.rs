@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::env;
+
+use indexmap::IndexMap;
 
 use yps_lexer::Span;
 
@@ -25,7 +26,7 @@ fn args_value() -> Value {
 }
 
 fn env_value() -> Value {
-    let mut map = HashMap::new();
+    let mut map = IndexMap::new();
     for (k, v) in env::vars() {
         map.insert(k, Value::String(v));
     }

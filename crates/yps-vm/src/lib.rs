@@ -4,10 +4,13 @@ use std::rc::Rc;
 
 use yps_parser::ast::Program;
 
+pub mod bridge;
 mod builtins;
 pub mod chunk;
 pub mod compiler;
 pub mod error;
+mod promise;
+pub mod regexp;
 pub mod value;
 pub mod vm;
 
@@ -23,6 +26,16 @@ pub use vm::Vm;
 pub fn execute(program: &Program) -> Result<(), ExecError> {
     let proto = compile_program(program)?;
     let mut vm = Vm::new();
+    vm.run(proto)?;
+    Ok(())
+}
+
+pub fn execute_with_base(program: &Program, base: Option<std::path::PathBuf>) -> Result<(), ExecError> {
+    let proto = compile_program(program)?;
+    let mut vm = Vm::new();
+    if let Some(base) = base {
+        vm.set_base_path(base);
+    }
     vm.run(proto)?;
     Ok(())
 }

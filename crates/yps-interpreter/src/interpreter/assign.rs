@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, PostfixOp};
+use yps_parser::ast::{BinaryOp, Block, Expr, Literal, ObjectEntry, PostfixOp, PropKey};
 
 use crate::environment::{EnvFrame, Environment};
 use crate::error::RuntimeError;
@@ -108,8 +109,101 @@ impl Interpreter {
                 Self::set_at_path(root, &path, value.clone(), span)?;
                 Ok(value)
             }
+            Expr::Literal(Literal::Array { elements, .. }) => {
+                self.destructure_assign_array(elements, value.clone(), span)?;
+                Ok(value)
+            }
+            Expr::Literal(Literal::Object { entries, .. }) => {
+                self.destructure_assign_object(entries, value.clone(), span)?;
+                Ok(value)
+            }
+            Expr::Grouping { expr, .. } => self.assign_to_target(expr, value, span),
             _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
         }
+    }
+
+    fn destructure_assign_array(&mut self, elements: &[Expr], value: Value, span: Span) -> Result<(), RuntimeError> {
+        let items: Vec<Value> = match &value {
+            Value::Array(arr) => arr.borrow().0.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Невозможно деструктурировать {} как массив", value.type_name()),
+                    span,
+                ));
+            }
+        };
+        for (i, elem) in elements.iter().enumerate() {
+            if let Expr::Spread { expr, .. } = elem {
+                let rest_items = if i < items.len() { items[i..].to_vec() } else { Vec::new() };
+                self.assign_to_target(expr, Value::array(rest_items), span)?;
+                break;
+            }
+            let val = items.get(i).cloned().unwrap_or(Value::Undefined);
+            self.assign_destructure_element(elem, val, span)?;
+        }
+        Ok(())
+    }
+
+    fn destructure_assign_object(
+        &mut self,
+        entries: &[ObjectEntry],
+        value: Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let map: IndexMap<String, Value> = match &value {
+            Value::Object(obj) => obj.borrow().map.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Невозможно деструктурировать {} как объект", value.type_name()),
+                    span,
+                ));
+            }
+        };
+        let mut used_keys = Vec::new();
+        for entry in entries {
+            match entry {
+                ObjectEntry::Property { key, value: target } => {
+                    let key_str = match key {
+                        PropKey::Identifier(ident) => ident.name.clone(),
+                        PropKey::Computed(expr) => {
+                            let k = self.eval_expr(expr)?;
+                            if let Value::Symbol { id, .. } = &k {
+                                crate::symbols::symbol_key(*id)
+                            } else {
+                                k.to_string()
+                            }
+                        }
+                    };
+                    let val = map.get(&key_str).cloned().unwrap_or(Value::Undefined);
+                    used_keys.push(key_str);
+                    self.assign_destructure_element(target, val, span)?;
+                }
+                ObjectEntry::Spread(target) => {
+                    let mut rest_map = map.clone();
+                    for key in &used_keys {
+                        rest_map.shift_remove(key);
+                    }
+                    self.assign_to_target(target, Value::object(rest_map), span)?;
+                }
+                _ => {
+                    return Err(RuntimeError::new(
+                        "Геттеры и сеттеры недопустимы в цели деструктурирующего присваивания",
+                        span,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn assign_destructure_element(&mut self, target: &Expr, val: Value, span: Span) -> Result<(), RuntimeError> {
+        if let Expr::Binary { op: BinaryOp::Assign, lhs, rhs, .. } = target {
+            let val = if matches!(val, Value::Undefined) { self.eval_expr(rhs)? } else { val };
+            self.assign_to_target(lhs, val, span)?;
+        } else {
+            self.assign_to_target(target, val, span)?;
+        }
+        Ok(())
     }
 
     fn try_call_setter(
@@ -321,6 +415,9 @@ impl Interpreter {
             }
             (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
                 if is_last {
+                    if map.borrow().frozen {
+                        return Ok(());
+                    }
                     map.try_borrow_mut()
                         .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
                         .insert(key.clone(), value);
@@ -336,6 +433,9 @@ impl Interpreter {
             }
             (AccessSegment::Member(prop), Value::Object(map)) => {
                 if is_last {
+                    if map.borrow().frozen {
+                        return Ok(());
+                    }
                     map.try_borrow_mut()
                         .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
                         .insert(prop.clone(), value);
@@ -351,12 +451,25 @@ impl Interpreter {
             (AccessSegment::Index(Value::Symbol { id, .. }), Value::Object(map)) => {
                 let key = crate::symbols::symbol_key(*id);
                 if is_last {
+                    if map.borrow().frozen {
+                        return Ok(());
+                    }
                     map.try_borrow_mut()
                         .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
                         .insert(key, value);
                     Ok(())
                 } else {
                     let child = map.borrow().get(&key).cloned().unwrap_or(Value::Undefined);
+                    Self::descend_set(child, &path[1..], value, span)
+                }
+            }
+            (AccessSegment::Member(prop), Value::Class(cls)) => {
+                if is_last {
+                    let owner = Self::find_static_field_owner(cls, prop).unwrap_or_else(|| Rc::clone(cls));
+                    owner.static_fields.borrow_mut().insert(prop.clone(), value);
+                    Ok(())
+                } else {
+                    let child = Self::find_static_field_in_class(cls, prop).unwrap_or(Value::Undefined);
                     Self::descend_set(child, &path[1..], value, span)
                 }
             }

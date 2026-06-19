@@ -20,7 +20,7 @@ pub fn make_controller() -> Value {
 }
 
 pub(crate) fn make_abort_error(message: &str) -> Value {
-    let mut map = std::collections::HashMap::new();
+    let mut map = indexmap::IndexMap::new();
     map.insert("name".to_string(), Value::String("ОшибкаОтмены".to_string()));
     map.insert("message".to_string(), Value::String(message.to_string()));
     Value::object(map)
