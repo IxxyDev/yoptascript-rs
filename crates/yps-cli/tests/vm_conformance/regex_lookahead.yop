@@ -1,0 +1,15 @@
+гыы la = /foo(?=bar)/;
+сказать(la.проверить("foobar"));
+сказать(la.проверить("foobaz"));
+
+гыы nla = /foo(?!bar)/;
+сказать(nla.проверить("foobaz"));
+сказать(nla.проверить("foobar"));
+
+гыы lb = /(?<=@)\w+/;
+гыы m = lb.exec("user@domain");
+сказать(m[0]);
+
+гыы backref = /(\w+)\s+\1/;
+сказать(backref.проверить("hello hello"));
+сказать(backref.проверить("hello world"));
