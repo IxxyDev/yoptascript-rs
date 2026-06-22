@@ -1,6 +1,6 @@
 use yps_parser::{
-    BinaryOp, Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, ObjectPatternProp, Param,
-    Pattern, Program, PropKey, Stmt, SwitchCase, TemplatePart, TemplateQuasi,
+    Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, ObjectPatternProp, Param, Pattern, Program,
+    PropKey, Stmt, SwitchCase, TemplatePart, TemplateQuasi,
 };
 
 pub fn programs_equivalent(a: &Program, b: &Program) -> bool {
@@ -52,7 +52,7 @@ fn stmt_eq(a: &Stmt, b: &Stmt) -> bool {
         (
             Stmt::For { init: i1, condition: c1, update: u1, body: b1, .. },
             Stmt::For { init: i2, condition: c2, update: u2, body: b2, .. },
-        ) => opt_boxed_stmt_eq(i1, i2) && opt_expr_eq(c1, c2) && opt_expr_eq(u1, u2) && stmt_eq(b1, b2),
+        ) => opt_stmt_eq(i1, i2) && opt_expr_eq(c1, c2) && opt_expr_eq(u1, u2) && stmt_eq(b1, b2),
         (
             Stmt::ForIn { variable: v1, iterable: it1, body: b1, .. },
             Stmt::ForIn { variable: v2, iterable: it2, body: b2, .. },
@@ -104,10 +104,6 @@ fn opt_stmt_eq(a: &Option<Box<Stmt>>, b: &Option<Box<Stmt>>) -> bool {
         (Some(x), Some(y)) => stmt_eq(x, y),
         _ => false,
     }
-}
-
-fn opt_boxed_stmt_eq(a: &Option<Box<Stmt>>, b: &Option<Box<Stmt>>) -> bool {
-    opt_stmt_eq(a, b)
 }
 
 fn cases_eq(a: &[SwitchCase], b: &[SwitchCase]) -> bool {
@@ -260,7 +256,7 @@ fn expr_eq(a: &Expr, b: &Expr) -> bool {
         (Expr::Unary { op: o1, expr: e1, .. }, Expr::Unary { op: o2, expr: e2, .. }) => o1 == o2 && expr_eq(e1, e2),
         (Expr::Postfix { op: o1, expr: e1, .. }, Expr::Postfix { op: o2, expr: e2, .. }) => o1 == o2 && expr_eq(e1, e2),
         (Expr::Binary { op: o1, lhs: l1, rhs: r1, .. }, Expr::Binary { op: o2, lhs: l2, rhs: r2, .. }) => {
-            binary_op_eq(*o1, *o2) && expr_eq(l1, l2) && expr_eq(r1, r2)
+            o1 == o2 && expr_eq(l1, l2) && expr_eq(r1, r2)
         }
         (Expr::Assignment { target: t1, value: v1, .. }, Expr::Assignment { target: t2, value: v2, .. }) => {
             t1.name == t2.name && expr_eq(v1, v2)
@@ -320,10 +316,6 @@ fn opt_boxed_expr_eq(a: &Option<Box<Expr>>, b: &Option<Box<Expr>>) -> bool {
         (Some(x), Some(y)) => expr_eq(x, y),
         _ => false,
     }
-}
-
-fn binary_op_eq(a: BinaryOp, b: BinaryOp) -> bool {
-    a == b
 }
 
 fn template_parts_eq(a: &[TemplatePart], b: &[TemplatePart]) -> bool {
