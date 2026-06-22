@@ -6,7 +6,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use yps_interpreter::builtins::builtin_names;
-use yps_lexer::{Lexer, Severity, SourceFile};
+use yps_lexer::{KEYWORDS, Lexer, Severity, SourceFile};
 use yps_parser::Parser;
 
 struct Backend {
@@ -57,88 +57,7 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let keywords = [
-            "гыы",
-            "ясенХуй",
-            "ЯсенХуй",
-            "участковый",
-            "вилкойвглаз",
-            "иливжопураз",
-            "потрещим",
-            "го",
-            "харэ",
-            "двигай",
-            "йопта",
-            "отвечаю",
-            "правда",
-            "трулио",
-            "чётко",
-            "четко",
-            "чотко",
-            "лож",
-            "нетрулио",
-            "пиздишь",
-            "нечётко",
-            "нечетко",
-            "нечотко",
-            "ноль",
-            "нуллио",
-            "порожняк",
-            "неибу",
-            "хапнуть",
-            "побратски",
-            "пабрацки",
-            "пабратски",
-            "гоп",
-            "аченетак",
-            "аченитак",
-            "ачёнетак",
-            "тюряжка",
-            "кидай",
-            "пнх",
-            "клёво",
-            "клево",
-            "батя",
-            "яга",
-            "захуярить",
-            "гыйбать",
-            "тырыпыры",
-            "попонятия",
-            "чезажижан",
-            "шкура",
-            "пиздюли",
-            "поебалу",
-            "поебалуна",
-            "ассо",
-            "сидетьНахуй",
-            "спиздить",
-            "предъява",
-            "откуда",
-            "сашаГрей",
-            "из",
-            "чоунастут",
-            "ёбнуть",
-            "ебнуть",
-            "куку",
-            "юзай",
-            "базарпо",
-            "естьчо",
-            "тема",
-            "лещ",
-            "аеслинайду",
-            "нуичо",
-            "пахану",
-            "апохуй",
-            "наотыбись",
-            "крутани",
-            "крч",
-            "логопед",
-            "мой",
-            "подкрыша",
-            "ебанное",
-        ];
-
-        let mut items: Vec<CompletionItem> = keywords
+        let mut items: Vec<CompletionItem> = KEYWORDS
             .iter()
             .map(|&kw| CompletionItem {
                 label: kw.to_string(),
