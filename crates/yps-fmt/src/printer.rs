@@ -527,26 +527,24 @@ impl Printer<'_> {
                 self.print_block(body);
                 self.newline();
             }
-            ClassMember::Method { name, params, body, is_static, is_private, decorators, .. } => {
+            ClassMember::Method { name, params, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
                 if *is_static {
                     self.write("попонятия ");
                 }
-                let _ = is_private;
                 self.write(&name.name);
                 self.print_params(params);
                 self.write(" ");
                 self.print_block(body);
                 self.newline();
             }
-            ClassMember::Field { name, init, is_static, is_private, decorators, .. } => {
+            ClassMember::Field { name, init, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
                 if *is_static {
                     self.write("попонятия ");
                 }
-                let _ = is_private;
                 self.write(&name.name);
                 if let Some(init) = init {
                     self.write(" = ");
@@ -555,26 +553,24 @@ impl Printer<'_> {
                 self.write(";");
                 self.newline();
             }
-            ClassMember::Getter { name, body, is_static, is_private, decorators, .. } => {
+            ClassMember::Getter { name, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
                 if *is_static {
                     self.write("попонятия ");
                 }
-                let _ = is_private;
                 self.write("get ");
                 self.write(&name.name);
                 self.write("() ");
                 self.print_block(body);
                 self.newline();
             }
-            ClassMember::Setter { name, param, body, is_static, is_private, decorators, .. } => {
+            ClassMember::Setter { name, param, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
                 if *is_static {
                     self.write("попонятия ");
                 }
-                let _ = is_private;
                 self.write("set ");
                 self.write(&name.name);
                 self.write("(");
