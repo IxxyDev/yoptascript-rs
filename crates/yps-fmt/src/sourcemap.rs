@@ -121,7 +121,7 @@ fn encode_mappings(mappings: &[Mapping]) -> String {
             prev_src_col = m.src_col as i64;
 
             result.push_str(&vlq_encode(gen_col_delta));
-            result.push('A'); // source index always 0, delta = 0
+            result.push('A');
             result.push_str(&vlq_encode(src_line_delta));
             result.push_str(&vlq_encode(src_col_delta));
         }

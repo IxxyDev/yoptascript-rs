@@ -287,8 +287,6 @@ fn uncaught_message(value: &Value) -> String {
     format!("Необработанное исключение: {value}")
 }
 
-// ---- СловоПацана static methods ----
-
 pub(crate) fn call_promise_static(vm: &mut Vm, method: &str, args: Vec<Value>, span: Span) -> Result<Value, VmError> {
     match method {
         "решить" => Ok(make_fulfilled_promise(args.into_iter().next().unwrap_or(Value::Undefined))),
@@ -337,8 +335,6 @@ pub(crate) fn call_promise_static(vm: &mut Vm, method: &str, args: Vec<Value>, s
         _ => Err(VmError::new(format!("У 'СловоПацана' нет метода '{method}'"), span)),
     }
 }
-
-// ---- promise instance methods (потом/ловить/наконец) ----
 
 pub(crate) fn call_promise_method(
     vm: &mut Vm,
