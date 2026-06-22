@@ -462,12 +462,12 @@ impl Compiler {
 
         if let Some(outer_push) = outer_push {
             self.emit(Op::PopHandler, span);
-            self.emit_finally_inline(finally_block.unwrap())?;
+            self.compile_block_scoped(finally_block.unwrap())?;
             let end_jump = self.emit(Op::Jump(0), span);
 
             let finally_throw = self.cur().chunk.code.len();
             self.cur().chunk.patch_jump(outer_push, finally_throw);
-            self.emit_finally_inline(finally_block.unwrap())?;
+            self.compile_block_scoped(finally_block.unwrap())?;
             self.emit(Op::Throw, span);
 
             let end = self.cur().chunk.code.len();
@@ -637,13 +637,6 @@ impl Compiler {
         self.emit(Op::GetLocal(handle), span);
         self.emit(Op::ForIterClose, span);
         self.end_scope(span);
-        Ok(())
-    }
-
-    fn emit_finally_inline(&mut self, finally: &Block) -> Result<(), CompileError> {
-        self.begin_scope();
-        self.compile_stmt_list(&finally.stmts)?;
-        self.end_scope(finally.span);
         Ok(())
     }
 
@@ -1279,7 +1272,7 @@ impl Compiler {
             }
             if let Some(finally) = saved[i].finally.clone() {
                 self.cur().try_ctxs.truncate(i);
-                if let Err(e) = self.emit_finally_inline(&finally) {
+                if let Err(e) = self.compile_block_scoped(&finally) {
                     result = Err(e);
                     break;
                 }
@@ -1850,35 +1843,10 @@ impl Compiler {
             _ => unreachable!("compile_logical_assign получил не-логический оператор"),
         };
         self.emit(Op::Pop, span);
-        self.compile_assign_value(lhs, rhs, span)?;
+        self.compile_assign(lhs, rhs, span)?;
         let end = self.cur().chunk.code.len();
         self.cur().chunk.patch_jump(short_circuit, end);
         Ok(())
-    }
-
-    fn compile_assign_value(&mut self, lhs: &Expr, rhs: &Expr, span: Span) -> Result<(), CompileError> {
-        match lhs {
-            Expr::Identifier(id) => {
-                self.compile_expr(rhs)?;
-                self.compile_var_set(&id.name, span)?;
-                Ok(())
-            }
-            Expr::Index { object, index, .. } => {
-                self.compile_expr(object)?;
-                self.compile_expr(index)?;
-                self.compile_expr(rhs)?;
-                self.emit(Op::SetIndex, span);
-                Ok(())
-            }
-            Expr::Member { object, property, .. } => {
-                self.compile_expr(object)?;
-                self.compile_expr(rhs)?;
-                let idx = self.str_const(&property.name);
-                self.emit(Op::SetProp(idx), span);
-                Ok(())
-            }
-            _ => Err(CompileError::new("недопустимая цель присваивания в VM", span)),
-        }
     }
 
     fn compile_postfix(&mut self, op: PostfixOp, expr: &Expr, span: Span) -> Result<(), CompileError> {
