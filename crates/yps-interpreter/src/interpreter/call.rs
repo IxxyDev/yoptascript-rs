@@ -2,11 +2,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use yps_lexer::Span;
-use yps_parser::ast::{Block, Expr};
+use yps_parser::ast::{Block, Expr, Param};
 
 use crate::builtins::call_builtin;
 use crate::environment::{EnvFrame, Environment};
-use crate::error::RuntimeError;
+use crate::error::{Frame, RuntimeError};
 use crate::symbols;
 use crate::value::Value;
 
@@ -114,27 +114,7 @@ impl Interpreter {
                 self.env = Environment::from_snapshot(env, self.env.registry());
                 self.env.push_scope();
 
-                for (i, param) in params.iter().enumerate() {
-                    if param.is_rest {
-                        let rest_start = i.min(args.len());
-                        let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                        self.env.define(param.name.name.clone(), Value::array(rest_values), false);
-                        break;
-                    }
-
-                    let value = if i < args.len() {
-                        args[i].clone()
-                    } else if let Some(default_expr) = &param.default {
-                        self.eval_expr(default_expr)?
-                    } else {
-                        Value::Undefined
-                    };
-                    if let Some(pat) = &param.pattern {
-                        self.destructure_pattern(pat, value, false, span)?;
-                    } else {
-                        self.env.define(param.name.name.clone(), value, false);
-                    }
-                }
+                self.bind_params(&params, &args, true, span)?;
 
                 if is_generator {
                     let gen_env = std::mem::replace(&mut self.env, saved_env);
@@ -207,22 +187,7 @@ impl Interpreter {
                     };
                     self.pop_frame();
                     self.env = saved_env;
-                    match result? {
-                        Some(ControlFlow::Return(val)) => Ok(val),
-                        Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
-                            label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                            span,
-                        )),
-                        Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
-                            label.map_or_else(
-                                || "'двигай' вне цикла".to_string(),
-                                |l| format!("Метка '{l}' не найдена"),
-                            ),
-                            span,
-                        )),
-                        Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
-                        None => Ok(Value::Undefined),
-                    }
+                    self.finish_call(result?, frame_stack, span)
                 }
             }
             Value::PromiseCapability { state, kind } => {
@@ -307,26 +272,7 @@ impl Interpreter {
             self.env.define(symbols::SUPER.to_string(), super_val, false);
         }
 
-        for (i, param) in params.iter().enumerate() {
-            if param.is_rest {
-                let rest_start = i.min(args.len());
-                let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
-                break;
-            }
-            let value = if i < args.len() {
-                args[i].clone()
-            } else if let Some(default_expr) = &param.default {
-                self.eval_expr(default_expr)?
-            } else {
-                Value::Undefined
-            };
-            if let Some(pat) = &param.pattern {
-                self.destructure_pattern(pat, value, false, span)?;
-            } else {
-                self.env.define(param.name.name.clone(), value, false);
-            }
-        }
+        self.bind_params(params, &args, true, span)?;
 
         self.push_frame(name, span);
         let mut result = self.exec_block_stmts(&body.stmts);
@@ -339,19 +285,7 @@ impl Interpreter {
 
         self.env = saved_env;
 
-        match result? {
-            Some(ControlFlow::Return(val)) => Ok(val),
-            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
-                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                span,
-            )),
-            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
-                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                span,
-            )),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
-            None => Ok(Value::Undefined),
-        }
+        self.finish_call(result?, frame_stack, span)
     }
 
     pub(super) fn eval_index(&mut self, obj: Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
@@ -434,5 +368,56 @@ impl Interpreter {
             }
         }
         Ok(values)
+    }
+
+    pub(super) fn bind_params(
+        &mut self,
+        params: &[Param],
+        args: &[Value],
+        destructure: bool,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        for (i, param) in params.iter().enumerate() {
+            if param.is_rest {
+                let rest_start = i.min(args.len());
+                let rest_values: Vec<Value> = args[rest_start..].to_vec();
+                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
+                break;
+            }
+            let value = if i < args.len() {
+                args[i].clone()
+            } else if let Some(default_expr) = &param.default {
+                self.eval_expr(default_expr)?
+            } else {
+                Value::Undefined
+            };
+            if destructure && let Some(pat) = &param.pattern {
+                self.destructure_pattern(pat, value, false, span)?;
+            } else {
+                self.env.define(param.name.name.clone(), value, false);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish_call(
+        &self,
+        flow: Option<ControlFlow>,
+        frame_stack: Vec<Frame>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        match flow {
+            Some(ControlFlow::Return(val)) => Ok(val),
+            Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
+            Some(ControlFlow::Continue(label)) => Err(RuntimeError::new(
+                label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                span,
+            )),
+            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
+            None => Ok(Value::Undefined),
+        }
     }
 }
