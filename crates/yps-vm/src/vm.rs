@@ -506,11 +506,6 @@ impl Vm {
                     };
                     self.stack.push(Value::Array(Rc::new(RefCell::new(keys))));
                 }
-                Op::ForOfValues => {
-                    let src = self.pop();
-                    let values = self.iterate_values(&src, span)?;
-                    self.stack.push(Value::Array(Rc::new(RefCell::new(values))));
-                }
                 Op::ForIterInit => {
                     let src = self.pop();
                     let handle = match src {

@@ -149,7 +149,6 @@ pub enum Op {
     PopHandler,
 
     ForInKeys,
-    ForOfValues,
     ForIterInit,
     ForIterNext(usize),
     ForIterClose,
