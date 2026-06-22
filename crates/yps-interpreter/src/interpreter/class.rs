@@ -347,22 +347,7 @@ impl Interpreter {
                 ));
             }
 
-            for (i, param) in params.iter().enumerate() {
-                if param.is_rest {
-                    let rest_start = i.min(args.len());
-                    let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                    self.env.define(param.name.name.clone(), Value::array(rest_values), false);
-                    break;
-                }
-                let value = if i < args.len() {
-                    args[i].clone()
-                } else if let Some(default_expr) = &param.default {
-                    self.eval_expr(default_expr)?
-                } else {
-                    Value::Undefined
-                };
-                self.env.define(param.name.name.clone(), value, false);
-            }
+            self.bind_params(params, &args, false, span)?;
 
             self.push_frame(Rc::from(class_def.name.as_str()), span);
             let mut result = self.exec_block_stmts(&body.stmts);
@@ -451,22 +436,7 @@ impl Interpreter {
             ));
         }
 
-        for (i, param) in params.iter().enumerate() {
-            if param.is_rest {
-                let rest_start = i.min(args.len());
-                let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
-                break;
-            }
-            let value = if i < args.len() {
-                args[i].clone()
-            } else if let Some(default_expr) = &param.default {
-                self.eval_expr(default_expr)?
-            } else {
-                Value::Undefined
-            };
-            self.env.define(param.name.name.clone(), value, false);
-        }
+        self.bind_params(&params, &args, false, span)?;
 
         let result = self.exec_block_stmts(&body.stmts);
         let this_after = self.env.get(symbols::THIS).unwrap_or(child_instance);
