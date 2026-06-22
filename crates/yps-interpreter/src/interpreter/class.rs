@@ -76,7 +76,6 @@ impl Interpreter {
             None
         };
 
-        // --- PASS 1: Evaluate ALL decorator expressions top-to-bottom ---
         let mut class_dec_fns = Vec::new();
         for dec_expr in decorators {
             class_dec_fns.push(self.eval_expr(dec_expr)?);
@@ -104,7 +103,6 @@ impl Interpreter {
             member_dec_fns.push(Some(MemberDecFns { decorator_fns: fns }));
         }
 
-        // --- PASS 2: Process members, apply decorators by category ---
         let mut constructor = None;
         let mut methods = HashMap::new();
         let mut static_methods = HashMap::new();
@@ -117,7 +115,6 @@ impl Interpreter {
         let mut static_inits = Vec::new();
         let mut instance_inits = Vec::new();
 
-        // Pass 2a: methods, getters, setters (applied first per TC39)
         for (i, member) in members.iter().enumerate() {
             let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
             match member {
@@ -218,7 +215,6 @@ impl Interpreter {
             }
         }
 
-        // Pass 2b: fields (applied after methods/getters/setters per TC39)
         for (i, member) in members.iter().enumerate() {
             if let ClassMember::Field { name: f_name, init, is_static, is_private, .. } = member {
                 let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
@@ -256,7 +252,6 @@ impl Interpreter {
             }
         }
 
-        // --- PASS 3: Build ClassDef, apply class decorators ---
         let class_def = ClassDef {
             name: name.name.clone(),
             constructor,

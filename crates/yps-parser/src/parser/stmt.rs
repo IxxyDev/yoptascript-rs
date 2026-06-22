@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
         }
 
         let init = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            self.advance(); // пропускаем ';'
+            self.advance();
             None
         } else if matches!(
             self.current().kind,
@@ -410,12 +410,12 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_try_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        self.advance(); // consume 'хапнуть'
+        self.advance();
 
         let try_block = self.parse_block()?;
 
         let (catch_param, catch_block) = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Catch)) {
-            self.advance(); // consume 'гоп'
+            self.advance();
 
             let param = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 self.advance();
@@ -438,7 +438,7 @@ impl<'a> Parser<'a> {
         };
 
         let finally_block = if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Finally)) {
-            self.advance(); // consume 'тюряжка'
+            self.advance();
             Some(self.parse_block()?)
         } else {
             None
@@ -461,7 +461,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_throw_stmt(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        self.advance(); // consume 'кидай'
+        self.advance();
 
         let value = self.parse_expr()?;
 

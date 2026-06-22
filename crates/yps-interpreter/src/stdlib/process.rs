@@ -115,7 +115,6 @@ mod tests {
 
     #[test]
     fn perem_existing_returns_string() {
-        // PATH almost always exists
         unsafe {
             env::set_var("YPS_TEST_VAR_X", "значение");
         }
