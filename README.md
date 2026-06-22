@@ -4,7 +4,7 @@ A Rust implementation of [YoptaScript](https://github.com/samgozman/YoptaScript)
 
 While the original [samgozman/YoptaScript](https://github.com/samgozman/YoptaScript) (2.2k★) is a JS-based transpiler, **yoptascript-rs** is a from-scratch reimplementation in Rust with its own lexer, parser, AST, tree-walking interpreter and bytecode VM — built as a hands-on exercise in language implementation and Rust workspace design.
 
-The language surface tracks ES6–ES2026: closures, classes, generators, async/await, modules, destructuring, BigInt, RegExp, typed arrays, Map/Set/WeakMap, Proxy/Reflect, decorators and a русско-названная standard library (`Матан`, `Кент`, `Жсон`, …). Two backends run the same AST — a tree-walking interpreter and a stack bytecode VM (`yps run --vm`) — and a conformance suite asserts they produce byte-for-byte identical output.
+The language surface tracks ES6–ES2026: closures, classes, generators, async/await, modules, destructuring, BigInt, RegExp, typed arrays, Map/Set/WeakMap, Proxy/Reflect, decorators and a русско-названная standard library (`Матан`, `Кент`, `Жсон`, …). Two backends run the same AST — a tree-walking interpreter and a stack bytecode VM (`yps --vm`) — and a conformance suite asserts they produce byte-for-byte identical output.
 
 > ⚠️ The language uses Russian slang/profanity for keywords. This is an engineering exercise, not the language itself; semantics mirror JavaScript.
 
@@ -27,8 +27,8 @@ crates/
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
 ├── yps-vm           # Bytecode compiler + stack VM (parity backend)
 ├── yps-fmt          # AST-based formatter with round-trip self-check
-├── yps-lsp          # Language server (diagnostics, hover, go-to-definition)
-└── yps-cli          # Command-line entry point (run, run --vm, repl, fmt)
+├── yps-lsp          # Language server (diagnostics, hover, keyword completion)
+└── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt)
 ```
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
