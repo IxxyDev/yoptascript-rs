@@ -42,6 +42,13 @@
         "path": "./syntaxes/yoptascript.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[yoptascript]": {
+        "editor.unicodeHighlight.ambiguousCharacters": false,
+        "editor.unicodeHighlight.nonBasicASCII": false,
+        "editor.unicodeHighlight.invisibleCharacters": false
+      }
+    },
     "configuration": {
       "title": "YoptaScript",
       "properties": {
