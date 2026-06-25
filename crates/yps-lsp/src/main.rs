@@ -10,6 +10,7 @@ use yps_lexer::KEYWORDS;
 use yps_lsp::diagnostics::analyze;
 use yps_lsp::hover::keyword_hover;
 use yps_lsp::position::{pos_to_byte, word_at};
+use yps_lsp::symbols::document_symbols;
 
 struct Backend {
     client: Client,
@@ -69,6 +70,14 @@ impl LanguageServer for Backend {
         }
 
         Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+        let docs = self.documents.read().await;
+        let Some(text) = docs.get(&params.text_document.uri) else {
+            return Ok(None);
+        };
+        Ok(Some(DocumentSymbolResponse::Nested(document_symbols(text))))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
