@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn jumps_to_variable_declaration() {
-        let src = "участковый x = 1;\nсказать(x);";
+        let src = "ясенХуй x = 1;\nсказать(x);";
         let usage = src.rfind('x').unwrap();
         let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find('x').unwrap());
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn resolves_param_inside_array_literal_arrow() {
-        let src = "участковый список = [йопта(элемент) { отвечаю элемент; }];";
+        let src = "ясенХуй список = [йопта(элемент) { отвечаю элемент; }];";
         let usage = src.rfind("элемент").unwrap();
         let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("элемент").unwrap());
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn resolves_param_inside_object_method_value() {
-        let src = "участковый объект = { метод: йопта(арг) { отвечаю арг; } };";
+        let src = "ясенХуй объект = { метод: йопта(арг) { отвечаю арг; } };";
         let usage = src.rfind("арг").unwrap();
         let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("арг").unwrap());
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn unknown_identifier_has_no_definition() {
-        let src = "участковый x = 1;";
+        let src = "ясенХуй x = 1;";
         let pos = byte_to_pos(src, 0);
         assert!(goto_definition("неизвестно;", pos).is_none());
     }

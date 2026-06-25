@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_parse_function_decl() {
-    let source = SourceFile::new("test.yop".to_string(), "йопта foo(x, y) { x + y; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "йопта foo(x, y) { x + y; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -26,7 +26,7 @@ fn test_parse_function_decl() {
 
 #[test]
 fn test_parse_function_decl_no_params() {
-    let source = SourceFile::new("test.yop".to_string(), "йопта bar() { отвечаю 42; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "йопта bar() { отвечаю 42; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -48,7 +48,7 @@ fn test_parse_function_decl_no_params() {
 
 #[test]
 fn test_parse_return_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "отвечаю 42;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "отвечаю 42;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -68,7 +68,7 @@ fn test_parse_return_stmt() {
 
 #[test]
 fn test_parse_return_stmt_no_value() {
-    let source = SourceFile::new("test.yop".to_string(), "отвечаю;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "отвечаю;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -88,7 +88,7 @@ fn test_parse_return_stmt_no_value() {
 
 #[test]
 fn test_parse_function_call() {
-    let source = SourceFile::new("test.yop".to_string(), "foo(1, 2);".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "foo(1, 2);".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -111,7 +111,7 @@ fn test_parse_function_call() {
 
 #[test]
 fn test_parse_function_call_no_args() {
-    let source = SourceFile::new("test.yop".to_string(), "bar();".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "bar();".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -134,7 +134,7 @@ fn test_parse_function_call_no_args() {
 
 #[test]
 fn test_parse_nested_function_call() {
-    let source = SourceFile::new("test.yop".to_string(), "foo(bar(1), 2);".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "foo(bar(1), 2);".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());

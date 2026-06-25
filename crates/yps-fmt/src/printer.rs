@@ -210,7 +210,7 @@ impl Printer<'_> {
         self.record_mapping(stmt.span().start);
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
-                self.write(if *is_const { "участковый" } else { "гыы" });
+                self.write(if *is_const { "ясенХуй" } else { "гыы" });
                 self.write(" ");
                 self.print_pattern(pattern);
                 self.write(" = ");
@@ -491,7 +491,7 @@ impl Printer<'_> {
     fn print_for_init(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
-                self.write(if *is_const { "участковый" } else { "гыы" });
+                self.write(if *is_const { "ясенХуй" } else { "гыы" });
                 self.write(" ");
                 self.print_pattern(pattern);
                 self.write(" = ");

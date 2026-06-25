@@ -447,9 +447,9 @@ mod suite {
 
     #[test]
     fn snapshot_const_decl() {
-        let src = "участковый   ПИ=3.14;\n";
+        let src = "ясенХуй   ПИ=3.14;\n";
         let out = parse_and_format(src);
-        assert_eq!(out, "участковый ПИ = 3.14;\n");
+        assert_eq!(out, "ясенХуй ПИ = 3.14;\n");
     }
 
     #[test]

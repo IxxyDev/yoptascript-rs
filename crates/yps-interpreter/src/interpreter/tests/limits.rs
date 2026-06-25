@@ -135,7 +135,7 @@ fn string_pad_with_multibyte_fill_respects_byte_limit() {
 fn generator_reentrant_next_errors_instead_of_panic() {
     let i = run_code(
         r#"
-        ясенХуй сам = ноль;
+        участковый сам = ноль;
         пиздюли г() { поебалу сам.следующий(); }
         сам = г();
         гыы поймали = лож;

@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn pos_to_byte_round_trips_cyrillic() {
-        let src = "участковый x = 1;\nсказать(x);";
+        let src = "ясенХуй x = 1;\nсказать(x);";
         for (byte, _) in src.char_indices() {
             let pos = byte_to_pos(src, byte);
             assert_eq!(pos_to_byte(src, pos), byte, "round-trip failed at byte {byte}");
