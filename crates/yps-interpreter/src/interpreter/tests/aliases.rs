@@ -201,3 +201,21 @@ fn dict_debugger_is_noop() {
     assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
     assert_eq!(interp.get("б"), Some(Value::Number(2.0)));
 }
+
+#[test]
+fn dict_alias_not_choblya() {
+    let interp = run_code("гыы р = чобля правда;");
+    assert_eq!(interp.get("р"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn dict_alias_increment_plyusuyuna() {
+    let interp = run_code("гыы х = 5; х плюсуюНа;");
+    assert_eq!(interp.get("х"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn dict_alias_decrement_slilsyana() {
+    let interp = run_code("гыы х = 5; х слилсяНа;");
+    assert_eq!(interp.get("х"), Some(Value::Number(4.0)));
+}
