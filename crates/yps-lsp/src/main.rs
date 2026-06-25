@@ -8,6 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use yps_interpreter::builtins::builtin_names;
 use yps_lexer::KEYWORDS;
 use yps_lsp::diagnostics::analyze;
+use yps_lsp::format::format_document;
 use yps_lsp::hover::keyword_hover;
 use yps_lsp::position::{pos_to_byte, word_at};
 use yps_lsp::symbols::document_symbols;
@@ -78,6 +79,14 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         Ok(Some(DocumentSymbolResponse::Nested(document_symbols(text))))
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let docs = self.documents.read().await;
+        let Some(text) = docs.get(&params.text_document.uri) else {
+            return Ok(None);
+        };
+        Ok(format_document(text))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {

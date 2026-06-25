@@ -16,3 +16,4 @@ tokio = { version = "1", features = ["full"] }
 yps-lexer = { path = "../yps-lexer" }
 yps-parser = { path = "../yps-parser" }
 yps-interpreter = { path = "../yps-interpreter" }
+yps-fmt = { path = "../yps-fmt" }
