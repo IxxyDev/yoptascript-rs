@@ -5,8 +5,7 @@ use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use yps_interpreter::builtins::builtin_names;
-use yps_lexer::KEYWORDS;
+use yps_lsp::completion::completion_items;
 use yps_lsp::definition::goto_definition;
 use yps_lsp::diagnostics::analyze;
 use yps_lsp::format::format_document;
@@ -53,25 +52,11 @@ impl LanguageServer for Backend {
         self.documents.write().await.remove(&params.text_document.uri);
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let mut items: Vec<CompletionItem> = KEYWORDS
-            .iter()
-            .map(|&kw| CompletionItem {
-                label: kw.to_string(),
-                kind: Some(CompletionItemKind::KEYWORD),
-                ..Default::default()
-            })
-            .collect();
-
-        for name in builtin_names() {
-            items.push(CompletionItem {
-                label: name.to_string(),
-                kind: Some(CompletionItemKind::FUNCTION),
-                ..Default::default()
-            });
-        }
-
-        Ok(Some(CompletionResponse::Array(items)))
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = docs.get(uri).map(String::as_str).unwrap_or_default();
+        Ok(Some(CompletionResponse::Array(completion_items(text))))
     }
 
     async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {

@@ -27,13 +27,15 @@ crates/
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
 ├── yps-vm           # Bytecode compiler + stack VM (parity backend)
 ├── yps-fmt          # AST-based formatter with round-trip self-check
-├── yps-lsp          # Language server (diagnostics, hover, keyword completion)
+├── yps-lsp          # Language server (diagnostics, hover, completion, symbols, formatting, go-to-definition)
 └── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt)
 ```
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
 
 The formatter (`yps fmt`) pretty-prints a `.yop` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
+
+The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics, hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt` (`textDocument/formatting`) and go-to-definition for functions, classes, variables and parameters (`textDocument/definition`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
 Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, cargo-deny, pre-commit hooks, GitHub Actions CI, Justfile for task automation.
 
