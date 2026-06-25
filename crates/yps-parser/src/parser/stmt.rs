@@ -72,7 +72,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_var_decl(&mut self) -> Result<Stmt, ()> {
         let start = self.current().span.start;
-        let is_const = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Uchastkoviy));
+        let is_const = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::YasenHuy));
         self.advance();
 
         let pattern = self.parse_pattern()?;

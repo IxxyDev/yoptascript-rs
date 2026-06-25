@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn collects_functions_classes_and_vars() {
-        let src = "йопта приветствие(имя) { отвечаю имя; }\nучастковый x = 1;\nгыы y = 2;";
+        let src = "йопта приветствие(имя) { отвечаю имя; }\nясенХуй x = 1;\nгыы y = 2;";
         let syms = document_symbols(src);
         assert_eq!(names(&syms), vec!["приветствие", "x", "y"]);
         assert_eq!(syms[0].kind, SymbolKind::FUNCTION);

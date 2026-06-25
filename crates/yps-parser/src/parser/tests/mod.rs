@@ -1,7 +1,7 @@
 use super::*;
 
 fn parse_expr_from_source(src: &str) -> Result<Expr, Vec<Diagnostic>> {
-    let source = SourceFile::new("test.yop".to_string(), src.to_string());
+    let source = SourceFile::new("test.yopta".to_string(), src.to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
 
@@ -17,7 +17,7 @@ fn parse_expr_from_source(src: &str) -> Result<Expr, Vec<Diagnostic>> {
 }
 
 fn parse_program_from_source(src: &str) -> (Program, Vec<Diagnostic>) {
-    let source = SourceFile::new("test.yop".to_string(), src.to_string());
+    let source = SourceFile::new("test.yopta".to_string(), src.to_string());
     let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
     Parser::new(&tokens, &source).parse_program()
 }

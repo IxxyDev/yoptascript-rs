@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn includes_document_declarations() {
-        let src = "йопта мояФункция() {}\nучастковый мояКонстанта = 1;";
+        let src = "йопта мояФункция() {}\nясенХуй мояКонстанта = 1;";
         let items = completion_items(src);
         let labels = labels(&items);
         assert!(labels.contains(&"мояФункция"), "got {labels:?}");

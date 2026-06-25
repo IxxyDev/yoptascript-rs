@@ -173,7 +173,7 @@ fn destructure_array_in_object() {
 fn destructure_const_array() {
     let err = run_code_err(
         r#"
-        участковый [а, б] = [1, 2];
+        ясенХуй [а, б] = [1, 2];
         а = 10;
         "#,
     );
@@ -184,7 +184,7 @@ fn destructure_const_array() {
 fn destructure_const_object() {
     let err = run_code_err(
         r#"
-        участковый {х, у} = { х: 1, у: 2 };
+        ясенХуй {х, у} = { х: 1, у: 2 };
         х = 10;
         "#,
     );

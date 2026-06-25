@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_parse_var_decl_gyy() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы x = 5;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы x = 5;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -24,7 +24,7 @@ fn test_parse_var_decl_gyy() {
 
 #[test]
 fn test_parse_labeled_statement() {
-    let source = SourceFile::new("test.yop".to_string(), "внешний: потрещим (правда) { харэ внешний; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "внешний: потрещим (правда) { харэ внешний; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -44,7 +44,7 @@ fn test_parse_labeled_statement() {
 
 #[test]
 fn test_parse_break_with_label() {
-    let source = SourceFile::new("test.yop".to_string(), "харэ метка;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "харэ метка;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -61,7 +61,7 @@ fn test_parse_break_with_label() {
 
 #[test]
 fn test_parse_break_without_label() {
-    let source = SourceFile::new("test.yop".to_string(), "харэ;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "харэ;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, _) = lexer.tokenize();
     let parser = Parser::new(&tokens, &source);
@@ -72,7 +72,7 @@ fn test_parse_break_without_label() {
 
 #[test]
 fn test_parse_object_pattern_default() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы { х = 5, а: б = 7 } = obj;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы { х = 5, а: б = 7 } = obj;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -93,7 +93,7 @@ fn test_parse_object_pattern_default() {
 
 #[test]
 fn test_parse_array_pattern_default() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы [а = 1, б] = arr;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы [а = 1, б] = arr;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -113,7 +113,7 @@ fn test_parse_array_pattern_default() {
 
 #[test]
 fn test_parse_var_decl_yasen_huy() {
-    let source = SourceFile::new("test.yop".to_string(), "ясенХуй y = \"hello\";".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "ясенХуй y = \"hello\";".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -135,7 +135,7 @@ fn test_parse_var_decl_yasen_huy() {
 
 #[test]
 fn test_parse_expr_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "x + 5;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "x + 5;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -156,7 +156,7 @@ fn test_parse_expr_stmt() {
 
 #[test]
 fn test_parse_empty_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), ";".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), ";".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -171,7 +171,7 @@ fn test_parse_empty_stmt() {
 
 #[test]
 fn test_parse_multiple_statements() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы x = 5;\nясенХуй y = 10;\nx + y;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы x = 5;\nучастковый y = 10;\nx + y;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -189,7 +189,7 @@ fn test_parse_multiple_statements() {
 
 #[test]
 fn test_parse_if_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) x = 10;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "вилкойвглаз (x > 5) x = 10;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -212,7 +212,8 @@ fn test_parse_if_stmt() {
 
 #[test]
 fn test_parse_if_else_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) x = 10; иливжопураз x = 0;".to_string());
+    let source =
+        SourceFile::new("test.yopta".to_string(), "вилкойвглаз (x > 5) x = 10; иливжопураз x = 0;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -236,7 +237,7 @@ fn test_parse_if_else_stmt() {
 
 #[test]
 fn test_parse_if_with_block() {
-    let source = SourceFile::new("test.yop".to_string(), "вилкойвглаз (x > 5) { x = 10; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "вилкойвглаз (x > 5) { x = 10; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -257,7 +258,7 @@ fn test_parse_if_with_block() {
 
 #[test]
 fn test_parse_while_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) x = x - 1;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "потрещим (x > 0) x = x - 1;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -278,7 +279,7 @@ fn test_parse_while_stmt() {
 
 #[test]
 fn test_parse_while_with_block() {
-    let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) { x = x - 1; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "потрещим (x > 0) { x = x - 1; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -298,7 +299,7 @@ fn test_parse_while_with_block() {
 
 #[test]
 fn test_parse_nested_while() {
-    let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) потрещим (y > 0) y = y - 1;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "потрещим (x > 0) потрещим (y > 0) y = y - 1;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -318,7 +319,7 @@ fn test_parse_nested_while() {
 
 #[test]
 fn test_parse_for_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) x = x + i;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (гыы i = 0; i < 10; i = i + 1) x = x + i;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -342,7 +343,7 @@ fn test_parse_for_stmt() {
 #[test]
 fn test_parse_for_with_block() {
     let source =
-        SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { x = x + i; }".to_string());
+        SourceFile::new("test.yopta".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { x = x + i; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -362,7 +363,7 @@ fn test_parse_for_with_block() {
 
 #[test]
 fn test_parse_for_without_init() {
-    let source = SourceFile::new("test.yop".to_string(), "го (; i < 10; i = i + 1) x = x + i;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (; i < 10; i = i + 1) x = x + i;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -384,7 +385,7 @@ fn test_parse_for_without_init() {
 
 #[test]
 fn test_parse_for_without_condition() {
-    let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; ; i = i + 1) x = x + i;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (гыы i = 0; ; i = i + 1) x = x + i;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -406,7 +407,7 @@ fn test_parse_for_without_condition() {
 
 #[test]
 fn test_parse_for_without_update() {
-    let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10;) x = x + i;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (гыы i = 0; i < 10;) x = x + i;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -428,7 +429,7 @@ fn test_parse_for_without_update() {
 
 #[test]
 fn test_parse_for_infinite_loop() {
-    let source = SourceFile::new("test.yop".to_string(), "го (;;) x = x + 1;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (;;) x = x + 1;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -451,7 +452,7 @@ fn test_parse_for_infinite_loop() {
 #[test]
 fn test_parse_nested_for() {
     let source = SourceFile::new(
-        "test.yop".to_string(),
+        "test.yopta".to_string(),
         "го (гыы i = 0; i < 10; i = i + 1) го (гыы j = 0; j < 5; j = j + 1) x = x + 1;".to_string(),
     );
     let lexer = yps_lexer::Lexer::new(&source);
@@ -473,7 +474,7 @@ fn test_parse_nested_for() {
 
 #[test]
 fn test_parse_break_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "харэ;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "харэ;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -488,7 +489,7 @@ fn test_parse_break_stmt() {
 
 #[test]
 fn test_parse_continue_stmt() {
-    let source = SourceFile::new("test.yop".to_string(), "двигай;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "двигай;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -503,7 +504,7 @@ fn test_parse_continue_stmt() {
 
 #[test]
 fn test_parse_break_in_while() {
-    let source = SourceFile::new("test.yop".to_string(), "потрещим (x > 0) { харэ; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "потрещим (x > 0) { харэ; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -527,7 +528,7 @@ fn test_parse_break_in_while() {
 
 #[test]
 fn test_parse_continue_in_for() {
-    let source = SourceFile::new("test.yop".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { двигай; }".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "го (гыы i = 0; i < 10; i = i + 1) { двигай; }".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());

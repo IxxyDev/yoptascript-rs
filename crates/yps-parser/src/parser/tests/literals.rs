@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_parse_array_literal() {
-    let source = SourceFile::new("test.yop".to_string(), "[1, 2, 3];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "[1, 2, 3];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -25,7 +25,7 @@ fn test_parse_array_literal() {
 
 #[test]
 fn test_parse_empty_array() {
-    let source = SourceFile::new("test.yop".to_string(), "[];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "[];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -48,7 +48,7 @@ fn test_parse_empty_array() {
 
 #[test]
 fn test_parse_array_index() {
-    let source = SourceFile::new("test.yop".to_string(), "arr[0];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "arr[0];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -68,7 +68,7 @@ fn test_parse_array_index() {
 
 #[test]
 fn test_parse_nested_array_index() {
-    let source = SourceFile::new("test.yop".to_string(), "arr[i][j];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "arr[i][j];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -91,7 +91,7 @@ fn test_parse_nested_array_index() {
 
 #[test]
 fn test_parse_nested_array_literal() {
-    let source = SourceFile::new("test.yop".to_string(), "[[1, 2], [3, 4]];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "[[1, 2], [3, 4]];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -115,7 +115,7 @@ fn test_parse_nested_array_literal() {
 
 #[test]
 fn test_parse_object_literal() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы obj = {x: 1, y: 2};".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы obj = {x: 1, y: 2};".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -146,7 +146,7 @@ fn test_parse_object_literal() {
 
 #[test]
 fn test_parse_empty_object() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы obj = {};".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы obj = {};".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -169,7 +169,7 @@ fn test_parse_empty_object() {
 
 #[test]
 fn test_parse_member_access() {
-    let source = SourceFile::new("test.yop".to_string(), "obj.prop;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "obj.prop;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -189,7 +189,7 @@ fn test_parse_member_access() {
 
 #[test]
 fn test_parse_nested_member_access() {
-    let source = SourceFile::new("test.yop".to_string(), "obj.prop.nested;".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "obj.prop.nested;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -212,7 +212,7 @@ fn test_parse_nested_member_access() {
 
 #[test]
 fn test_parse_nested_object_literal() {
-    let source = SourceFile::new("test.yop".to_string(), "гыы obj = {x: {y: 1}};".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "гыы obj = {x: {y: 1}};".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -241,7 +241,7 @@ fn test_parse_nested_object_literal() {
 
 #[test]
 fn test_parse_method_call() {
-    let source = SourceFile::new("test.yop".to_string(), "obj.method();".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "obj.method();".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());
@@ -264,7 +264,7 @@ fn test_parse_method_call() {
 
 #[test]
 fn test_parse_array_of_objects() {
-    let source = SourceFile::new("test.yop".to_string(), "[{x: 1}, {y: 2}];".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "[{x: 1}, {y: 2}];".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
     let (tokens, lex_diags) = lexer.tokenize();
     assert!(lex_diags.is_empty());

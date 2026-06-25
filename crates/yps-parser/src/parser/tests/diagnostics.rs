@@ -9,21 +9,21 @@ fn test_parser_recovers_from_unknown_keyword_after_brace() {
 #[test]
 #[should_panic(expected = "TokenKind::Eof")]
 fn parser_new_rejects_empty_tokens() {
-    let source = SourceFile::new("test.yop".to_string(), String::new());
+    let source = SourceFile::new("test.yopta".to_string(), String::new());
     Parser::new(&[], &source);
 }
 
 #[test]
 #[should_panic(expected = "TokenKind::Eof")]
 fn parser_new_rejects_tokens_without_eof() {
-    let source = SourceFile::new("test.yop".to_string(), "1".to_string());
+    let source = SourceFile::new("test.yopta".to_string(), "1".to_string());
     let tokens = vec![Token { kind: TokenKind::Number, span: Span { start: 0, end: 1 } }];
     Parser::new(&tokens, &source);
 }
 
 #[test]
 fn parser_new_accepts_eof_only_tokens() {
-    let source = SourceFile::new("test.yop".to_string(), String::new());
+    let source = SourceFile::new("test.yopta".to_string(), String::new());
     let tokens = vec![Token { kind: TokenKind::Eof, span: Span { start: 0, end: 0 } }];
     let parser = Parser::new(&tokens, &source);
     let (program, diags) = parser.parse_program();

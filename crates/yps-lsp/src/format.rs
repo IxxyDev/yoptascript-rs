@@ -18,15 +18,15 @@ mod tests {
 
     #[test]
     fn unformatted_source_yields_edit() {
-        let src = "участковый    x=1;";
+        let src = "ясенХуй    x=1;";
         let edits = format_document(src).expect("should format");
         assert_eq!(edits.len(), 1);
-        assert!(edits[0].new_text.contains("участковый x = 1;"));
+        assert!(edits[0].new_text.contains("ясенХуй x = 1;"));
     }
 
     #[test]
     fn already_canonical_yields_no_edit() {
-        let src = format_document("участковый    x=1;").unwrap()[0].new_text.clone();
+        let src = format_document("ясенХуй    x=1;").unwrap()[0].new_text.clone();
         let edits = format_document(&src).expect("should format");
         assert!(edits.is_empty(), "expected no edits, got {edits:?}");
     }

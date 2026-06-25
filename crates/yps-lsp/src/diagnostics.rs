@@ -37,13 +37,13 @@ mod tests {
 
     #[test]
     fn clean_source_has_no_diagnostics() {
-        let diags = analyze("file:///a.yop", "участковый x = 1;\n");
+        let diags = analyze("file:///a.yopta", "ясенХуй x = 1;\n");
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
     }
 
     #[test]
     fn broken_source_reports_error() {
-        let diags = analyze("file:///a.yop", "йопта (");
+        let diags = analyze("file:///a.yopta", "йопта (");
         assert!(diags.iter().any(|d| d.severity == Some(DiagnosticSeverity::ERROR)));
     }
 }
