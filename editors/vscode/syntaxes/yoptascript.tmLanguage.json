@@ -6,6 +6,7 @@
     { "include": "#comments" },
     { "include": "#keywords" },
     { "include": "#constants" },
+    { "include": "#function-calls" },
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#operators" }
@@ -54,6 +55,25 @@
         {
           "name": "constant.language.yoptascript",
           "match": "(?<!\\w)(?:правда|трулио|чётко|четко|чотко|лож|нетрулио|пиздишь|нечётко|нечетко|нечотко|ноль|нуллио|порожняк|неибу)(?!\\w)"
+        }
+      ]
+    },
+    "function-calls": {
+      "patterns": [
+        {
+          "comment": "method call: .name(",
+          "match": "(\\.)\\s*([_\\p{L}][_\\p{L}\\p{N}]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "punctuation.accessor.yoptascript" },
+            "2": { "name": "entity.name.function.yoptascript" }
+          }
+        },
+        {
+          "comment": "function or constructor call: name(",
+          "match": "(?<![\\w.])([_\\p{L}][_\\p{L}\\p{N}]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.yoptascript" }
+          }
         }
       ]
     },
