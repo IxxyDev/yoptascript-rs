@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod format;
 pub mod hover;
 pub mod position;
 pub mod symbols;
@@ -17,6 +18,7 @@ pub fn server_capabilities() -> ServerCapabilities {
         completion_provider: Some(CompletionOptions::default()),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
+        document_formatting_provider: Some(OneOf::Left(true)),
         ..Default::default()
     }
 }
@@ -39,6 +41,7 @@ mod tests {
         assert!(caps.completion_provider.is_some());
         assert!(caps.hover_provider.is_some());
         assert!(caps.document_symbol_provider.is_some());
+        assert!(caps.document_formatting_provider.is_some());
         assert!(caps.text_document_sync.is_some());
     }
 }
