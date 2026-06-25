@@ -76,6 +76,46 @@ test("tokenizes keywords, control flow and strings", async () => {
   );
 });
 
+test("tokenizes function and method calls", async () => {
+  const grammar = await loadGrammar();
+  const line = 'сказать(контроллёр.отменить("стоп"));';
+  const { tokens } = grammar.tokenizeLine(line, vsctm.INITIAL);
+
+  const call = scopesAt(tokens, line.indexOf("сказать"));
+  assert.ok(
+    call.includes("entity.name.function.yoptascript"),
+    `expected function scope for 'сказать', got ${call.join(",")}`
+  );
+
+  const method = scopesAt(tokens, line.indexOf("отменить"));
+  assert.ok(
+    method.includes("entity.name.function.yoptascript"),
+    `expected function scope for method 'отменить', got ${method.join(",")}`
+  );
+
+  const receiver = scopesAt(tokens, line.indexOf("контроллёр"));
+  assert.ok(
+    !receiver.includes("entity.name.function.yoptascript"),
+    `receiver 'контроллёр' must not be a function, got ${receiver.join(",")}`
+  );
+});
+
+test("control keyword before paren stays a keyword", async () => {
+  const grammar = await loadGrammar();
+  const line = "вилкойвглаз (x) { го (y) {} }";
+  const { tokens } = grammar.tokenizeLine(line, vsctm.INITIAL);
+
+  const iff = scopesAt(tokens, line.indexOf("вилкойвглаз"));
+  assert.ok(
+    iff.includes("keyword.control.yoptascript"),
+    `expected keyword.control for 'вилкойвглаз', got ${iff.join(",")}`
+  );
+  assert.ok(
+    !iff.includes("entity.name.function.yoptascript"),
+    `'вилкойвглаз' must not become a function call, got ${iff.join(",")}`
+  );
+});
+
 test("tokenizes constants and numbers", async () => {
   const grammar = await loadGrammar();
   const line = "участковый x = правда; гыы y = 0xFF; гыы z = 3.14;";
