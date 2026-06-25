@@ -1,0 +1,125 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "YoptaScript",
+  "scopeName": "source.yoptascript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.yoptascript",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.yoptascript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "storage.type.yoptascript",
+          "match": "(?<!\\w)(?:участковый|ясенХуй|ЯсенХуй|пиздюли|клёво|клево|йопта|ассо|юзай|гыы)(?!\\w)"
+        },
+        {
+          "name": "storage.modifier.yoptascript",
+          "match": "(?<!\\w)(?:попонятия|подкрыша|ебанное|батя|мой)(?!\\w)"
+        },
+        {
+          "name": "keyword.control.yoptascript",
+          "match": "(?<!\\w)(?:вилкойвглаз|иливжопураз|сидетьНахуй|наотыбись|аеслинайду|чоунастут|поебалуна|потрещим|ачёнетак|аченетак|аченитак|побратски|пабратски|спиздить|предъява|сашаГрей|поебалу|тюряжка|базарпо|пабрацки|логопед|отвечаю|двигай|хапнуть|естьчо|крутани|откуда|пахану|апохуй|харэ|кидай|тема|нуичо|крч|гоп|пнх|лещ|куку|из|го)(?!\\w)"
+        },
+        {
+          "name": "variable.language.yoptascript",
+          "match": "(?<!\\w)(?:тырыпыры|яга)(?!\\w)"
+        },
+        {
+          "name": "keyword.operator.word.yoptascript",
+          "match": "(?<!\\w)(?:захуярить|чезажижан|гыйбать|ёбнуть|ебнуть|шкура)(?!\\w)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.yoptascript",
+          "match": "(?<!\\w)(?:правда|трулио|чётко|четко|чотко|лож|нетрулио|пиздишь|нечётко|нечетко|нечотко|ноль|нуллио|порожняк|неибу)(?!\\w)"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.yoptascript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#string-escape" }]
+        },
+        {
+          "name": "string.quoted.single.yoptascript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#string-escape" }]
+        },
+        {
+          "name": "string.template.yoptascript",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            { "include": "#string-escape" },
+            {
+              "name": "meta.template.expression.yoptascript",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": { "0": { "name": "punctuation.definition.template-expression.begin.yoptascript" } },
+              "endCaptures": { "0": { "name": "punctuation.definition.template-expression.end.yoptascript" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        }
+      ]
+    },
+    "string-escape": {
+      "name": "constant.character.escape.yoptascript",
+      "match": "\\\\(?:x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|u[0-9A-Fa-f]{4}|.)"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.yoptascript",
+          "match": "(?<!\\w)0[xX][0-9A-Fa-f][0-9A-Fa-f_]*n?(?!\\w)"
+        },
+        {
+          "name": "constant.numeric.octal.yoptascript",
+          "match": "(?<!\\w)0[oO][0-7][0-7_]*n?(?!\\w)"
+        },
+        {
+          "name": "constant.numeric.binary.yoptascript",
+          "match": "(?<!\\w)0[bB][01][01_]*n?(?!\\w)"
+        },
+        {
+          "name": "constant.numeric.decimal.yoptascript",
+          "match": "(?<!\\w)(?:[0-9][0-9_]*\\.?[0-9_]*|\\.[0-9][0-9_]*)(?:[eE][+-]?[0-9_]+)?n?(?!\\w)"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.yoptascript",
+          "match": "(\\+\\+|--|&&|\\|\\||\\?\\?|===|!==|==|!=|<=|>=|=>|\\.\\.\\.|[-+*/%<>=!&|^~?:])"
+        }
+      ]
+    }
+  }
+}
