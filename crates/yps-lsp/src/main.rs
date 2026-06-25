@@ -7,10 +7,11 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use yps_interpreter::builtins::builtin_names;
 use yps_lexer::KEYWORDS;
+use yps_lsp::definition::goto_definition;
 use yps_lsp::diagnostics::analyze;
 use yps_lsp::format::format_document;
 use yps_lsp::hover::keyword_hover;
-use yps_lsp::position::{pos_to_byte, word_at};
+use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
 use yps_lsp::symbols::document_symbols;
 
 struct Backend {
@@ -79,6 +80,19 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         Ok(Some(DocumentSymbolResponse::Nested(document_symbols(text))))
+    }
+
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri.clone();
+        let pos = params.text_document_position_params.position;
+
+        let docs = self.documents.read().await;
+        let Some(text) = docs.get(&uri) else {
+            return Ok(None);
+        };
+
+        Ok(goto_definition(text, pos)
+            .map(|span| GotoDefinitionResponse::Scalar(Location { uri, range: span_to_range(text, span) })))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
