@@ -6,7 +6,7 @@ fn run_with_module(module_src: &str, main_src: &str) -> Interpreter {
     let id = SEQ.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("yps_dynimp_{}_{id}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("модуль.yop"), module_src).unwrap();
+    std::fs::write(dir.join("модуль.yopta"), module_src).unwrap();
 
     let source = SourceFile::new("test".to_string(), main_src.to_string());
     let (tokens, lex_diags) = Lexer::new(&source).tokenize();
@@ -148,7 +148,7 @@ fn cyclic_import_live_binding_deferred_access() {
         спиздить { вызватьБ } из "./a";
         гыы итог = вызватьБ();
     "#;
-    let interp = run_with_files(&[("a.yop", a), ("b.yop", b)], "main", main);
+    let interp = run_with_files(&[("a.yopta", a), ("b.yopta", b)], "main", main);
     assert_eq!(interp.get("итог"), Some(Value::Number(200.0)));
 }
 

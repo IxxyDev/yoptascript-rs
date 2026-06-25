@@ -33,11 +33,11 @@ crates/
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
 
-The formatter (`yps fmt`) pretty-prints a `.yop` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
+The formatter (`yps fmt`) pretty-prints a `.yopta` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
 
 The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics, hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt` (`textDocument/formatting`) and go-to-definition for functions, classes, variables and parameters (`textDocument/definition`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
-A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yop` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. See its [README](editors/vscode/README.md) to build and run it.
+A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yopta` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. See its [README](editors/vscode/README.md) to build and run it.
 
 Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, cargo-deny, pre-commit hooks, GitHub Actions CI, Justfile for task automation.
 
@@ -48,7 +48,7 @@ Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, carg
     отвечаю "Привет, " + имя;
 }
 
-участковый сообщение = приветствие("мир");
+ясенХуй сообщение = приветствие("мир");
 сказать(сообщение);
 ```
 
@@ -74,21 +74,21 @@ Toolchain is pinned to stable Rust via [`rust-toolchain.toml`](rust-toolchain.to
 cargo build --release
 
 # Run a YoptaScript file
-cargo run -p yps-cli -- path/to/program.yop
+cargo run -p yps-cli -- path/to/program.yopta
 
 # Run it on the bytecode VM backend instead of the tree-walker
-cargo run -p yps-cli -- --vm path/to/program.yop
+cargo run -p yps-cli -- --vm path/to/program.yopta
 
 # Start the REPL (line editing and up/down history via rustyline;
 # the runtime's other deliberate dependencies are the regex engines —
 # regex for plain patterns, fancy-regex for lookaround and backreferences)
 cargo run -p yps-cli
 
-# Format a .yop file (--write to apply, --check for CI)
-cargo run -p yps-cli -- fmt path/to/program.yop
+# Format a .yopta file (--write to apply, --check for CI)
+cargo run -p yps-cli -- fmt path/to/program.yopta
 
 # Or use the Justfile shortcuts
-just run path/to/program.yop
+just run path/to/program.yopta
 just test
 just lint
 
@@ -115,7 +115,7 @@ This is an active learning project — see open issues for what's next.
 
 ## Conformance suite
 
-A Test262-inspired golden battery lives in `crates/yps-cli/tests/conformance/` and runs as part of `cargo test -p yps-cli`. Every top-level `cases/*.yop` file is discovered automatically and its CLI output is compared against `golden/<name>.txt`.
+A Test262-inspired golden battery lives in `crates/yps-cli/tests/conformance/` and runs as part of `cargo test -p yps-cli`. Every top-level `cases/*.yopta` file is discovered automatically and its CLI output is compared against `golden/<name>.txt`.
 
 ```bash
 # Run the battery
@@ -138,7 +138,7 @@ Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-
 ```
 .
 ├── crates/             # Workspace members (lexer, parser, interpreter, vm, fmt, lsp, cli)
-├── examples/           # Sample .yop programs
+├── examples/           # Sample .yopta programs
 ├── docs/               # Language documentation
 ├── DICTIONARY.md       # Keyword mapping (JS ↔ YoptaScript)
 ├── Justfile            # Task runner

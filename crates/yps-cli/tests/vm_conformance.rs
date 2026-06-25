@@ -25,14 +25,14 @@ fn collect_programs() -> Vec<PathBuf> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest.parent().and_then(Path::parent).expect("корень воркспейса");
 
-    let mut programs = vec![workspace_root.join("examples").join("hello.yop")];
+    let mut programs = vec![workspace_root.join("examples").join("hello.yopta")];
 
     let dir = manifest.join("tests").join("vm_conformance");
     let mut local: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("каталог vm_conformance")
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "yop"))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "yopta"))
         .collect();
     local.sort();
     programs.extend(local);

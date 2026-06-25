@@ -39,7 +39,7 @@ fn discover_cases(cases_dir: &Path) -> Vec<String> {
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("yop") {
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("yopta") {
                 path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_owned())
             } else {
                 None
@@ -66,7 +66,7 @@ fn conformance() {
     let mut failures: Vec<String> = Vec::new();
 
     for name in &case_names {
-        let case_path = cases_dir.join(format!("{name}.yop"));
+        let case_path = cases_dir.join(format!("{name}.yopta"));
         let golden_path = golden_dir.join(format!("{name}.txt"));
 
         assert!(case_path.exists(), "нет кейса: {}", case_path.display());

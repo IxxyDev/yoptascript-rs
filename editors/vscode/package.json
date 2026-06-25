@@ -28,10 +28,10 @@
         "aliases": [
           "YoptaScript",
           "yoptascript",
-          "yop"
+          "yopta"
         ],
         "extensions": [
-          ".yop"
+          ".yopta"
         ],
         "icon": {
           "light": "./icons/yop.svg",

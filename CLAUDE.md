@@ -27,11 +27,11 @@ cargo fmt --all --check  # Format check (matches CI)
 
 Run a single test: `cargo test -p yps-interpreter test_name`
 
-Run the CLI: `cargo run -p yps-cli -- examples/hello.yop`
+Run the CLI: `cargo run -p yps-cli -- examples/hello.yopta`
 
 Run the REPL: `cargo run -p yps-cli` or `cargo run -p yps-cli -- repl`
 
-Format a `.yop` file: `cargo run -p yps-cli -- fmt examples/hello.yop [--write|-w] [--check]`
+Format a `.yopta` file: `cargo run -p yps-cli -- fmt examples/hello.yopta [--write|-w] [--check]`
 
 ## Architecture
 
@@ -45,14 +45,14 @@ Cargo workspace with five crates:
 
 - **yps-fmt** (`crates/yps-fmt/`) — AST-based source formatter (no direct external deps; transitively pulls `stacker` via `yps-parser`). Entry point: `format_source(&source)` → `Result<FormatOutcome, FormatError>`. Pretty-prints the `Program` with canonical style, restores parentheses from the precedence table exported by `yps-parser` (`binary_precedence` / `UNARY_PRECEDENCE` / `TERNARY_PRECEDENCE` / `binary_is_right_assoc`), and guards correctness with a round-trip self-check (`parse(fmt(x)) ≡ parse(x)` via `normalize`). Comments are preserved via the lexer's additive `tokenize_with_trivia()` plus an attach pass (`comments.rs`); an unrecognized comment position (dangling) yields `FormatError::CommentRefused` rather than silent loss.
 
-- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yop` files; also exposes the `fmt` subcommand (`yps fmt <file> [--write|-w] [--check]`) backed by `yps-fmt`.
+- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yopta` files; also exposes the `fmt` subcommand (`yps fmt <file> [--write|-w] [--check]`) backed by `yps-fmt`.
 
 ## Language Keywords Mapping
 
 | Keyword | Meaning |
 |---------|---------|
-| `гыы` / `ясенХуй` | variable declaration |
-| `участковый` | constant declaration |
+| `гыы` / `участковый` | variable declaration |
+| `ясенХуй` | constant declaration |
 | `вилкойвглаз` / `иливжопураз` | if / else |
 | `потрещим` | while |
 | `го` | for |
@@ -69,7 +69,7 @@ Cargo workspace with five crates:
 
 - **Dynamic typing**: `enum Value` in `value.rs` is the source of truth (32 variants as of now). User-facing values — Number (f64), BigInt, String, Boolean, Array, Object, Map, Set, Function, BuiltinFunction, Class, Symbol, Promise, Iterator, RegExp, Date, ArrayBuffer, TypedArray, DataView, Proxy, Undefined, Null — plus internal runtime continuations (the `Promise*`/`Abort*` handler variants).
 - **Diagnostic messages are in Russian** to match the language theme.
-- **Runtime limits** keep hostile `.yop` input from crashing the process; exceeding them raises a catchable runtime error or parser diagnostic: `MAX_CALL_DEPTH=1000` (recursion), `MAX_PARSE_DEPTH=200` and `MAX_CHAIN_LEN=10000` (parser nesting/chains), `MAX_JSON_DEPTH=128`, `MAX_ITERATOR_DEPTH=200` (adapter chains), `MAX_STRING_LEN=50MB` (`repeat`/`pad*`). Deep recursion in the parser and interpreter grows the native stack via `stacker::maybe_grow`.
+- **Runtime limits** keep hostile `.yopta` input from crashing the process; exceeding them raises a catchable runtime error or parser diagnostic: `MAX_CALL_DEPTH=1000` (recursion), `MAX_PARSE_DEPTH=200` and `MAX_CHAIN_LEN=10000` (parser nesting/chains), `MAX_JSON_DEPTH=128`, `MAX_ITERATOR_DEPTH=200` (adapter chains), `MAX_STRING_LEN=50MB` (`repeat`/`pad*`). Deep recursion in the parser and interpreter grows the native stack via `stacker::maybe_grow`.
 - **Constant enforcement**: `Environment` tracks consts in a `HashSet<String>`, mutations are prevented at runtime.
 - **Complex assignment paths**: interpreter handles nested structures like `arr[0].prop = x` via path collection.
 - **Short-circuit evaluation** for `&&` and `||`.
