@@ -16,6 +16,7 @@
   "categories": [
     "Programming Languages"
   ],
+  "icon": "icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:yoptascript"
@@ -32,6 +33,10 @@
         "extensions": [
           ".yop"
         ],
+        "icon": {
+          "light": "./icons/yop.svg",
+          "dark": "./icons/yop.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
