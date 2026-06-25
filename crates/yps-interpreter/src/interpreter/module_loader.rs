@@ -48,7 +48,7 @@ impl Interpreter {
         let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
         let mut candidate = base.join(source);
         if candidate.extension().is_none() {
-            candidate.set_extension("yop");
+            candidate.set_extension("yopta");
         }
         candidate
             .canonicalize()
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_self_import_no_stack_overflow() {
         let dir = TempDir::new("self");
-        write_file(&dir, "self_mod.yop", "импортировать { x } из \"self_mod\";\nэкспортировать гыы x = 1;");
+        write_file(&dir, "self_mod.yopta", "импортировать { x } из \"self_mod\";\nэкспортировать гыы x = 1;");
         let mut i = interp_with_base(&dir);
         let result = i.load_module("self_mod", Span { start: 0, end: 0 });
         assert!(result.is_ok() || result.is_err(), "должен завершиться без stack overflow");
@@ -244,8 +244,8 @@ mod tests {
     #[test]
     fn test_cyclic_ab_no_stack_overflow() {
         let dir = TempDir::new("cyclic");
-        write_file(&dir, "a.yop", "импортировать { b_val } из \"b\";\nэкспортировать гыы a_val = 1;");
-        write_file(&dir, "b.yop", "импортировать { a_val } из \"a\";\nэкспортировать гыы b_val = 2;");
+        write_file(&dir, "a.yopta", "импортировать { b_val } из \"b\";\nэкспортировать гыы a_val = 1;");
+        write_file(&dir, "b.yopta", "импортировать { a_val } из \"a\";\nэкспортировать гыы b_val = 2;");
         let mut i = interp_with_base(&dir);
         let result = i.load_module("a", Span { start: 0, end: 0 });
         assert!(result.is_ok() || result.is_err(), "A→B→A не должен вызывать stack overflow");
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_loading_state_returns_partial() {
         let dir = TempDir::new("partial");
-        let resolved = dir.path().join("dummy.yop");
+        let resolved = dir.path().join("dummy.yopta");
         std::fs::write(&resolved, "").unwrap();
 
         let mut exports = HashMap::new();
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_loaded_state_cached() {
         let dir = TempDir::new("cached");
-        write_file(&dir, "mod.yop", "экспортировать гыы val = 99;");
+        write_file(&dir, "mod.yopta", "экспортировать гыы val = 99;");
         let mut i = interp_with_base(&dir);
         let r1 = i.load_module("mod", Span { start: 0, end: 0 });
         let r2 = i.load_module("mod", Span { start: 0, end: 0 });

@@ -2014,7 +2014,7 @@ impl Vm {
         let base = self.base_path.clone().unwrap_or_else(|| std::path::PathBuf::from("."));
         let mut candidate = base.join(source);
         if candidate.extension().is_none() {
-            candidate.set_extension("yop");
+            candidate.set_extension("yopta");
         }
         candidate
             .canonicalize()

@@ -165,10 +165,10 @@ mod tests {
     fn source_map_json_is_valid() {
         let mut builder = SourceMapBuilder::new("гыы х = 1;");
         builder.add_mapping(0, 0, 0);
-        let map = builder.build("out.yop", "in.yop");
+        let map = builder.build("out.yopta", "in.yopta");
         let json = map.to_json();
         assert!(json.contains("\"version\":3"));
-        assert!(json.contains("\"sources\":[\"in.yop\"]"));
+        assert!(json.contains("\"sources\":[\"in.yopta\"]"));
         assert!(json.contains("\"mappings\":"));
     }
 
@@ -176,7 +176,7 @@ mod tests {
     fn json_escapes_control_characters() {
         let src = "гыы х = 1;\n\tотвечаю 2;\r\n";
         let builder = SourceMapBuilder::new(src);
-        let map = builder.build("out.yop", "in.yop");
+        let map = builder.build("out.yopta", "in.yopta");
         let json = map.to_json();
         assert!(!json.contains('\t'), "raw tab must be escaped");
         assert!(!json.contains('\r'), "raw CR must be escaped");

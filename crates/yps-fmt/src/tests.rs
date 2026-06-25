@@ -52,102 +52,102 @@ mod suite {
 
     #[test]
     fn round_trip_abort() {
-        assert_round_trip("abort.yop");
+        assert_round_trip("abort.yopta");
     }
 
     #[test]
     fn round_trip_async_timers() {
-        assert_round_trip("async_timers.yop");
+        assert_round_trip("async_timers.yopta");
     }
 
     #[test]
     fn round_trip_date() {
-        assert_round_trip("date.yop");
+        assert_round_trip("date.yopta");
     }
 
     #[test]
     fn round_trip_decorators() {
-        assert_round_trip("decorators.yop");
+        assert_round_trip("decorators.yopta");
     }
 
     #[test]
     fn round_trip_destructuring_defaults() {
-        assert_round_trip("destructuring_defaults.yop");
+        assert_round_trip("destructuring_defaults.yopta");
     }
 
     #[test]
     fn round_trip_dynamic_import() {
-        assert_round_trip("dynamic_import.yop");
+        assert_round_trip("dynamic_import.yopta");
     }
 
     #[test]
     fn round_trip_event_loop() {
-        assert_round_trip("event_loop.yop");
+        assert_round_trip("event_loop.yopta");
     }
 
     #[test]
     fn round_trip_for_await_of() {
-        assert_round_trip("for_await_of.yop");
+        assert_round_trip("for_await_of.yopta");
     }
 
     #[test]
     fn round_trip_hello() {
-        assert_round_trip("hello.yop");
+        assert_round_trip("hello.yopta");
     }
 
     #[test]
     fn round_trip_hoisting() {
-        assert_round_trip("hoisting.yop");
+        assert_round_trip("hoisting.yopta");
     }
 
     #[test]
     fn round_trip_import_json() {
-        assert_round_trip("import_json.yop");
+        assert_round_trip("import_json.yopta");
     }
 
     #[test]
     fn round_trip_io_demo() {
-        assert_round_trip("io_demo.yop");
+        assert_round_trip("io_demo.yopta");
     }
 
     #[test]
     fn round_trip_iterator_helpers() {
-        assert_round_trip("iterator_helpers.yop");
+        assert_round_trip("iterator_helpers.yopta");
     }
 
     #[test]
     fn round_trip_labeled_loops() {
-        assert_round_trip("labeled_loops.yop");
+        assert_round_trip("labeled_loops.yopta");
     }
 
     #[test]
     fn round_trip_promise_smoke1() {
-        assert_round_trip("promise_smoke1.yop");
+        assert_round_trip("promise_smoke1.yopta");
     }
 
     #[test]
     fn round_trip_promise_smoke2() {
-        assert_round_trip("promise_smoke2.yop");
+        assert_round_trip("promise_smoke2.yopta");
     }
 
     #[test]
     fn round_trip_regex() {
-        assert_round_trip("regex.yop");
+        assert_round_trip("regex.yopta");
     }
 
     #[test]
     fn round_trip_stack_trace() {
-        assert_round_trip("stack_trace.yop");
+        assert_round_trip("stack_trace.yopta");
     }
 
     #[test]
     fn round_trip_stdlib() {
-        assert_round_trip("stdlib.yop");
+        assert_round_trip("stdlib.yopta");
     }
 
     #[test]
     fn round_trip_tagged_templates() {
-        assert_round_trip("tagged_templates.yop");
+        assert_round_trip("tagged_templates.yopta");
     }
 
     // === (b) идемпотентность побайтно на 20 examples ===
@@ -161,102 +161,102 @@ mod suite {
 
     #[test]
     fn idempotent_abort() {
-        assert_idempotent("abort.yop");
+        assert_idempotent("abort.yopta");
     }
 
     #[test]
     fn idempotent_async_timers() {
-        assert_idempotent("async_timers.yop");
+        assert_idempotent("async_timers.yopta");
     }
 
     #[test]
     fn idempotent_date() {
-        assert_idempotent("date.yop");
+        assert_idempotent("date.yopta");
     }
 
     #[test]
     fn idempotent_decorators() {
-        assert_idempotent("decorators.yop");
+        assert_idempotent("decorators.yopta");
     }
 
     #[test]
     fn idempotent_destructuring_defaults() {
-        assert_idempotent("destructuring_defaults.yop");
+        assert_idempotent("destructuring_defaults.yopta");
     }
 
     #[test]
     fn idempotent_dynamic_import() {
-        assert_idempotent("dynamic_import.yop");
+        assert_idempotent("dynamic_import.yopta");
     }
 
     #[test]
     fn idempotent_event_loop() {
-        assert_idempotent("event_loop.yop");
+        assert_idempotent("event_loop.yopta");
     }
 
     #[test]
     fn idempotent_for_await_of() {
-        assert_idempotent("for_await_of.yop");
+        assert_idempotent("for_await_of.yopta");
     }
 
     #[test]
     fn idempotent_hello() {
-        assert_idempotent("hello.yop");
+        assert_idempotent("hello.yopta");
     }
 
     #[test]
     fn idempotent_hoisting() {
-        assert_idempotent("hoisting.yop");
+        assert_idempotent("hoisting.yopta");
     }
 
     #[test]
     fn idempotent_import_json() {
-        assert_idempotent("import_json.yop");
+        assert_idempotent("import_json.yopta");
     }
 
     #[test]
     fn idempotent_io_demo() {
-        assert_idempotent("io_demo.yop");
+        assert_idempotent("io_demo.yopta");
     }
 
     #[test]
     fn idempotent_iterator_helpers() {
-        assert_idempotent("iterator_helpers.yop");
+        assert_idempotent("iterator_helpers.yopta");
     }
 
     #[test]
     fn idempotent_labeled_loops() {
-        assert_idempotent("labeled_loops.yop");
+        assert_idempotent("labeled_loops.yopta");
     }
 
     #[test]
     fn idempotent_promise_smoke1() {
-        assert_idempotent("promise_smoke1.yop");
+        assert_idempotent("promise_smoke1.yopta");
     }
 
     #[test]
     fn idempotent_promise_smoke2() {
-        assert_idempotent("promise_smoke2.yop");
+        assert_idempotent("promise_smoke2.yopta");
     }
 
     #[test]
     fn idempotent_regex() {
-        assert_idempotent("regex.yop");
+        assert_idempotent("regex.yopta");
     }
 
     #[test]
     fn idempotent_stack_trace() {
-        assert_idempotent("stack_trace.yop");
+        assert_idempotent("stack_trace.yopta");
     }
 
     #[test]
     fn idempotent_stdlib() {
-        assert_idempotent("stdlib.yop");
+        assert_idempotent("stdlib.yopta");
     }
 
     #[test]
     fn idempotent_tagged_templates() {
-        assert_idempotent("tagged_templates.yop");
+        assert_idempotent("tagged_templates.yopta");
     }
 
     // === (c) property-тест по операторам ===

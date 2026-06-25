@@ -10,7 +10,7 @@
 //   OK         — совпадает
 //   MISMATCH   — расходится (показывает diff)
 //   DOCUMENTED — расходится, но задокументировано заголовком DIVERGENCE в .js
-//   SKIP       — нет mirror-файла для cases/<name>.yop
+//   SKIP       — нет mirror-файла для cases/<name>.yopta
 // Завершается с ненулевым кодом, если есть хотя бы один недокументированный MISMATCH.
 
 const fs = require('fs');
@@ -59,9 +59,9 @@ function simpleDiff(expected, actual) {
     return lines.join('\n');
 }
 
-// Collect all case names from cases/*.yop (skip modules subdir entries)
+// Collect all case names from cases/*.yopta (skip modules subdir entries)
 const caseNames = fs.readdirSync(CASES_DIR)
-    .filter(f => f.endsWith('.yop'))
+    .filter(f => f.endsWith('.yopta'))
     .map(f => f.slice(0, -4))
     .sort();
 

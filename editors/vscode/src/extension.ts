@@ -20,7 +20,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "yoptascript" }],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.yop")
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.yopta")
     }
   };
 

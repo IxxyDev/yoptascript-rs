@@ -5,7 +5,7 @@ esoteric language with Russian slang keywords, implemented in Rust.
 
 ## Features
 
-- **Syntax highlighting** for `.yop` files via a TextMate grammar (keywords, strings,
+- **Syntax highlighting** for `.yopta` files via a TextMate grammar (keywords, strings,
   template literals, numbers, comments, constants and operators).
 - **Language server features** backed by `yps-lsp`:
   - live diagnostics (lexer + parser errors)

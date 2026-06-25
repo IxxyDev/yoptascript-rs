@@ -94,7 +94,7 @@ fn run_vm(filename: &str) {
 
 fn run_fmt(args: &[String]) {
     if args.is_empty() {
-        eprintln!("Использование: yps fmt <файл.yop> [--write|-w] [--check] [--source-map]");
+        eprintln!("Использование: yps fmt <файл.yopta> [--write|-w] [--check] [--source-map]");
         process::exit(1);
     }
 
