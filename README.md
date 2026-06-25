@@ -37,6 +37,8 @@ The formatter (`yps fmt`) pretty-prints a `.yop` file to canonical style. It res
 
 The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics, hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt` (`textDocument/formatting`) and go-to-definition for functions, classes, variables and parameters (`textDocument/definition`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
+A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yop` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. See its [README](editors/vscode/README.md) to build and run it.
+
 Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, cargo-deny, pre-commit hooks, GitHub Actions CI, Justfile for task automation.
 
 ## Example
