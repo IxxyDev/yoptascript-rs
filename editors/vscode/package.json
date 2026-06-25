@@ -1,0 +1,86 @@
+{
+  "name": "yoptascript",
+  "displayName": "YoptaScript",
+  "description": "YoptaScript language support: syntax highlighting and language server (diagnostics, hover, completion, outline, formatting, go-to-definition).",
+  "version": "1.1.0",
+  "publisher": "ixxydev",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IxxyDev/yoptascript-rs.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:yoptascript"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "yoptascript",
+        "aliases": [
+          "YoptaScript",
+          "yoptascript",
+          "yop"
+        ],
+        "extensions": [
+          ".yop"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "yoptascript",
+        "scopeName": "source.yoptascript",
+        "path": "./syntaxes/yoptascript.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "YoptaScript",
+      "properties": {
+        "yoptascript.server.path": {
+          "type": "string",
+          "default": "yps-lsp",
+          "description": "Path to the yps-lsp language server executable. Use an absolute path, or leave the default to resolve 'yps-lsp' from PATH."
+        },
+        "yoptascript.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the yps-lsp language server."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.1.0"
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "npm run compile"
+  }
+}
