@@ -1,3 +1,4 @@
+pub mod definition;
 pub mod diagnostics;
 pub mod format;
 pub mod hover;
@@ -19,6 +20,7 @@ pub fn server_capabilities() -> ServerCapabilities {
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
+        definition_provider: Some(OneOf::Left(true)),
         ..Default::default()
     }
 }
@@ -42,6 +44,7 @@ mod tests {
         assert!(caps.hover_provider.is_some());
         assert!(caps.document_symbol_provider.is_some());
         assert!(caps.document_formatting_provider.is_some());
+        assert!(caps.definition_provider.is_some());
         assert!(caps.text_document_sync.is_some());
     }
 }
