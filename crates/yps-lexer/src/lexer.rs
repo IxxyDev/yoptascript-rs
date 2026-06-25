@@ -336,6 +336,9 @@ impl<'src> Lexer<'src> {
             "поцик" => TokenKind::Operator(OperatorKind::GreaterOrEqual),
             "поц" => TokenKind::Operator(OperatorKind::LessOrEqual),
             "сука" | "внатуре" => TokenKind::Operator(OperatorKind::Assign),
+            "чобля" => TokenKind::Operator(OperatorKind::Not),
+            "плюсуюНа" => TokenKind::Operator(OperatorKind::Increment),
+            "слилсяНа" => TokenKind::Operator(OperatorKind::Decrement),
             "жЫ" => TokenKind::Punctuation(PunctuationKind::LBrace),
             "нах" | "нахуй" | "бля" => TokenKind::Punctuation(PunctuationKind::Semicolon),
             _ => TokenKind::Identifier,
@@ -820,7 +823,7 @@ mod tests {
     #[test]
     fn every_keyword_spelling_lexes_as_keyword() {
         for kw in KEYWORDS {
-            let source = SourceFile::new("test.yop".to_string(), (*kw).to_string());
+            let source = SourceFile::new("test.yopta".to_string(), (*kw).to_string());
             let (tokens, diags) = Lexer::new(&source).tokenize();
             assert!(diags.is_empty(), "'{kw}' produced diagnostics: {diags:?}");
             assert!(
@@ -832,8 +835,20 @@ mod tests {
     }
 
     #[test]
+    fn word_operator_aliases_lex_as_operators() {
+        for (word, expected) in
+            [("чобля", OperatorKind::Not), ("плюсуюНа", OperatorKind::Increment), ("слилсяНа", OperatorKind::Decrement)]
+        {
+            let source = SourceFile::new("test.yopta".to_string(), word.to_string());
+            let (tokens, diags) = Lexer::new(&source).tokenize();
+            assert!(diags.is_empty(), "'{word}' produced diagnostics: {diags:?}");
+            assert_eq!(tokens[0].kind, TokenKind::Operator(expected), "'{word}' lexed as {:?}", tokens[0].kind);
+        }
+    }
+
+    #[test]
     fn test_at_token() {
-        let source = SourceFile::new("test.yop".to_string(), "@декоратор".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "@декоратор".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "Unexpected diagnostics: {diags:?}");
         assert_eq!(tokens[0].kind, TokenKind::Punctuation(PunctuationKind::At));
@@ -842,7 +857,7 @@ mod tests {
 
     #[test]
     fn diagnostic_unterminated_string() {
-        let source = SourceFile::new("test.yop".to_string(), r#""без закрывающей кавычки"#.to_string());
+        let source = SourceFile::new("test.yopta".to_string(), r#""без закрывающей кавычки"#.to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert_eq!(diags.len(), 1, "expected one diagnostic, got {diags:?}");
         assert!(matches!(diags[0].severity, Severity::Error));
@@ -851,7 +866,7 @@ mod tests {
 
     #[test]
     fn diagnostic_unterminated_template_literal() {
-        let source = SourceFile::new("test.yop".to_string(), "`привет".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "`привет".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert!(
             diags.iter().any(|d| d.message.contains("Незакрытая шаблонная строка")),
@@ -861,7 +876,7 @@ mod tests {
 
     #[test]
     fn diagnostic_single_ampersand_is_bitand() {
-        let source = SourceFile::new("test.yop".to_string(), "а & б".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "а & б".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
         assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitAnd)));
@@ -869,7 +884,7 @@ mod tests {
 
     #[test]
     fn diagnostic_single_pipe_is_bitor() {
-        let source = SourceFile::new("test.yop".to_string(), "а | б".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "а | б".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
         assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitOr)));
@@ -877,7 +892,7 @@ mod tests {
 
     #[test]
     fn diagnostic_pipe_greater_is_pipeline_no_diag() {
-        let source = SourceFile::new("test.yop".to_string(), "а |> б".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "а |> б".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "|> should not emit a diagnostic, got: {diags:?}");
         assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Operator(OperatorKind::Pipeline))));
@@ -885,7 +900,7 @@ mod tests {
 
     #[test]
     fn diagnostic_unknown_character() {
-        let source = SourceFile::new("test.yop".to_string(), "гыы х = §".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "гыы х = §".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert!(
             diags.iter().any(|d| d.message.contains("Неизвестный символ") && d.message.contains('§')),
@@ -895,18 +910,18 @@ mod tests {
 
     #[test]
     fn diagnostic_does_not_panic_on_eof_after_string_quote() {
-        let source = SourceFile::new("test.yop".to_string(), "\"".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "\"".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.iter().any(|d| d.message.contains("Незакрытая строка")));
     }
 
     #[test]
     fn block_comment_is_skipped() {
-        let plain = SourceFile::new("test.yop".to_string(), "гыы х = 1;".to_string());
+        let plain = SourceFile::new("test.yopta".to_string(), "гыы х = 1;".to_string());
         let (plain_tokens, plain_diags) = Lexer::new(&plain).tokenize();
         assert!(plain_diags.is_empty(), "unexpected diags: {plain_diags:?}");
 
-        let commented = SourceFile::new("test.yop".to_string(), "гыы /* это\nмногострочный */ х = 1;".to_string());
+        let commented = SourceFile::new("test.yopta".to_string(), "гыы /* это\nмногострочный */ х = 1;".to_string());
         let (commented_tokens, commented_diags) = Lexer::new(&commented).tokenize();
         assert!(commented_diags.is_empty(), "unexpected diags: {commented_diags:?}");
         let plain_kinds: Vec<_> = plain_tokens.iter().map(|t| &t.kind).collect();
@@ -917,11 +932,11 @@ mod tests {
     #[test]
     fn tokenize_with_trivia_collects_comments_without_changing_tokens() {
         let src = "гыы х = 1; // хвост\n/* блок */ сказать(х);";
-        let source = SourceFile::new("test.yop".to_string(), src.to_string());
+        let source = SourceFile::new("test.yopta".to_string(), src.to_string());
         let (trivia_tokens, trivia, diags) = Lexer::new(&source).tokenize_with_trivia();
         assert!(diags.is_empty(), "unexpected diags: {diags:?}");
 
-        let plain = SourceFile::new("test.yop".to_string(), src.to_string());
+        let plain = SourceFile::new("test.yopta".to_string(), src.to_string());
         let (plain_tokens, _) = Lexer::new(&plain).tokenize();
         let trivia_kinds: Vec<_> = trivia_tokens.iter().map(|t| &t.kind).collect();
         let plain_kinds: Vec<_> = plain_tokens.iter().map(|t| &t.kind).collect();
@@ -933,7 +948,7 @@ mod tests {
 
     #[test]
     fn block_comment_first_close_wins() {
-        let source = SourceFile::new("test.yop".to_string(), "/* а /* б */ х".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "/* а /* б */ х".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "unexpected diags: {diags:?}");
         assert!(
@@ -944,7 +959,7 @@ mod tests {
 
     #[test]
     fn diagnostic_unterminated_block_comment() {
-        let source = SourceFile::new("test.yop".to_string(), "гыы х = 1; /* хвост".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "гыы х = 1; /* хвост".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
         assert!(
             diags.iter().any(|d| d.message.contains("Незакрытый блочный комментарий")),
@@ -954,7 +969,7 @@ mod tests {
 
     #[test]
     fn nul_byte_terminates_with_diagnostic() {
-        let source = SourceFile::new("test.yop".to_string(), "\0".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "\0".to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
         assert!(diags.iter().any(|d| d.message.contains("Неизвестный символ")), "ожидалась диагностика: {diags:?}");
@@ -962,7 +977,7 @@ mod tests {
 
     #[test]
     fn nul_byte_between_tokens_terminates() {
-        let source = SourceFile::new("test.yop".to_string(), "гыы х\0= 1;".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "гыы х\0= 1;".to_string());
         let (tokens, _diags) = Lexer::new(&source).tokenize();
         assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
         assert!(tokens.len() < 20);
@@ -970,13 +985,13 @@ mod tests {
 
     #[test]
     fn nul_byte_inside_string_literal_terminates() {
-        let source = SourceFile::new("test.yop".to_string(), "гыы с = \"а\0б\";".to_string());
+        let source = SourceFile::new("test.yopta".to_string(), "гыы с = \"а\0б\";".to_string());
         let (tokens, _diags) = Lexer::new(&source).tokenize();
         assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
     }
 
     fn lex_single_number(src: &str) -> String {
-        let source = SourceFile::new("test.yop".to_string(), src.to_string());
+        let source = SourceFile::new("test.yopta".to_string(), src.to_string());
         let (tokens, diags) = Lexer::new(&source).tokenize();
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
         assert_eq!(tokens.len(), 2, "expected one Number token + Eof, got: {tokens:?}");
