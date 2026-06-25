@@ -1,10 +1,15 @@
 use std::collections::HashSet;
 
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
 use yps_interpreter::builtins::builtin_names;
 use yps_lexer::KEYWORDS;
 
+use crate::builtins::builtin_doc;
 use crate::symbols::document_symbols;
+
+fn markdown(value: &str) -> Documentation {
+    Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: value.to_string() })
+}
 
 #[must_use]
 pub fn completion_items(text: &str) -> Vec<CompletionItem> {
@@ -21,6 +26,7 @@ pub fn completion_items(text: &str) -> Vec<CompletionItem> {
         items.push(CompletionItem {
             label: name.to_string(),
             kind: Some(CompletionItemKind::FUNCTION),
+            documentation: builtin_doc(name).map(markdown),
             ..Default::default()
         });
     }
@@ -73,6 +79,16 @@ mod tests {
         let labels = labels(&items);
         assert!(labels.contains(&"мояФункция"), "got {labels:?}");
         assert!(labels.contains(&"мояКонстанта"), "got {labels:?}");
+    }
+
+    #[test]
+    fn builtins_carry_js_documentation() {
+        let items = completion_items("");
+        let say = items.iter().find(|i| i.label == "сказать").unwrap();
+        match &say.documentation {
+            Some(Documentation::MarkupContent(mc)) => assert!(mc.value.contains("console.log")),
+            other => panic!("expected markdown docs for 'сказать', got {other:?}"),
+        }
     }
 
     #[test]

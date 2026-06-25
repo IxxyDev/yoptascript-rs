@@ -1,3 +1,4 @@
+pub mod builtins;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;

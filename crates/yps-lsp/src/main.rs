@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use yps_lsp::builtins::builtin_doc;
 use yps_lsp::completion::completion_items;
 use yps_lsp::definition::goto_definition;
 use yps_lsp::diagnostics::analyze;
@@ -104,7 +105,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         }
 
-        Ok(keyword_hover(word).map(|doc| Hover {
+        Ok(keyword_hover(word).or_else(|| builtin_doc(word)).map(|doc| Hover {
             contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: doc.to_string() }),
             range: None,
         }))
