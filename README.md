@@ -129,7 +129,7 @@ YPS_CONFORMANCE_BLESS=1 cargo test -p yps-cli --test conformance
 node tools/gen-golden.js
 ```
 
-Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-golden.js` runs each mirror and diffs its output against the golden file, so the suite tracks real ECMAScript semantics rather than freezing the interpreter's own behavior. Intentional differences are catalogued in [`golden/KNOWN_DIVERGENCES.md`](crates/yps-cli/tests/conformance/golden/KNOWN_DIVERGENCES.md).
+Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-golden.js` runs each mirror and diffs its output against the golden file, so the suite tracks real ECMAScript semantics rather than freezing the interpreter's own behavior. Intentional differences are flagged with a `// DIVERGENCE:` header in the relevant mirror file.
 
 ## Project layout
 
