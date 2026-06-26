@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-26
+
+### Added
+
+- **VS Code extension** (`editors/vscode`): TextMate syntax highlighting for `.yop`
+  files, a `vscode-languageclient` that launches `yps-lsp`, function and method call
+  highlighting, an extension icon and a file icon, an F5 debug launch config, and a
+  CI job that builds, type-checks and tests it.
+- **yps-lsp**: JavaScript-equivalent documentation for builtin functions (the console
+  family, type coercions, timers, stdio, etc.), shown on hover and attached to
+  completion items.
+
+### Fixed
+
+- **VS Code**: disable ambiguous-character (Unicode) highlighting for the yoptascript
+  language so Cyrillic identifiers that resemble Latin letters are not flagged.
+
 ## [1.1.0] - 2026-06-25
 
 ### Added
@@ -38,5 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a round-trip self-check, a baseline language server (diagnostics, hover,
   keyword completion) and the `yps` CLI.
 
+[1.2.0]: https://github.com/IxxyDev/yoptascript-rs/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/IxxyDev/yoptascript-rs/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/IxxyDev/yoptascript-rs/releases/tag/v1.0.0
