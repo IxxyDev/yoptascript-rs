@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-26
+
+Interop release: align the language surface with the original
+[samgozman/YoptaScript](https://github.com/samgozman/YoptaScript).
+
+### Changed
+
+- **BREAKING — `const`/`let` keywords** now follow upstream YoptaScript:
+  `ясенХуй`/`ЯсенХуй` declare a constant and `участковый` declares a mutable
+  binding (previously the two were inverted). Sources relying on the old mapping
+  must swap these keywords.
+- **BREAKING — file extension** is now `.yopta` (was `.yop`), matching upstream.
+  The CLI, the module resolver (interpreter and VM), the conformance harnesses and
+  the VS Code extension all use `.yopta`; `.yop` is no longer recognized.
+- **`DICTIONARY.md`** rewritten to match the upstream dictionary, with a section
+  documenting intentionally unsupported entries (browser DOM methods, Java-only
+  keywords).
+
+### Added
+
+- **Operator word aliases** from the upstream dictionary: `чобля` (`!`),
+  `плюсуюНа` (`++`), `слилсяНа` (`--`).
+- **VS Code extension**: highlights the new operator aliases and `нихуя` (`NaN`),
+  and associates the `.yopta` file extension.
+- **`examples/interop.yopta`**: a program in upstream style, covered by the
+  interpreter/VM parity suite.
+
 ## [1.2.0] - 2026-06-26
 
 ### Added
