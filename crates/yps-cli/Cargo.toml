@@ -7,7 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-rustyline = "18.0.0"
+rustyline = "18.0.1"
 yps-fmt = { path = "../yps-fmt" }
 yps-interpreter = { path = "../yps-interpreter" }
 yps-lexer = { path = "../yps-lexer" }
