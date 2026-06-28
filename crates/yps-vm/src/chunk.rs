@@ -134,6 +134,7 @@ pub enum Op {
     GetUpvalue(Slot),
     SetUpvalue(Slot),
     CloseUpvalue,
+    CloseUpvalueTo(Slot),
 
     MakeRegex(ConstIdx),
 

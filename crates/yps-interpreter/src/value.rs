@@ -55,6 +55,7 @@ pub enum GenFrame {
     Block {
         stmts: Rc<[Stmt]>,
         idx: usize,
+        owns_scope: bool,
     },
     While {
         condition: Rc<Expr>,
@@ -115,7 +116,7 @@ impl fmt::Debug for GenState {
 impl fmt::Debug for GenFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GenFrame::Block { idx, stmts } => write!(f, "Block(idx={idx}, len={})", stmts.len()),
+            GenFrame::Block { idx, stmts, .. } => write!(f, "Block(idx={idx}, len={})", stmts.len()),
             GenFrame::While { phase, .. } => write!(f, "While({phase:?})"),
             GenFrame::DoWhile { phase, .. } => write!(f, "DoWhile({phase:?})"),
             GenFrame::For { phase, .. } => write!(f, "For({phase:?})"),

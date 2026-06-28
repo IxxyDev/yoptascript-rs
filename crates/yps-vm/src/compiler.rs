@@ -576,6 +576,9 @@ impl Compiler {
         self.compile_stmt(body)?;
 
         let continue_target = self.cur().chunk.code.len();
+        if self.cur_ref().locals[var_slot as usize].is_captured {
+            self.emit(Op::CloseUpvalueTo(var_slot), span);
+        }
         self.emit(Op::GetLocal(counter), span);
         let one = self.cur().chunk.add_constant(Constant::Number(1.0));
         self.emit(Op::Constant(one), span);
@@ -628,6 +631,9 @@ impl Compiler {
         self.compile_stmt(body)?;
 
         let continue_target = self.cur().chunk.code.len();
+        if self.cur_ref().locals[var_slot as usize].is_captured {
+            self.emit(Op::CloseUpvalueTo(var_slot), span);
+        }
         self.emit(Op::Jump(loop_start), span);
 
         let exit = self.cur().chunk.code.len();
@@ -1171,6 +1177,7 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let label = self.take_pending_label();
         self.begin_scope();
+        let init_local_start = self.cur_ref().locals.len();
         if let Some(init) = init {
             self.compile_stmt(init)?;
         }
@@ -1194,12 +1201,22 @@ impl Compiler {
         let locals_count = self.cur().locals.len();
         self.push_loop(locals_count, label);
         self.compile_stmt(body)?;
-        self.emit(Op::Jump(update_start), span);
+        let locals_len = self.cur_ref().locals.len();
+        let captures_loop_var = (init_local_start..locals_len).any(|i| self.cur_ref().locals[i].is_captured);
+        let continue_target = if captures_loop_var {
+            let target = self.cur().chunk.code.len();
+            self.emit(Op::CloseUpvalueTo(init_local_start as Slot), span);
+            self.emit(Op::Jump(update_start), span);
+            target
+        } else {
+            self.emit(Op::Jump(update_start), span);
+            update_start
+        };
         let exit = self.cur().chunk.code.len();
         if let Some(exit_jump) = exit_after_cond {
             self.cur().chunk.patch_jump(exit_jump, exit);
         }
-        self.finish_loop(exit, update_start);
+        self.finish_loop(exit, continue_target);
         self.end_scope(span);
         Ok(())
     }

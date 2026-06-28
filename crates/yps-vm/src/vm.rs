@@ -452,6 +452,9 @@ impl Vm {
                     self.close_upvalues(top);
                     self.pop();
                 }
+                Op::CloseUpvalueTo(slot) => {
+                    self.close_upvalues(base + slot as usize);
+                }
 
                 Op::Jump(t) => self.frames[frame_idx].ip = t,
                 Op::JumpIfFalse(t) => {
@@ -2250,6 +2253,22 @@ impl Vm {
             self.pop();
             let result = self.call_closure_sync(method, Some(receiver.clone()), owner, &args, span)?;
             self.stack.push(result);
+            return Ok(());
+        }
+
+        if let Value::Array(arr) = &receiver
+            && matches!(name, "push" | "добавить" | "втолкнуть")
+        {
+            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            self.pop();
+            let len = {
+                let mut guard = arr.borrow_mut();
+                for a in args {
+                    guard.push(a);
+                }
+                guard.len() as f64
+            };
+            self.stack.push(Value::Number(len));
             return Ok(());
         }
 
