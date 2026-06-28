@@ -67,6 +67,32 @@ pub fn word_at(src: &str, byte_pos: usize) -> &str {
     &src[start..end]
 }
 
+#[must_use]
+pub fn member_receiver(src: &str, byte_pos: usize) -> Option<&str> {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    let raw = byte_pos.min(src.len());
+    let clamped = (0..=raw).rev().find(|&i| src.is_char_boundary(i)).unwrap_or(0);
+
+    let member_start =
+        src[..clamped].char_indices().rev().take_while(|(_, c)| is_ident(*c)).last().map_or(clamped, |(i, _)| i);
+
+    let (dot_byte, dot_char) = src[..member_start].char_indices().next_back()?;
+    if dot_char != '.' {
+        return None;
+    }
+
+    let recv_end = dot_byte;
+    let recv_start =
+        src[..recv_end].char_indices().rev().take_while(|(_, c)| is_ident(*c)).last().map_or(recv_end, |(i, _)| i);
+
+    let receiver = &src[recv_start..recv_end];
+    if !receiver.is_empty() && receiver.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(receiver)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +135,42 @@ mod tests {
         let src = "a + b";
         let byte = src.find('+').unwrap();
         assert_eq!(word_at(src, byte), "");
+    }
+
+    #[test]
+    fn member_receiver_detects_namespace() {
+        let src = "Матан.";
+        assert_eq!(member_receiver(src, src.len()), Some("Матан"));
+    }
+
+    #[test]
+    fn member_receiver_detects_partial_member() {
+        let src = "Матан.по";
+        assert_eq!(member_receiver(src, src.len()), Some("Матан"));
+    }
+
+    #[test]
+    fn member_receiver_empty_for_non_ident_receiver() {
+        let src = "вызов().";
+        assert_eq!(member_receiver(src, src.len()), Some(""));
+    }
+
+    #[test]
+    fn member_receiver_none_without_dot() {
+        let src = "Матан";
+        assert_eq!(member_receiver(src, src.len()), None);
+    }
+
+    #[test]
+    fn member_receiver_none_for_numeric_literal() {
+        let src = "3.14";
+        let byte = src.find('.').unwrap() + 1;
+        assert_eq!(member_receiver(src, byte), None);
+    }
+
+    #[test]
+    fn member_receiver_keeps_identifier_ending_in_digit() {
+        let src = "массив2.";
+        assert_eq!(member_receiver(src, src.len()), Some("массив2"));
     }
 }
