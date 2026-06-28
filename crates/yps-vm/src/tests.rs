@@ -242,6 +242,82 @@ fn builtins_core() {
 }
 
 #[test]
+fn array_method_call_push() {
+    assert_eq!(run("гыы а = []; а.втолкнуть(1); а.втолкнуть(2); сказать(а);"), "[1, 2]\n");
+}
+
+#[test]
+fn array_method_push_returns_new_length() {
+    assert_eq!(run("гыы а = []; сказать(а.втолкнуть(5));"), "1\n");
+    assert_eq!(run("гыы а = [1, 2]; сказать(а.втолкнуть(3));"), "3\n");
+}
+
+#[test]
+fn array_method_push_is_variadic() {
+    assert_eq!(run("гыы б = []; б.втолкнуть(1, 2); сказать(б);"), "[1, 2]\n");
+}
+
+#[test]
+fn array_method_push_zero_args_is_noop() {
+    assert_eq!(run("гыы в = [3]; сказать(в.втолкнуть()); сказать(в);"), "1\n[3]\n");
+}
+
+#[test]
+fn array_method_push_aliases() {
+    assert_eq!(run("гыы а = []; а.push(1); а.добавить(2); а.втолкнуть(3); сказать(а);"), "[1, 2, 3]\n");
+}
+
+#[test]
+fn per_iteration_binding_nested_outer_capture() {
+    assert_eq!(
+        run(
+            "гыы f = [ноль, ноль, ноль, ноль]; гыы k = 0; го (гыы и = 0; и < 2; и = и + 1) { го (гыы j = 0; j < 2; j = j + 1) { f[k] = () => и; k = k + 1; } } сказать(f[0](), f[1](), f[2](), f[3]());"
+        ),
+        "0 0 1 1\n"
+    );
+}
+
+#[test]
+fn per_iteration_binding_with_continue() {
+    assert_eq!(
+        run(
+            "гыы f = []; го (гыы и = 0; и < 5; и = и + 1) { вилкойвглаз (и % 2 == 0) { двигай; } f.втолкнуть(() => и); } сказать(f[0](), f[1]());"
+        ),
+        "1 3\n"
+    );
+}
+
+#[test]
+fn per_iteration_binding_for() {
+    assert_eq!(
+        run(
+            "гыы f = [ноль, ноль, ноль]; го (гыы и = 0; и < 3; и = и + 1) { f[и] = () => и; } сказать(f[0](), f[1](), f[2]());"
+        ),
+        "0 1 2\n"
+    );
+}
+
+#[test]
+fn per_iteration_binding_for_of() {
+    assert_eq!(
+        run(
+            "гыы f = [ноль, ноль, ноль]; гыы k = 0; го (гыы x сашаГрей [10, 20, 30]) { f[k] = () => x; k = k + 1; } сказать(f[0](), f[1](), f[2]());"
+        ),
+        "10 20 30\n"
+    );
+}
+
+#[test]
+fn per_iteration_binding_for_in() {
+    assert_eq!(
+        run(
+            "гыы o = { а: 1, б: 2 }; гыы f = [ноль, ноль]; гыы k = 0; го (гыы ключ из o) { f[k] = () => ключ; k = k + 1; } сказать(f[0](), f[1]());"
+        ),
+        "а б\n"
+    );
+}
+
+#[test]
 fn console_family() {
     assert_eq!(run(r#"сказать.инфо("инфо"); сказать.отладка("дбг");"#), "инфо\nдбг\n");
 }

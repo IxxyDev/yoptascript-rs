@@ -19,6 +19,80 @@ fn generator_collects_yielded_values() {
 }
 
 #[test]
+fn generator_for_loop_closures_capture_per_iteration() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            гыы f = [];
+            го (гыы и = 0; и < 3; и = и + 1) { f.втолкнуть(() => и); }
+            поебалу f[0]();
+            поебалу f[1]();
+            поебалу f[2]();
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей ген()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)]));
+}
+
+#[test]
+fn generator_for_of_closures_capture_per_iteration() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            гыы f = [];
+            го (гыы x сашаГрей [10, 20, 30]) { f.втолкнуть(() => x); }
+            поебалу f[0]();
+            поебалу f[1]();
+            поебалу f[2]();
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей ген()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]));
+}
+
+#[test]
+fn generator_for_loop_capture_through_nested_block() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            гыы f = [];
+            го (гыы и = 0; и < 3; и = и + 1) { { f.втолкнуть(() => и); } }
+            поебалу f[0]();
+            поебалу f[1]();
+            поебалу f[2]();
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей ген()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)]));
+}
+
+#[test]
+fn generator_for_loop_capture_through_try() {
+    let i = run_code(
+        r#"
+        пиздюли ген() {
+            гыы f = [];
+            го (гыы и = 0; и < 3; и = и + 1) {
+                хапнуть { f.втолкнуть(() => и); } тюряжка { }
+            }
+            поебалу f[0]();
+            поебалу f[1]();
+            поебалу f[2]();
+        }
+        гыы рез = [];
+        го (гыы х сашаГрей ген()) { рез.втолкнуть(х); }
+        "#,
+    );
+    assert_struct_eq(i.get("рез"), Value::array(vec![Value::Number(0.0), Value::Number(1.0), Value::Number(2.0)]));
+}
+
+#[test]
 fn generator_yield_without_argument() {
     let i = run_code(
         r#"

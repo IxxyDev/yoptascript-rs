@@ -39,7 +39,7 @@ pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>)
     GenState {
         name,
         env,
-        frames: vec![GenFrame::Block { stmts, idx: 0 }],
+        frames: vec![GenFrame::Block { stmts, idx: 0, owns_scope: false }],
         completed: false,
         pending_bind: None,
         pending_send: None,
@@ -132,9 +132,13 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
         };
 
         match frame {
-            GenFrame::Block { stmts, idx } => {
+            GenFrame::Block { stmts, idx, owns_scope } => {
                 if *idx >= stmts.len() {
+                    let owns = *owns_scope;
                     g.frames.pop();
+                    if owns {
+                        interp.env.pop_scope();
+                    }
                     continue;
                 }
                 let stmts_rc = Rc::clone(stmts);
@@ -198,6 +202,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
                 LoopPhase::AfterBody => {
+                    interp.env.fork_current();
                     if let Some(u) = update.as_ref().map(Rc::clone) {
                         interp.eval_expr(&u)?;
                     }
@@ -216,6 +221,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 };
                 match next_val {
                     Some(v) => {
+                        interp.env.fork_current();
                         interp.env.set(&var_name, v);
                         push_body(g, &body_rc);
                     }
@@ -253,11 +259,12 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 };
                 match snapshot {
                     TryState::Trying => {
+                        interp.env.pop_scope();
                         if let Some(fb) = fb_clone {
                             if let GenFrame::TryCatch { state, .. } = &mut g.frames[top_idx] {
                                 *state = TryState::FinallyNormal;
                             }
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                         } else {
                             g.frames.pop();
                         }
@@ -268,7 +275,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                             if let GenFrame::TryCatch { state, .. } = &mut g.frames[top_idx] {
                                 *state = TryState::FinallyNormal;
                             }
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                         } else {
                             g.frames.pop();
                         }
@@ -337,7 +344,7 @@ fn delegate_step(
 }
 
 fn push_body(g: &mut GenState, body: &Rc<[Stmt]>) {
-    g.frames.push(GenFrame::Block { stmts: Rc::clone(body), idx: 0 });
+    g.frames.push(GenFrame::Block { stmts: Rc::clone(body), idx: 0, owns_scope: false });
 }
 
 fn body_stmts(body: &Stmt) -> Rc<[Stmt]> {
@@ -431,7 +438,7 @@ fn step_block_stmt(
         Stmt::Block(block) => {
             interp.env.push_scope();
             let stmts: Rc<[Stmt]> = Rc::from(block.stmts.as_slice());
-            g.frames.push(GenFrame::Block { stmts, idx: 0 });
+            g.frames.push(GenFrame::Block { stmts, idx: 0, owns_scope: true });
             Ok(None)
         }
         Stmt::If { condition, then_branch, else_branch, .. } => {
@@ -552,7 +559,7 @@ fn step_block_stmt(
             });
             interp.env.push_scope();
             let try_stmts: Rc<[Stmt]> = Rc::from(try_block.stmts.as_slice());
-            g.frames.push(GenFrame::Block { stmts: try_stmts, idx: 0 });
+            g.frames.push(GenFrame::Block { stmts: try_stmts, idx: 0, owns_scope: false });
             Ok(None)
         }
         other => {
@@ -615,12 +622,12 @@ fn unwind(
                             if let Some(name) = catch_param {
                                 interp.env.define(name.clone(), v.clone(), false);
                             }
-                            g.frames.push(GenFrame::Block { stmts: cb, idx: 0 });
+                            g.frames.push(GenFrame::Block { stmts: cb, idx: 0, owns_scope: false });
                             return Ok(None);
                         } else if let Some(fb) = finally_body.clone() {
                             *state = TryState::FinallyAfterThrow(v.clone());
                             interp.env.pop_scope();
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                             return Ok(None);
                         } else {
                             g.frames.pop();
@@ -632,7 +639,7 @@ fn unwind(
                         if let Some(fb) = finally_body.clone() {
                             *state = TryState::FinallyAfterThrow(v.clone());
                             interp.env.pop_scope();
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                             return Ok(None);
                         } else {
                             g.frames.pop();
@@ -654,7 +661,7 @@ fn unwind(
                     }
                     if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterReturn(v.clone());
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                         return Ok(None);
                     } else {
                         g.frames.pop();
@@ -670,7 +677,7 @@ fn unwind(
                     }
                     if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterBreak;
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                         return Ok(None);
                     } else {
                         g.frames.pop();
@@ -686,7 +693,7 @@ fn unwind(
                     }
                     if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterContinue;
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0 });
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
                         return Ok(None);
                     } else {
                         g.frames.pop();
@@ -739,8 +746,12 @@ fn unwind(
                     continue;
                 }
             },
-            GenFrame::Block { .. } => {
+            GenFrame::Block { owns_scope, .. } => {
+                let owns = *owns_scope;
                 g.frames.pop();
+                if owns {
+                    interp.env.pop_scope();
+                }
                 continue;
             }
             GenFrame::Delegate { inner, .. } => {
