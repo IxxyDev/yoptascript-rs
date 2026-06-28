@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-28
+
+### Fixed
+
+- **VM: per-iteration loop-variable binding.** Closures created inside `for`,
+  `for…of` and `for…in` loops on the bytecode VM now capture a fresh binding per
+  iteration (matching `let` semantics and the tree-walking interpreter) instead of
+  all sharing the final value. A new non-popping `CloseUpvalueTo` opcode is emitted
+  at each loop's continue point when the loop variable is captured.
+- **VM: array method-call syntax.** `массив.втолкнуть(...)` (aliases `push` /
+  `добавить`) now works as a method call with the same semantics as the interpreter
+  — variadic push returning the new length — not only as the free function
+  `втолкнуть(массив, значение)`.
+- **Interpreter: per-iteration binding inside generators.** Closures over a loop
+  variable inside a generator body now capture per-iteration values, including when
+  the loop body is a nested block or a `хапнуть`/try statement. Fixes an underlying
+  scope leak where the generator state machine pushed block and try scopes without
+  popping them on normal completion.
+
 ## [1.3.2] - 2026-06-28
 
 ### Added
