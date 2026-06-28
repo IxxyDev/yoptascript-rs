@@ -13,6 +13,7 @@ use yps_lsp::format::format_document;
 use yps_lsp::hover::keyword_hover;
 use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
 use yps_lsp::symbols::document_symbols;
+use yps_lsp::types::{member_doc, type_doc};
 
 struct Backend {
     client: Client,
@@ -55,9 +56,11 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
         let docs = self.documents.read().await;
         let text = docs.get(uri).map(String::as_str).unwrap_or_default();
-        Ok(Some(CompletionResponse::Array(completion_items(text))))
+        let cursor = pos_to_byte(text, pos);
+        Ok(Some(CompletionResponse::Array(completion_items(text, Some(cursor)))))
     }
 
     async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
@@ -105,8 +108,14 @@ impl LanguageServer for Backend {
             return Ok(None);
         }
 
-        Ok(keyword_hover(word).or_else(|| builtin_doc(word)).map(|doc| Hover {
-            contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: doc.to_string() }),
+        let doc = keyword_hover(word)
+            .map(str::to_string)
+            .or_else(|| builtin_doc(word).map(str::to_string))
+            .or_else(|| type_doc(word))
+            .or_else(|| member_doc(word));
+
+        Ok(doc.map(|doc| Hover {
+            contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: doc }),
             range: None,
         }))
     }

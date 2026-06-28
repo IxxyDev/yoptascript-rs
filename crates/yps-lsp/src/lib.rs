@@ -6,6 +6,7 @@ pub mod format;
 pub mod hover;
 pub mod position;
 pub mod symbols;
+pub mod types;
 
 use tower_lsp::lsp_types::{
     CompletionOptions, HoverProviderCapability, OneOf, ServerCapabilities, TextDocumentSyncCapability,
@@ -18,7 +19,10 @@ use yps_parser::{Parser, Program};
 pub fn server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-        completion_provider: Some(CompletionOptions::default()),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_string()]),
+            ..Default::default()
+        }),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
