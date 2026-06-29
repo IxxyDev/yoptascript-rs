@@ -1,7 +1,35 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    fn paren_group_is_arrow_head(&self) -> bool {
+        let mut depth = 0usize;
+        let mut i = self.position;
+        while let Some(tok) = self.tokens.get(i) {
+            match tok.kind {
+                TokenKind::Punctuation(PunctuationKind::LParen) => depth += 1,
+                TokenKind::Punctuation(PunctuationKind::RParen) => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(i + 1).map(|t| &t.kind),
+                            Some(TokenKind::Punctuation(PunctuationKind::Arrow))
+                        );
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
     pub(super) fn try_parse_arrow_function(&mut self) -> Result<Option<Expr>, ()> {
+        if !self.paren_group_is_arrow_head() {
+            return Ok(None);
+        }
         let saved_pos = self.position;
         let saved_diag_len = self.diagnostics.len();
 

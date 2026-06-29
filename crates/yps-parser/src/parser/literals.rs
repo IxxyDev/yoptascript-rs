@@ -94,7 +94,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_string(&mut self) -> Expr {
         let span = self.current().span;
         let raw = self.source.slice(span);
-        let inner = &raw[1..raw.len() - 1];
+        let inner = Self::strip_delimiters(raw, 1);
         let value = Self::unescape_string(inner);
         self.advance();
         Expr::Literal(Literal::String { value, span })
@@ -123,7 +123,7 @@ impl<'a> Parser<'a> {
             }
             i += 1;
         }
-        let pattern = raw[1..pat_end].to_string();
+        let pattern = raw.get(1..pat_end).unwrap_or("").to_string();
         let flags = if pat_end < raw.len() { raw[pat_end + 1..].to_string() } else { String::new() };
         self.advance();
         Expr::Literal(Literal::RegExp { pattern, flags, span })
@@ -157,10 +157,14 @@ impl<'a> Parser<'a> {
         result
     }
 
+    pub(super) fn strip_delimiters(raw: &str, suffix: usize) -> &str {
+        raw.get(1..raw.len().saturating_sub(suffix)).unwrap_or("")
+    }
+
     pub(super) fn parse_template_nosub(&mut self) -> Expr {
         let span = self.current().span;
         let raw = self.source.slice(span);
-        let inner = &raw[1..raw.len() - 1];
+        let inner = Self::strip_delimiters(raw, 1);
         let value = Self::unescape_string(inner);
         self.advance();
         Expr::Literal(Literal::String { value, span })
@@ -172,7 +176,7 @@ impl<'a> Parser<'a> {
 
         let head_span = self.current().span;
         let head_raw = self.source.slice(head_span);
-        let head_text = &head_raw[1..head_raw.len() - 2];
+        let head_text = Self::strip_delimiters(head_raw, 2);
         parts.push(TemplatePart::Str(Self::unescape_string(head_text)));
         self.advance();
 
@@ -185,14 +189,14 @@ impl<'a> Parser<'a> {
                 TokenKind::TemplateMiddle => {
                     let mid_span = self.current().span;
                     let mid_raw = self.source.slice(mid_span);
-                    let mid_text = &mid_raw[1..mid_raw.len() - 2];
+                    let mid_text = Self::strip_delimiters(mid_raw, 2);
                     parts.push(TemplatePart::Str(Self::unescape_string(mid_text)));
                     self.advance();
                 }
                 TokenKind::TemplateTail => {
                     let tail_span = self.current().span;
                     let tail_raw = self.source.slice(tail_span);
-                    let tail_text = &tail_raw[1..tail_raw.len() - 1];
+                    let tail_text = Self::strip_delimiters(tail_raw, 1);
                     parts.push(TemplatePart::Str(Self::unescape_string(tail_text)));
                     end = self.current().span.end;
                     self.advance();
@@ -218,14 +222,14 @@ impl<'a> Parser<'a> {
         if matches!(self.current().kind, TokenKind::TemplateNoSub) {
             let span = self.current().span;
             let raw_slice = self.source.slice(span);
-            let raw = raw_slice[1..raw_slice.len() - 1].to_string();
+            let raw = Self::strip_delimiters(raw_slice, 1).to_string();
             quasis.push(TemplateQuasi { cooked: Self::unescape_string(&raw), raw });
             end = span.end;
             self.advance();
         } else {
             let head_span = self.current().span;
             let head_raw = self.source.slice(head_span);
-            let head_text = head_raw[1..head_raw.len() - 2].to_string();
+            let head_text = Self::strip_delimiters(head_raw, 2).to_string();
             quasis.push(TemplateQuasi { cooked: Self::unescape_string(&head_text), raw: head_text });
             self.advance();
 
@@ -237,14 +241,14 @@ impl<'a> Parser<'a> {
                     TokenKind::TemplateMiddle => {
                         let span = self.current().span;
                         let raw_slice = self.source.slice(span);
-                        let text = raw_slice[1..raw_slice.len() - 2].to_string();
+                        let text = Self::strip_delimiters(raw_slice, 2).to_string();
                         quasis.push(TemplateQuasi { cooked: Self::unescape_string(&text), raw: text });
                         self.advance();
                     }
                     TokenKind::TemplateTail => {
                         let span = self.current().span;
                         let raw_slice = self.source.slice(span);
-                        let text = raw_slice[1..raw_slice.len() - 1].to_string();
+                        let text = Self::strip_delimiters(raw_slice, 1).to_string();
                         quasis.push(TemplateQuasi { cooked: Self::unescape_string(&text), raw: text });
                         end = span.end;
                         self.advance();

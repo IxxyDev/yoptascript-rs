@@ -286,3 +286,35 @@ fn test_parse_array_of_objects() {
         _ => panic!("Expected Expr statement"),
     }
 }
+
+#[test]
+fn malformed_string_and_template_tokens_do_not_panic() {
+    for src in [
+        "`",
+        "`${",
+        "`${a",
+        "`${a}",
+        "`${a}${",
+        "`й",
+        "тег`",
+        "тег`${a",
+        "\"",
+        "'",
+        "\"абв",
+        "'я",
+        "/",
+        "спиздить х из \"",
+        "спиздить х из \"м\" сатр { \"",
+        "спиздить х из \"м\" сатр { к: \"",
+    ] {
+        let _ = parse_program_from_source(src);
+    }
+}
+
+#[test]
+fn deeply_nested_paren_assignments_parse_without_blowup() {
+    let deep = "(п=".repeat(5000);
+    let _ = parse_program_from_source(&deep);
+    let balanced = format!("{}1{}", "(п=".repeat(5000), ")".repeat(5000));
+    let _ = parse_program_from_source(&balanced);
+}
