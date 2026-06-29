@@ -66,7 +66,7 @@ impl<'a> Parser<'a> {
         let source = if matches!(self.current().kind, TokenKind::StringLiteral) {
             let span = self.current().span;
             let raw = self.source.slice(span);
-            let inner = &raw[1..raw.len() - 1];
+            let inner = Self::strip_delimiters(raw, 1);
             let value = Self::unescape_string(inner);
             self.advance();
             value
@@ -116,7 +116,7 @@ impl<'a> Parser<'a> {
                     }
                     TokenKind::StringLiteral => {
                         let raw = self.source.slice(self.current().span);
-                        let inner = &raw[1..raw.len() - 1];
+                        let inner = Self::strip_delimiters(raw, 1);
                         let s = Self::unescape_string(inner);
                         self.advance();
                         s
@@ -139,7 +139,7 @@ impl<'a> Parser<'a> {
                     return Err(());
                 }
                 let raw = self.source.slice(self.current().span);
-                let inner = &raw[1..raw.len() - 1];
+                let inner = Self::strip_delimiters(raw, 1);
                 let value = Self::unescape_string(inner);
                 self.advance();
                 attrs.push((key, value));
