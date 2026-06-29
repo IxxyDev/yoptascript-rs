@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-06-29
+
+### Fixed
+
+- **Parser no longer panics on malformed string, template or import/export
+  string tokens.** A bare quote or backtick (which the lexer emits with a
+  diagnostic) produced a length-1 token that the parser byte-sliced as
+  `raw[1..len-1]`, panicking on the empty range or on a non-char-boundary with
+  Cyrillic content. All such slices now go through a bounds- and
+  boundary-safe helper.
+- **Parser no longer blows up exponentially on deeply nested parenthesised
+  input** such as `(п=(п=(п=…`. A `(` speculatively parsed arrow-function
+  parameters and, on failure, re-parsed the same group as a grouping, giving
+  O(2ⁿ) time. A cheap token lookahead now attempts the arrow parse only when
+  the matching `)` is followed by `=>`.
+
 ## [1.4.0] - 2026-06-28
 
 ### Fixed

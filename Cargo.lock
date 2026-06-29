@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "yps-cli"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "rustyline",
  "yps-fmt",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "yps-fmt"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "yps-lexer",
  "yps-parser",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "yps-interpreter"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "fancy-regex",
  "indexmap",
@@ -1068,11 +1068,11 @@ dependencies = [
 
 [[package]]
 name = "yps-lexer"
-version = "1.4.0"
+version = "1.4.1"
 
 [[package]]
 name = "yps-lsp"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "tokio",
  "tower-lsp",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "yps-parser"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "stacker",
  "yps-lexer",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "yps-vm"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "fancy-regex",
  "indexmap",
