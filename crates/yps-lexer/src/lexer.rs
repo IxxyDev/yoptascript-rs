@@ -1004,4 +1004,185 @@ mod tests {
         assert_eq!(lex_single_number("1_000"), "1_000");
         assert_eq!(lex_single_number("0xFF_FF"), "0xFF_FF");
     }
+
+    fn lex_kinds(src: &str) -> Vec<TokenKind> {
+        let source = SourceFile::new("test.yopta".to_string(), src.to_string());
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(diags.is_empty(), "неожиданные диагностики для {src:?}: {diags:?}");
+        tokens.into_iter().map(|t| t.kind).collect()
+    }
+
+    fn infix_op(src: &str) -> TokenKind {
+        lex_kinds(src).into_iter().nth(1).expect("ожидался инфиксный токен")
+    }
+
+    #[test]
+    fn arithmetic_and_assignment_operators_lex_to_expected_kind() {
+        use OperatorKind::{
+            Assign, DivAssign, Divide, Exponent, ExponentAssign, Minus, MinusAssign, ModAssign, Modulo, MulAssign,
+            Multiply, Plus, PlusAssign,
+        };
+        let cases = [
+            ("1 + 2", Plus),
+            ("1 - 2", Minus),
+            ("1 * 2", Multiply),
+            ("1 / 2", Divide),
+            ("1 % 2", Modulo),
+            ("1 ** 2", Exponent),
+            ("a = 1", Assign),
+            ("a += 1", PlusAssign),
+            ("a -= 1", MinusAssign),
+            ("a *= 1", MulAssign),
+            ("a /= 1", DivAssign),
+            ("a %= 1", ModAssign),
+            ("a **= 1", ExponentAssign),
+        ];
+        for (src, op) in cases {
+            assert_eq!(infix_op(src), TokenKind::Operator(op.clone()), "src {src:?}");
+        }
+    }
+
+    #[test]
+    fn comparison_and_shift_operators_lex_to_expected_kind() {
+        use OperatorKind::{
+            Equals, Greater, GreaterOrEqual, LeftShift, Less, LessOrEqual, NotEquals, RightShift, ShlAssign, ShrAssign,
+            StrictEquals, StrictNotEquals, UnsignedRightShift, UshrAssign,
+        };
+        let cases = [
+            ("1 < 2", Less),
+            ("1 > 2", Greater),
+            ("1 <= 2", LessOrEqual),
+            ("1 >= 2", GreaterOrEqual),
+            ("1 == 2", Equals),
+            ("1 === 2", StrictEquals),
+            ("1 != 2", NotEquals),
+            ("1 !== 2", StrictNotEquals),
+            ("1 << 2", LeftShift),
+            ("1 >> 2", RightShift),
+            ("1 >>> 2", UnsignedRightShift),
+            ("1 <<= 2", ShlAssign),
+            ("1 >>= 2", ShrAssign),
+            ("1 >>>= 2", UshrAssign),
+        ];
+        for (src, op) in cases {
+            assert_eq!(infix_op(src), TokenKind::Operator(op.clone()), "src {src:?}");
+        }
+    }
+
+    #[test]
+    fn logical_bitwise_and_nullish_operators_lex_to_expected_kind() {
+        use OperatorKind::{
+            And, AndAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, NullishAssign,
+            NullishCoalescing, Or, OrAssign, Pipeline,
+        };
+        let cases = [
+            ("a && b", And),
+            ("a || b", Or),
+            ("a & b", BitAnd),
+            ("a | b", BitOr),
+            ("a ^ b", BitXor),
+            ("a &= b", BitAndAssign),
+            ("a |= b", BitOrAssign),
+            ("a ^= b", BitXorAssign),
+            ("a &&= b", AndAssign),
+            ("a ||= b", OrAssign),
+            ("a ?? b", NullishCoalescing),
+            ("a ??= b", NullishAssign),
+            ("a |> b", Pipeline),
+        ];
+        for (src, op) in cases {
+            assert_eq!(infix_op(src), TokenKind::Operator(op.clone()), "src {src:?}");
+        }
+    }
+
+    #[test]
+    fn prefix_operators_lex_to_expected_kind() {
+        assert_eq!(lex_kinds("~a")[0], TokenKind::Operator(OperatorKind::BitwiseNot));
+        assert_eq!(lex_kinds("!a")[0], TokenKind::Operator(OperatorKind::Not));
+        assert_eq!(lex_kinds("++a")[0], TokenKind::Operator(OperatorKind::Increment));
+        assert_eq!(lex_kinds("--a")[0], TokenKind::Operator(OperatorKind::Decrement));
+    }
+
+    #[test]
+    fn punctuation_lexes_to_expected_kind() {
+        use PunctuationKind::{Arrow, Colon, Dot, OptionalChain, Question, Spread};
+        assert_eq!(infix_op("a => b"), TokenKind::Punctuation(Arrow));
+        assert_eq!(infix_op("a.b"), TokenKind::Punctuation(Dot));
+        assert_eq!(infix_op("a?.b"), TokenKind::Punctuation(OptionalChain));
+        assert_eq!(infix_op("a ? b"), TokenKind::Punctuation(Question));
+        assert_eq!(infix_op("a : b"), TokenKind::Punctuation(Colon));
+        assert_eq!(lex_kinds("...a")[0], TokenKind::Punctuation(Spread));
+    }
+
+    #[test]
+    fn optional_chain_is_not_taken_when_followed_by_digit() {
+        let kinds = lex_kinds("a?.5");
+        assert_eq!(kinds[1], TokenKind::Punctuation(PunctuationKind::Question));
+    }
+
+    #[test]
+    fn regex_literal_at_expression_start() {
+        let kinds = lex_kinds("/ab+/g");
+        assert_eq!(kinds[0], TokenKind::RegexLiteral);
+        assert_eq!(kinds[1], TokenKind::Eof);
+    }
+
+    #[test]
+    fn slash_after_a_value_is_division_not_regex() {
+        let kinds = lex_kinds("а / б");
+        assert!(kinds.contains(&TokenKind::Operator(OperatorKind::Divide)), "{kinds:?}");
+        assert!(!kinds.contains(&TokenKind::RegexLiteral), "{kinds:?}");
+    }
+
+    #[test]
+    fn slash_equals_after_a_value_is_div_assign() {
+        let kinds = lex_kinds("а /= б");
+        assert!(kinds.contains(&TokenKind::Operator(OperatorKind::DivAssign)), "{kinds:?}");
+    }
+
+    #[test]
+    fn unterminated_regex_emits_diagnostic() {
+        let source = SourceFile::new("test.yopta".to_string(), "/abc".to_string());
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+        assert!(
+            diags.iter().any(|d| d.message.contains("Незавершённый regex")),
+            "ожидалась диагностика незавершённого regex: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn template_without_substitution_is_a_single_token() {
+        assert_eq!(lex_kinds("`привет`"), vec![TokenKind::TemplateNoSub, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn template_with_substitution_splits_into_head_and_tail() {
+        let kinds = lex_kinds("`a${x}b`");
+        assert_eq!(kinds[0], TokenKind::TemplateHead);
+        assert!(kinds.contains(&TokenKind::TemplateTail), "{kinds:?}");
+    }
+
+    #[test]
+    fn template_with_two_substitutions_has_a_middle() {
+        let kinds = lex_kinds("`a${x}b${y}c`");
+        assert!(kinds.contains(&TokenKind::TemplateMiddle), "{kinds:?}");
+    }
+
+    #[test]
+    fn template_tracks_nested_braces_in_a_substitution() {
+        let kinds = lex_kinds("`a${ {x:1} }b`");
+        assert_eq!(kinds[0], TokenKind::TemplateHead);
+        assert!(kinds.contains(&TokenKind::TemplateTail), "вложенный объект не должен закрывать шаблон: {kinds:?}");
+    }
+
+    #[test]
+    fn private_identifier_is_recognized() {
+        let kinds = lex_kinds("#поле");
+        assert_eq!(kinds[0], TokenKind::PrivateIdentifier);
+    }
+
+    #[test]
+    fn string_with_an_escaped_quote_is_a_single_token() {
+        assert_eq!(lex_kinds(r#""а\"б""#), vec![TokenKind::StringLiteral, TokenKind::Eof]);
+    }
 }
