@@ -36,11 +36,6 @@ impl SourceFile {
         }
         (line, col)
     }
-
-    #[must_use]
-    pub fn get_line(&self, line_num: usize) -> Option<&str> {
-        self.source.lines().nth(line_num.saturating_sub(1))
-    }
 }
 
 #[cfg(test)]
@@ -135,51 +130,6 @@ mod tests {
 
         assert_eq!(line, 3);
         assert_eq!(col, 1);
-    }
-
-    #[test]
-    fn test_source_file_get_line_first() {
-        let source = SourceFile::new("test.yopta".into(), "line1\nline2\nline3".into());
-
-        let result = source.get_line(1);
-
-        assert_eq!(result, Some("line1"));
-    }
-
-    #[test]
-    fn test_source_file_get_line_second() {
-        let source = SourceFile::new("test.yopta".into(), "line1\nline2\nline3".into());
-
-        let result = source.get_line(2);
-
-        assert_eq!(result, Some("line2"));
-    }
-
-    #[test]
-    fn test_source_file_get_line_third() {
-        let source = SourceFile::new("test.yopta".into(), "line1\nline2\nline3".into());
-
-        let result = source.get_line(3);
-
-        assert_eq!(result, Some("line3"));
-    }
-
-    #[test]
-    fn test_source_file_get_line_nonexistent() {
-        let source = SourceFile::new("test.yopta".into(), "line1\nline2\nline3".into());
-
-        let result = source.get_line(4);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_source_file_get_line_out_of_bounds() {
-        let source = SourceFile::new("test.yopta".into(), "line1\nline2\nline3".into());
-
-        let result = source.get_line(100);
-
-        assert_eq!(result, None);
     }
 
     #[test]
