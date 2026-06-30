@@ -205,11 +205,7 @@ impl<'src> Lexer<'src> {
             self.advance();
         }
         if !closed {
-            self.diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                message: "Незавершённый regex-литерал".to_string(),
-                span: Span { start, end: self.position },
-            });
+            self.error(Span { start, end: self.position }, "Незавершённый regex-литерал");
             return Token { kind: TokenKind::Unknown, span: Span { start, end: self.position } };
         }
         while !self.is_at_end() && self.current_char().is_ascii_alphabetic() {
@@ -375,11 +371,7 @@ impl<'src> Lexer<'src> {
         }
 
         if self.is_at_end() {
-            self.diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                message: "Незакрытая строка".into(),
-                span: Span { start, end: self.position },
-            });
+            self.error(Span { start, end: self.position }, "Незакрытая строка");
         } else {
             self.advance();
         }
@@ -402,9 +394,7 @@ impl<'src> Lexer<'src> {
             if let Some(radix) = radix {
                 self.advance();
                 self.advance();
-                while self.current_char().is_digit(radix) || self.current_char() == '_' {
-                    self.advance();
-                }
+                self.consume_digit_run(radix);
                 if self.current_char() == 'n' {
                     self.advance();
                 }
@@ -413,18 +403,13 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        while self.current_char().is_ascii_digit() || self.current_char() == '_' {
-            self.advance();
-        }
+        self.consume_digit_run(10);
 
         let mut had_decimal = false;
         if self.current_char() == '.' && self.peek_char(1).is_ascii_digit() {
             self.advance();
             had_decimal = true;
-
-            while self.current_char().is_ascii_digit() || self.current_char() == '_' {
-                self.advance();
-            }
+            self.consume_digit_run(10);
         }
 
         let mut had_exponent = false;
@@ -436,9 +421,7 @@ impl<'src> Lexer<'src> {
                 if sign == '+' || sign == '-' {
                     self.advance();
                 }
-                while self.current_char().is_ascii_digit() || self.current_char() == '_' {
-                    self.advance();
-                }
+                self.consume_digit_run(10);
                 had_exponent = true;
             }
         }
@@ -519,11 +502,7 @@ impl<'src> Lexer<'src> {
                     self.advance();
                     loop {
                         if self.is_at_end() {
-                            self.diagnostics.push(Diagnostic {
-                                severity: Severity::Error,
-                                message: "Незакрытый блочный комментарий".into(),
-                                span: Span { start, end: self.position },
-                            });
+                            self.error(Span { start, end: self.position }, "Незакрытый блочный комментарий");
                             break;
                         }
                         if self.current_char() == '*' && self.peek_char(1) == '/' {
@@ -717,11 +696,7 @@ impl<'src> Lexer<'src> {
             }
             '@' => TokenKind::Punctuation(PunctuationKind::At),
             _ => {
-                self.diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    message: format!("Неизвестный символ: '{ch}'"),
-                    span: Span { start, end: self.position },
-                });
+                self.error(Span { start, end: self.position }, format!("Неизвестный символ: '{ch}'"));
                 TokenKind::Unknown
             }
         };
@@ -744,11 +719,7 @@ impl<'src> Lexer<'src> {
     fn read_template_chars(&mut self) -> bool {
         loop {
             if self.is_at_end() {
-                self.diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    message: "Незакрытая шаблонная строка".into(),
-                    span: Span { start: self.position, end: self.position },
-                });
+                self.error(Span { start: self.position, end: self.position }, "Незакрытая шаблонная строка");
                 return false;
             }
             let ch = self.current_char();
@@ -807,6 +778,16 @@ impl<'src> Lexer<'src> {
     #[inline]
     const fn is_at_end(&self) -> bool {
         self.position >= self.source.source.len()
+    }
+
+    fn error(&mut self, span: Span, message: impl Into<String>) {
+        self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span });
+    }
+
+    fn consume_digit_run(&mut self, radix: u32) {
+        while self.current_char().is_digit(radix) || self.current_char() == '_' {
+            self.advance();
+        }
     }
 
     fn skip_whitespace(&mut self) {
