@@ -6,9 +6,11 @@ use std::process;
 
 use yps_interpreter::{Interpreter, RuntimeError};
 use yps_lexer::{Diagnostic, Lexer, SourceFile};
-use yps_parser::Parser;
+use yps_parser::{Parser, Program};
 
 mod repl;
+
+const INTERNAL_ERROR_EXIT_CODE: i32 = 70;
 
 pub(crate) fn print_diagnostics(source: &SourceFile, diagnostics: &[Diagnostic], name: &str) {
     for d in diagnostics {
@@ -51,7 +53,7 @@ fn main() {
     }
 }
 
-fn run_vm(filename: &str) {
+fn load_program(filename: &str) -> (SourceFile, Program) {
     let code = match fs::read_to_string(filename) {
         Ok(c) => c,
         Err(e) => {
@@ -62,19 +64,23 @@ fn run_vm(filename: &str) {
 
     let source = SourceFile::new(filename.to_string(), code);
 
-    let lexer = Lexer::new(&source);
-    let (tokens, lex_diagnostics) = lexer.tokenize();
+    let (tokens, lex_diagnostics) = Lexer::new(&source).tokenize();
     if !lex_diagnostics.is_empty() {
         print_diagnostics(&source, &lex_diagnostics, filename);
         process::exit(1);
     }
 
-    let parser = Parser::new(&tokens, &source);
-    let (program, parse_diagnostics) = parser.parse_program();
+    let (program, parse_diagnostics) = Parser::new(&tokens, &source).parse_program();
     if !parse_diagnostics.is_empty() {
         print_diagnostics(&source, &parse_diagnostics, filename);
         process::exit(1);
     }
+
+    (source, program)
+}
+
+fn run_vm(filename: &str) {
+    let (source, program) = load_program(filename);
 
     let base = PathBuf::from(filename).parent().map(PathBuf::from);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yps_vm::execute_with_base(&program, base)));
@@ -87,8 +93,21 @@ fn run_vm(filename: &str) {
         }
         Err(_) => {
             eprintln!("Внутренняя ошибка VM: выполнение прервано");
-            process::exit(70);
+            process::exit(INTERNAL_ERROR_EXIT_CODE);
         }
+    }
+}
+
+fn write_atomic(filename: &str, contents: &[u8]) {
+    let tmp_path = format!("{filename}.fmt_tmp");
+    if let Err(e) = fs::write(&tmp_path, contents) {
+        eprintln!("Не удалось записать временный файл '{tmp_path}': {e}");
+        process::exit(1);
+    }
+    if let Err(e) = fs::rename(&tmp_path, filename) {
+        eprintln!("Не удалось переименовать '{tmp_path}' в '{filename}': {e}");
+        let _ = fs::remove_file(&tmp_path);
+        process::exit(1);
     }
 }
 
@@ -158,16 +177,7 @@ fn run_fmt(args: &[String]) {
         }
 
         if write_in_place {
-            let tmp_path = format!("{filename}.fmt_tmp");
-            if let Err(e) = fs::write(&tmp_path, &outcome.text) {
-                eprintln!("Не удалось записать временный файл '{tmp_path}': {e}");
-                process::exit(1);
-            }
-            if let Err(e) = fs::rename(&tmp_path, filename) {
-                eprintln!("Не удалось переименовать '{tmp_path}' в '{filename}': {e}");
-                let _ = fs::remove_file(&tmp_path);
-                process::exit(1);
-            }
+            write_atomic(filename, outcome.text.as_bytes());
             if let Err(e) = fs::write(&map_path, map.to_json()) {
                 eprintln!("Не удалось записать source map '{map_path}': {e}");
                 process::exit(1);
@@ -197,16 +207,7 @@ fn run_fmt(args: &[String]) {
     }
 
     if write_in_place {
-        let tmp_path = format!("{filename}.fmt_tmp");
-        if let Err(e) = fs::write(&tmp_path, &outcome.text) {
-            eprintln!("Не удалось записать временный файл '{tmp_path}': {e}");
-            process::exit(1);
-        }
-        if let Err(e) = fs::rename(&tmp_path, filename) {
-            eprintln!("Не удалось переименовать '{tmp_path}' в '{filename}': {e}");
-            let _ = fs::remove_file(&tmp_path);
-            process::exit(1);
-        }
+        write_atomic(filename, outcome.text.as_bytes());
     } else {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
@@ -218,31 +219,7 @@ fn run_fmt(args: &[String]) {
 }
 
 fn run_interpret(filename: &str) {
-    let code = match fs::read_to_string(filename) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Не удалось прочитать файл '{filename}': {e}");
-            process::exit(1);
-        }
-    };
-
-    let source = SourceFile::new(filename.to_string(), code);
-
-    let lexer = Lexer::new(&source);
-    let (tokens, lex_diagnostics) = lexer.tokenize();
-
-    if !lex_diagnostics.is_empty() {
-        print_diagnostics(&source, &lex_diagnostics, filename);
-        process::exit(1);
-    }
-
-    let parser = Parser::new(&tokens, &source);
-    let (program, parse_diagnostics) = parser.parse_program();
-
-    if !parse_diagnostics.is_empty() {
-        print_diagnostics(&source, &parse_diagnostics, filename);
-        process::exit(1);
-    }
+    let (source, program) = load_program(filename);
 
     let mut interpreter = Interpreter::new();
     if let Some(parent) = PathBuf::from(filename).parent().map(PathBuf::from) {
@@ -257,7 +234,7 @@ fn run_interpret(filename: &str) {
         }
         Err(_) => {
             eprintln!("Внутренняя ошибка интерпретатора: выполнение прервано");
-            process::exit(70);
+            process::exit(INTERNAL_ERROR_EXIT_CODE);
         }
     }
 }
