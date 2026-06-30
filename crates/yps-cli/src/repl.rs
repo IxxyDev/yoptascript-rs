@@ -39,6 +39,11 @@ fn format_history_line(i: usize, entry: &str) -> String {
     format!("{}: {}", i + 1, entry)
 }
 
+fn push_line(buffer: &mut String, line: &str) {
+    buffer.push_str(line);
+    buffer.push('\n');
+}
+
 fn print_history(history: &[String]) {
     for (i, entry) in history.iter().enumerate() {
         println!("{}", format_history_line(i, entry));
@@ -167,23 +172,17 @@ pub fn run_repl() {
                         if is_tty {
                             println!("{repeated}");
                         }
-                        buffer.push_str(&repeated);
-                        buffer.push('\n');
+                        push_line(&mut buffer, &repeated);
                     }
                 }
             } else {
-                buffer.push_str(&line);
-                buffer.push('\n');
+                push_line(&mut buffer, &line);
             }
-        } else if buffer.is_empty() {
-            if line.trim().is_empty() {
+        } else {
+            if buffer.is_empty() && line.trim().is_empty() {
                 continue;
             }
-            buffer.push_str(&line);
-            buffer.push('\n');
-        } else {
-            buffer.push_str(&line);
-            buffer.push('\n');
+            push_line(&mut buffer, &line);
         }
 
         let source = SourceFile::new("<repl>".to_string(), buffer.clone());
