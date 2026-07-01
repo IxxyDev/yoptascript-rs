@@ -161,4 +161,20 @@ mod tests {
         let sel = syms[0].selection_range;
         assert_eq!(sel.start.character, 6);
     }
+
+    #[test]
+    fn array_destructuring_yields_one_symbol_per_binding() {
+        let src = "ясенХуй [первый, второй] = [1, 2];";
+        let syms = document_symbols(src);
+        assert_eq!(names(&syms), vec!["первый", "второй"]);
+        assert!(syms.iter().all(|s| s.kind == SymbolKind::CONSTANT));
+    }
+
+    #[test]
+    fn object_destructuring_yields_one_symbol_per_binding() {
+        let src = "гыы { ключ, значение } = объект;";
+        let syms = document_symbols(src);
+        assert_eq!(names(&syms), vec!["ключ", "значение"]);
+        assert!(syms.iter().all(|s| s.kind == SymbolKind::VARIABLE));
+    }
 }

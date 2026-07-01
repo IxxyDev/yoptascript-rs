@@ -140,6 +140,18 @@ mod tests {
     }
 
     #[test]
+    fn pos_to_byte_clamps_character_past_line_end() {
+        let src = "abc";
+        assert_eq!(pos_to_byte(src, Position { line: 0, character: 99 }), src.len());
+    }
+
+    #[test]
+    fn pos_to_byte_clamps_line_past_end_of_file() {
+        let src = "abc";
+        assert_eq!(pos_to_byte(src, Position { line: 9, character: 0 }), src.len());
+    }
+
+    #[test]
     fn member_receiver_detects_namespace() {
         let src = "Матан.";
         assert_eq!(member_receiver(src, src.len()), Some("Матан"));
