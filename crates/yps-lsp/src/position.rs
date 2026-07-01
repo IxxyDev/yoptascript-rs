@@ -6,10 +6,22 @@ pub fn span_to_range(src: &str, span: Span) -> Range {
     Range { start: byte_to_pos(src, span.start), end: byte_to_pos(src, span.end) }
 }
 
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn clamp_to_boundary(src: &str, byte_pos: usize) -> usize {
+    let raw = byte_pos.min(src.len());
+    (0..=raw).rev().find(|&i| src.is_char_boundary(i)).unwrap_or(0)
+}
+
+fn ident_start(src: &str, boundary: usize) -> usize {
+    src[..boundary].char_indices().rev().take_while(|(_, c)| is_ident_char(*c)).last().map_or(boundary, |(i, _)| i)
+}
+
 #[must_use]
 pub fn byte_to_pos(src: &str, offset: usize) -> Position {
-    let raw = offset.min(src.len());
-    let clamped = (0..=raw).rev().find(|&i| src.is_char_boundary(i)).unwrap_or(0);
+    let clamped = clamp_to_boundary(src, offset);
     let prefix = &src[..clamped];
     let line = prefix.bytes().filter(|&b| b == b'\n').count() as u32;
     let line_start = prefix.rfind('\n').map_or(0, |i| i + 1);
@@ -51,16 +63,11 @@ pub fn pos_to_byte(src: &str, pos: Position) -> usize {
 
 #[must_use]
 pub fn word_at(src: &str, byte_pos: usize) -> &str {
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
-    let raw = byte_pos.min(src.len());
-    let clamped = (0..=raw).rev().find(|&i| src.is_char_boundary(i)).unwrap_or(0);
-
-    let start =
-        src[..clamped].char_indices().rev().take_while(|(_, c)| is_ident(*c)).last().map_or(clamped, |(i, _)| i);
-
+    let clamped = clamp_to_boundary(src, byte_pos);
+    let start = ident_start(src, clamped);
     let end = src[clamped..]
         .char_indices()
-        .take_while(|(_, c)| is_ident(*c))
+        .take_while(|(_, c)| is_ident_char(*c))
         .last()
         .map_or(clamped, |(i, c)| clamped + i + c.len_utf8());
 
@@ -69,12 +76,8 @@ pub fn word_at(src: &str, byte_pos: usize) -> &str {
 
 #[must_use]
 pub fn member_receiver(src: &str, byte_pos: usize) -> Option<&str> {
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
-    let raw = byte_pos.min(src.len());
-    let clamped = (0..=raw).rev().find(|&i| src.is_char_boundary(i)).unwrap_or(0);
-
-    let member_start =
-        src[..clamped].char_indices().rev().take_while(|(_, c)| is_ident(*c)).last().map_or(clamped, |(i, _)| i);
+    let clamped = clamp_to_boundary(src, byte_pos);
+    let member_start = ident_start(src, clamped);
 
     let (dot_byte, dot_char) = src[..member_start].char_indices().next_back()?;
     if dot_char != '.' {
@@ -82,8 +85,7 @@ pub fn member_receiver(src: &str, byte_pos: usize) -> Option<&str> {
     }
 
     let recv_end = dot_byte;
-    let recv_start =
-        src[..recv_end].char_indices().rev().take_while(|(_, c)| is_ident(*c)).last().map_or(recv_end, |(i, _)| i);
+    let recv_start = ident_start(src, recv_end);
 
     let receiver = &src[recv_start..recv_end];
     if !receiver.is_empty() && receiver.chars().all(|c| c.is_ascii_digit()) {
