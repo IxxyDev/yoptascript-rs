@@ -206,16 +206,26 @@ impl Printer<'_> {
         self.write("}");
     }
 
+    fn print_var_decl(&mut self, pattern: &Pattern, init: &Expr, is_const: bool) {
+        self.write(if is_const { "ясенХуй" } else { "гыы" });
+        self.write(" ");
+        self.print_pattern(pattern);
+        self.write(" = ");
+        self.print_expr(init, 0);
+        self.write(";");
+    }
+
+    fn print_static_prefix(&mut self, is_static: bool) {
+        if is_static {
+            self.write("попонятия ");
+        }
+    }
+
     fn print_stmt(&mut self, stmt: &Stmt) {
         self.record_mapping(stmt.span().start);
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
-                self.write(if *is_const { "ясенХуй" } else { "гыы" });
-                self.write(" ");
-                self.print_pattern(pattern);
-                self.write(" = ");
-                self.print_expr(init, 0);
-                self.write(";");
+                self.print_var_decl(pattern, init, *is_const);
             }
             Stmt::Using { name, init, .. } => {
                 self.write("юзай ");
@@ -491,12 +501,7 @@ impl Printer<'_> {
     fn print_for_init(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
-                self.write(if *is_const { "ясенХуй" } else { "гыы" });
-                self.write(" ");
-                self.print_pattern(pattern);
-                self.write(" = ");
-                self.print_expr(init, 0);
-                self.write(";");
+                self.print_var_decl(pattern, init, *is_const);
             }
             Stmt::Expr { expr, .. } => {
                 self.print_expr(expr, 0);
@@ -530,9 +535,7 @@ impl Printer<'_> {
             ClassMember::Method { name, params, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
-                if *is_static {
-                    self.write("попонятия ");
-                }
+                self.print_static_prefix(*is_static);
                 self.write(&name.name);
                 self.print_params(params);
                 self.write(" ");
@@ -542,9 +545,7 @@ impl Printer<'_> {
             ClassMember::Field { name, init, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
-                if *is_static {
-                    self.write("попонятия ");
-                }
+                self.print_static_prefix(*is_static);
                 self.write(&name.name);
                 if let Some(init) = init {
                     self.write(" = ");
@@ -556,9 +557,7 @@ impl Printer<'_> {
             ClassMember::Getter { name, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
-                if *is_static {
-                    self.write("попонятия ");
-                }
+                self.print_static_prefix(*is_static);
                 self.write("get ");
                 self.write(&name.name);
                 self.write("() ");
@@ -568,9 +567,7 @@ impl Printer<'_> {
             ClassMember::Setter { name, param, body, is_static, decorators, .. } => {
                 self.print_member_decorators(decorators);
                 self.indent();
-                if *is_static {
-                    self.write("попонятия ");
-                }
+                self.print_static_prefix(*is_static);
                 self.write("set ");
                 self.write(&name.name);
                 self.write("(");
