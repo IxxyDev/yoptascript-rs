@@ -32,21 +32,44 @@ impl std::fmt::Display for FormatError {
     }
 }
 
-pub fn format_source(source: &str) -> Result<FormatOutcome, FormatError> {
+fn lex_and_parse(source: &str) -> Result<(yps_parser::Program, Vec<Trivia>), FormatError> {
     let sf = SourceFile::new("<fmt>".to_string(), source.to_string());
-    let lexer = Lexer::new(&sf);
-    let (tokens, trivia, lex_diags) = lexer.tokenize_with_trivia();
-
+    let (tokens, trivia, lex_diags) = Lexer::new(&sf).tokenize_with_trivia();
     if !lex_diags.is_empty() {
         return Err(FormatError::ParseError(lex_diags));
     }
-
-    let parser = Parser::new(&tokens, &sf);
-    let (program, parse_diags) = parser.parse_program();
-
+    let (program, parse_diags) = Parser::new(&tokens, &sf).parse_program();
     if !parse_diags.is_empty() {
         return Err(FormatError::ParseError(parse_diags));
     }
+    Ok((program, trivia))
+}
+
+fn verify_round_trip(
+    original: &yps_parser::Program,
+    original_trivia: &[Trivia],
+    formatted: &str,
+) -> Result<(), FormatError> {
+    let sf = SourceFile::new("<fmt-check>".to_string(), formatted.to_string());
+    let (tokens, trivia, lex_diags) = Lexer::new(&sf).tokenize_with_trivia();
+    if !lex_diags.is_empty() {
+        return Err(FormatError::RoundTripFailed("вывод форматтера не лексируется".to_string()));
+    }
+    let (program, parse_diags) = Parser::new(&tokens, &sf).parse_program();
+    if !parse_diags.is_empty() {
+        return Err(FormatError::RoundTripFailed("вывод форматтера не парсируется".to_string()));
+    }
+    if !normalize::programs_equivalent(original, &program) {
+        return Err(FormatError::RoundTripFailed("вывод форматтера структурно не эквивалентен исходнику".to_string()));
+    }
+    if !comment_texts_equal(original_trivia, &trivia) {
+        return Err(FormatError::RoundTripFailed("множество комментариев изменилось при форматировании".to_string()));
+    }
+    Ok(())
+}
+
+pub fn format_source(source: &str) -> Result<FormatOutcome, FormatError> {
+    let (program, trivia) = lex_and_parse(source)?;
 
     let formatted = if trivia.is_empty() {
         printer::print_program(&program)
@@ -55,44 +78,14 @@ pub fn format_source(source: &str) -> Result<FormatOutcome, FormatError> {
         printer::print_program_with_comments(&program, &comment_map)
     };
 
-    let sf2 = SourceFile::new("<fmt-check>".to_string(), formatted.clone());
-    let (tokens2, trivia2, lex_diags2) = Lexer::new(&sf2).tokenize_with_trivia();
-    if !lex_diags2.is_empty() {
-        return Err(FormatError::RoundTripFailed("вывод форматтера не лексируется".to_string()));
-    }
-    let (program2, parse_diags2) = Parser::new(&tokens2, &sf2).parse_program();
-    if !parse_diags2.is_empty() {
-        return Err(FormatError::RoundTripFailed("вывод форматтера не парсируется".to_string()));
-    }
-
-    if !normalize::programs_equivalent(&program, &program2) {
-        return Err(FormatError::RoundTripFailed("вывод форматтера структурно не эквивалентен исходнику".to_string()));
-    }
-
-    if !comment_texts_equal(&trivia, &trivia2) {
-        return Err(FormatError::RoundTripFailed("множество комментариев изменилось при форматировании".to_string()));
-    }
+    verify_round_trip(&program, &trivia, &formatted)?;
 
     let already_formatted = formatted == source;
-
     Ok(FormatOutcome { text: formatted, already_formatted })
 }
 
 pub fn format_source_with_map(source: &str) -> Result<(FormatOutcome, SourceMap), FormatError> {
-    let sf = SourceFile::new("<fmt>".to_string(), source.to_string());
-    let lexer = Lexer::new(&sf);
-    let (tokens, trivia, lex_diags) = lexer.tokenize_with_trivia();
-
-    if !lex_diags.is_empty() {
-        return Err(FormatError::ParseError(lex_diags));
-    }
-
-    let parser = Parser::new(&tokens, &sf);
-    let (program, parse_diags) = parser.parse_program();
-
-    if !parse_diags.is_empty() {
-        return Err(FormatError::ParseError(parse_diags));
-    }
+    let (program, trivia) = lex_and_parse(source)?;
 
     let (formatted, map) = if trivia.is_empty() {
         printer::print_program_with_map(&program, None, source)
@@ -101,23 +94,7 @@ pub fn format_source_with_map(source: &str) -> Result<(FormatOutcome, SourceMap)
         printer::print_program_with_map(&program, Some(&comment_map), source)
     };
 
-    let sf2 = SourceFile::new("<fmt-check>".to_string(), formatted.clone());
-    let (tokens2, trivia2, lex_diags2) = Lexer::new(&sf2).tokenize_with_trivia();
-    if !lex_diags2.is_empty() {
-        return Err(FormatError::RoundTripFailed("вывод форматтера не лексируется".to_string()));
-    }
-    let (program2, parse_diags2) = Parser::new(&tokens2, &sf2).parse_program();
-    if !parse_diags2.is_empty() {
-        return Err(FormatError::RoundTripFailed("вывод форматтера не парсируется".to_string()));
-    }
-
-    if !normalize::programs_equivalent(&program, &program2) {
-        return Err(FormatError::RoundTripFailed("вывод форматтера структурно не эквивалентен исходнику".to_string()));
-    }
-
-    if !comment_texts_equal(&trivia, &trivia2) {
-        return Err(FormatError::RoundTripFailed("множество комментариев изменилось при форматировании".to_string()));
-    }
+    verify_round_trip(&program, &trivia, &formatted)?;
 
     let already_formatted = formatted == source;
     Ok((FormatOutcome { text: formatted, already_formatted }, map))
