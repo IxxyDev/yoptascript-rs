@@ -480,6 +480,23 @@ mod suite {
         assert_eq!(out, "(а + б) * в;\n");
     }
 
+    #[test]
+    fn snapshot_for_loop_with_var_init() {
+        let src = "го(гыы и=0;и<3;и++){сказать(и);}\n";
+        let out = parse_and_format(src);
+        assert_eq!(out, "го (гыы и = 0; и < 3; и++) {\n    сказать(и);\n}\n");
+    }
+
+    #[test]
+    fn snapshot_class_static_method_and_getter() {
+        let src = "клёво К{попонятия статМетод(){отвечаю 1;}get значение(){отвечаю 2;}}\n";
+        let out = parse_and_format(src);
+        assert_eq!(
+            out,
+            "клёво К {\n    попонятия статМетод() {\n        отвечаю 1;\n    }\n\n    get значение() {\n        отвечаю 2;\n    }\n}\n"
+        );
+    }
+
     // === (e) негативные тесты ===
 
     #[test]
