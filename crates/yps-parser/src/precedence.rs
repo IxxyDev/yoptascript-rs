@@ -2,6 +2,9 @@ use crate::ast::BinaryOp;
 
 pub const TERNARY_PRECEDENCE: u8 = 2;
 pub const UNARY_PRECEDENCE: u8 = 16;
+pub const ASSIGN_PRECEDENCE: u8 = 1;
+pub const POSTFIX_PRECEDENCE: u8 = 13;
+pub const CALL_PRECEDENCE: u8 = 14;
 
 pub fn binary_precedence(op: BinaryOp) -> u8 {
     match op {

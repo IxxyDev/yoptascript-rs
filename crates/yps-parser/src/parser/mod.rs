@@ -6,8 +6,8 @@ use crate::ast::{
 };
 use yps_lexer::{Diagnostic, KeywordKind, OperatorKind, PunctuationKind, Severity, SourceFile, Span, Token, TokenKind};
 
-const TERNARY_PRECEDENCE: u8 = 2;
-const UNARY_PRECEDENCE: u8 = 16;
+use crate::precedence::{TERNARY_PRECEDENCE, UNARY_PRECEDENCE};
+
 const MAX_PARSE_DEPTH: usize = 200;
 const MAX_CHAIN_LEN: usize = 10_000;
 const STACK_RED_ZONE: usize = 128 * 1024;
