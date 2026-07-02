@@ -973,3 +973,14 @@ fn recursive_getter_overflows_gracefully_not_crash() {
     );
     assert!(err.contains("переполнение стека вызовов"), "ожидалась ловимая ошибка глубины, получено: {err}");
 }
+
+#[test]
+fn bridge_identity_cache_stays_bounded() {
+    run(r#"
+        го (гыы и = 0; и < 8192; и++) {
+            Жсон.вСтроку([и]);
+        }
+        "#);
+    let len = crate::bridge::identity_cache_len();
+    assert!(len <= 2048, "кэш идентичности разросся неограниченно: {len}");
+}

@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::rc::Weak;
 
 use yps_interpreter::value::Value as IValue;
 use yps_lexer::Span;
@@ -40,20 +41,55 @@ const HOST_CONSTRUCTORS: &[&str] = &[
     "СигналОтмены",
 ];
 
+const IDENTITY_CACHE_PRUNE_THRESHOLD: usize = 1024;
+
+enum CacheKeepalive {
+    Array(Weak<RefCell<Vec<Value>>>),
+    Object(Weak<RefCell<ObjMap>>),
+}
+
+impl CacheKeepalive {
+    fn is_alive(&self) -> bool {
+        match self {
+            CacheKeepalive::Array(w) => w.strong_count() > 0,
+            CacheKeepalive::Object(w) => w.strong_count() > 0,
+        }
+    }
+}
+
 thread_local! {
     static ACTIVE_VM: Cell<*mut Vm> = const { Cell::new(std::ptr::null_mut()) };
-    static IDENTITY_CACHE: RefCell<std::collections::HashMap<usize, (Value, IValue)>> =
+    static IDENTITY_CACHE: RefCell<std::collections::HashMap<usize, (CacheKeepalive, IValue)>> =
         RefCell::new(std::collections::HashMap::new());
 }
 
 fn cached_identity(ptr: usize) -> Option<IValue> {
-    IDENTITY_CACHE.with(|c| c.borrow().get(&ptr).map(|(_, iv)| iv.clone()))
+    IDENTITY_CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        match cache.get(&ptr) {
+            Some((keepalive, iv)) if keepalive.is_alive() => Some(iv.clone()),
+            Some(_) => {
+                cache.remove(&ptr);
+                None
+            }
+            None => None,
+        }
+    })
 }
 
-fn store_identity(ptr: usize, keepalive: Value, value: IValue) {
+fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
     IDENTITY_CACHE.with(|c| {
-        c.borrow_mut().insert(ptr, (keepalive, value));
+        let mut cache = c.borrow_mut();
+        if cache.len() >= IDENTITY_CACHE_PRUNE_THRESHOLD {
+            cache.retain(|_, (k, _)| k.is_alive());
+        }
+        cache.insert(ptr, (keepalive, value));
     });
+}
+
+#[cfg(test)]
+pub(crate) fn identity_cache_len() -> usize {
+    IDENTITY_CACHE.with(|c| c.borrow().len())
 }
 
 struct VmGuard {
@@ -238,7 +274,7 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
                 return Ok(IValue::Array(store));
             }
             let value = IValue::array(converted);
-            store_identity(ptr, Value::Array(Rc::clone(items)), value.clone());
+            store_identity(ptr, CacheKeepalive::Array(Rc::downgrade(items)), value.clone());
             Ok(value)
         }
         Value::Object(map) => {
@@ -255,7 +291,7 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
                 return Ok(IValue::Object(store));
             }
             let value = IValue::object(out);
-            store_identity(ptr, Value::Object(Rc::clone(map)), value.clone());
+            store_identity(ptr, CacheKeepalive::Object(Rc::downgrade(map)), value.clone());
             Ok(value)
         }
         Value::Function(_)
@@ -348,5 +384,25 @@ fn interp_to_vm_arg(value: &IValue) -> Result<Value, String> {
     match value {
         IValue::Object(_) | IValue::Array(_) => Ok(Value::Host(value.clone())),
         _ => interp_to_vm(value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_identity_ignores_stale_dead_entry() {
+        let ptr = 0x1234_usize;
+        let items = Rc::new(RefCell::new(Vec::<Value>::new()));
+        let weak = Rc::downgrade(&items);
+        drop(items);
+        assert_eq!(weak.strong_count(), 0);
+        let stale_value = IValue::array(vec![IValue::Number(1.0)]);
+        IDENTITY_CACHE.with(|c| {
+            c.borrow_mut().insert(ptr, (CacheKeepalive::Array(weak), stale_value));
+        });
+        assert!(cached_identity(ptr).is_none());
+        assert!(!IDENTITY_CACHE.with(|c| c.borrow().contains_key(&ptr)));
     }
 }
