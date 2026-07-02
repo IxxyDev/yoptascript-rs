@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
+
 use crate::chunk::FnProto;
 
 #[derive(Debug)]
@@ -183,7 +185,7 @@ impl ClassDef {
 
 #[derive(Debug, Default)]
 pub struct ObjMap {
-    entries: Vec<(String, Value)>,
+    entries: IndexMap<String, Value>,
 }
 
 impl ObjMap {
@@ -192,32 +194,23 @@ impl ObjMap {
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
-        self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+        self.entries.get(key)
     }
 
     pub fn insert(&mut self, key: String, value: Value) {
-        if let Some(slot) = self.entries.iter_mut().find(|(k, _)| *k == key) {
-            slot.1 = value;
-        } else {
-            self.entries.push((key, value));
-        }
+        self.entries.insert(key, value);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
-        self.entries.iter().map(|(k, v)| (k, v))
+        self.entries.iter()
     }
 
     pub fn remove(&mut self, key: &str) -> bool {
-        if let Some(pos) = self.entries.iter().position(|(k, _)| k == key) {
-            self.entries.remove(pos);
-            true
-        } else {
-            false
-        }
+        self.entries.shift_remove(key).is_some()
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
-        self.entries.iter().any(|(k, _)| k == key)
+        self.entries.contains_key(key)
     }
 }
 

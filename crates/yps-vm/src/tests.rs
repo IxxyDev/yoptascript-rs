@@ -950,6 +950,19 @@ fn empty_array_is_truthy() {
 }
 
 #[test]
+fn object_preserves_insertion_order_after_reassignment() {
+    assert_eq!(
+        run(r#"гыы о = { б: 1, а: 2, в: 3 }; о.б = 9; сказать(Жсон.вСтроку(о));"#),
+        "{\"б\":9,\"а\":2,\"в\":3}\n"
+    );
+}
+
+#[test]
+fn global_redefinition_takes_latest_value() {
+    assert_eq!(run("гыы х = 1; гыы х = 2; сказать(х);"), "2\n");
+}
+
+#[test]
 fn recursive_getter_overflows_gracefully_not_crash() {
     let err = run_err(
         r#"

@@ -82,7 +82,7 @@ pub struct Handler {
 pub struct Vm {
     stack: Vec<Value>,
     frames: Vec<CallFrame>,
-    globals: Vec<(String, Value, bool)>,
+    globals: std::collections::HashMap<String, (Value, bool)>,
     open_upvalues: Vec<Upvalue>,
     handlers: Vec<Handler>,
     region_floor: usize,
@@ -112,7 +112,7 @@ impl Vm {
         Vm {
             stack: Vec::new(),
             frames: Vec::new(),
-            globals: Vec::new(),
+            globals: std::collections::HashMap::new(),
             open_upvalues: Vec::new(),
             handlers: Vec::new(),
             region_floor: 0,
@@ -141,7 +141,7 @@ impl Vm {
     }
 
     fn global_get(&self, name: &str) -> Option<&Value> {
-        self.globals.iter().rev().find(|(n, _, _)| n == name).map(|(_, v, _)| v)
+        self.globals.get(name).map(|(v, _)| v)
     }
 
     fn run_loop(&mut self) -> Result<(), VmError> {
@@ -389,8 +389,7 @@ impl Vm {
                 Op::DefineGlobal(idx, is_const) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.pop();
-                    self.globals.retain(|(n, _, _)| *n != name);
-                    self.globals.push((name, value, is_const));
+                    self.globals.insert(name, (value, is_const));
                 }
                 Op::GetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
@@ -408,8 +407,8 @@ impl Vm {
                 Op::SetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.peek(0).clone();
-                    match self.globals.iter_mut().rev().find(|(n, _, _)| *n == name) {
-                        Some((_, slot, is_const)) => {
+                    match self.globals.get_mut(&name) {
+                        Some((slot, is_const)) => {
                             if *is_const {
                                 return Err(VmError::new(format!("нельзя менять константу '{name}'"), span));
                             }
@@ -2133,8 +2132,7 @@ impl Vm {
     }
 
     fn define_module_global(&mut self, name: String, value: Value) {
-        self.globals.retain(|(n, _, _)| *n != name);
-        self.globals.push((name, value, true));
+        self.globals.insert(name, (value, true));
     }
 
     fn has_dispose_method(&self, value: &Value) -> bool {
