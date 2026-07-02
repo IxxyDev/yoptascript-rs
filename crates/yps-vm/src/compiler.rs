@@ -1468,16 +1468,7 @@ impl Compiler {
     fn compile_new(&mut self, callee: &Expr, args: &[Expr], span: Span) -> Result<(), CompileError> {
         self.compile_expr(callee)?;
         if args.iter().any(|a| matches!(a, Expr::Spread { .. })) {
-            self.emit(Op::NewArray(0), span);
-            for arg in args {
-                if let Expr::Spread { expr, .. } = arg {
-                    self.compile_expr(expr)?;
-                    self.emit(Op::AppendSpread, span);
-                } else {
-                    self.compile_expr(arg)?;
-                    self.emit(Op::ArrPush, span);
-                }
-            }
+            self.compile_spread_array(args, span)?;
             self.emit(Op::NewSpread, span);
         } else {
             for arg in args {
@@ -1536,16 +1527,7 @@ impl Compiler {
             }
             Literal::Array { elements, span } => {
                 if elements.iter().any(|el| matches!(el, Expr::Spread { .. })) {
-                    self.emit(Op::NewArray(0), *span);
-                    for el in elements {
-                        if let Expr::Spread { expr, .. } = el {
-                            self.compile_expr(expr)?;
-                            self.emit(Op::AppendSpread, *span);
-                        } else {
-                            self.compile_expr(el)?;
-                            self.emit(Op::ArrPush, *span);
-                        }
-                    }
+                    self.compile_spread_array(elements, *span)?;
                 } else {
                     for el in elements {
                         self.compile_expr(el)?;
