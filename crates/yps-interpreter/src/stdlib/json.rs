@@ -75,11 +75,7 @@ fn stringify_into(
         Value::Boolean(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => {
             if n.is_finite() {
-                if n.fract() == 0.0 {
-                    out.push_str(&format!("{}", *n as i64));
-                } else {
-                    out.push_str(&format!("{n}"));
-                }
+                out.push_str(&crate::interpreter::coercion::number_to_string(*n));
             } else {
                 out.push_str("null");
             }
@@ -459,5 +455,17 @@ mod tests {
     #[test]
     fn stringify_allows_moderate_depth() {
         assert!(stringify(&deep_array(50), Span { start: 0, end: 0 }).is_ok());
+    }
+
+    #[test]
+    fn stringify_large_integer_does_not_saturate_to_i64() {
+        let out = stringify(&Value::Number(1e300), Span { start: 0, end: 0 }).unwrap();
+        assert_eq!(out, Value::String("1e+300".to_string()));
+    }
+
+    #[test]
+    fn stringify_small_integer_has_no_fraction() {
+        let out = stringify(&Value::Number(5.0), Span { start: 0, end: 0 }).unwrap();
+        assert_eq!(out, Value::String("5".to_string()));
     }
 }
