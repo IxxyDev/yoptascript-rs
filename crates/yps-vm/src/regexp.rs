@@ -3,242 +3,23 @@ use std::rc::Rc;
 
 use yps_lexer::Span;
 
+use yps_interpreter::RuntimeError;
+pub use yps_interpreter::stdlib::regexp::YopRegex;
+use yps_interpreter::stdlib::regexp::{GroupSlot, MatchData, compile as compile_engine};
+
 use crate::error::VmError;
 use crate::value::{ObjMap, Value};
 
-const FANCY_BACKTRACK_LIMIT: usize = 1_000_000;
-
-#[derive(Debug, Clone)]
-pub enum YopRegex {
-    Fast(regex::Regex),
-    Fancy(fancy_regex::Regex),
-}
-
-pub struct GroupSlot {
-    pub text: String,
-    pub start: usize,
-    pub end: usize,
-}
-
-pub struct MatchData {
-    pub groups: Vec<Option<GroupSlot>>,
-    pub named: Vec<(String, Option<GroupSlot>)>,
-}
-
-impl MatchData {
-    fn whole(&self) -> &GroupSlot {
-        self.groups[0].as_ref().expect("match group 0")
-    }
-
-    fn from_fast(caps: &regex::Captures<'_>, re: &regex::Regex) -> MatchData {
-        let groups = (0..caps.len())
-            .map(|i| caps.get(i).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() }))
-            .collect();
-        let named = re
-            .capture_names()
-            .flatten()
-            .map(|name| {
-                let slot =
-                    caps.name(name).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() });
-                (name.to_string(), slot)
-            })
-            .collect();
-        MatchData { groups, named }
-    }
-
-    fn from_fancy(caps: &fancy_regex::Captures<'_>, re: &fancy_regex::Regex) -> MatchData {
-        let groups = (0..caps.len())
-            .map(|i| caps.get(i).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() }))
-            .collect();
-        let named = re
-            .capture_names()
-            .flatten()
-            .map(|name| {
-                let slot =
-                    caps.name(name).map(|m| GroupSlot { text: m.as_str().to_string(), start: m.start(), end: m.end() });
-                (name.to_string(), slot)
-            })
-            .collect();
-        MatchData { groups, named }
-    }
-}
-
-fn fancy_err(e: fancy_regex::Error, span: Span) -> VmError {
-    VmError::new(format!("Ошибка выполнения regex: {e}"), span)
-}
-
-impl YopRegex {
-    pub fn is_match(&self, s: &str, span: Span) -> Result<bool, VmError> {
-        match self {
-            YopRegex::Fast(re) => Ok(re.is_match(s)),
-            YopRegex::Fancy(re) => re.is_match(s).map_err(|e| fancy_err(e, span)),
-        }
-    }
-
-    pub fn captures(&self, s: &str, span: Span) -> Result<Option<MatchData>, VmError> {
-        match self {
-            YopRegex::Fast(re) => Ok(re.captures(s).map(|c| MatchData::from_fast(&c, re))),
-            YopRegex::Fancy(re) => {
-                re.captures(s).map(|opt| opt.map(|c| MatchData::from_fancy(&c, re))).map_err(|e| fancy_err(e, span))
-            }
-        }
-    }
-
-    pub fn captures_from_pos(&self, s: &str, pos: usize, span: Span) -> Result<Option<MatchData>, VmError> {
-        match self {
-            YopRegex::Fast(re) => Ok(re.captures_at(s, pos).map(|c| MatchData::from_fast(&c, re))),
-            YopRegex::Fancy(re) => re
-                .captures_from_pos(s, pos)
-                .map(|opt| opt.map(|c| MatchData::from_fancy(&c, re)))
-                .map_err(|e| fancy_err(e, span)),
-        }
-    }
+fn to_vm(e: RuntimeError) -> VmError {
+    VmError::new(e.message, e.span)
 }
 
 pub fn compile(pattern: &str, flags: &str, span: Span) -> Result<Rc<YopRegex>, VmError> {
-    let transformed = pre_transform(pattern);
-
-    let mut prefix = String::new();
-    let mut has_inline = false;
-    for c in flags.chars() {
-        match c {
-            'i' | 'm' | 's' | 'x' => {
-                if !has_inline {
-                    prefix.push_str("(?");
-                    has_inline = true;
-                }
-                prefix.push(c);
-            }
-            'g' | 'u' | 'y' | 'd' => {}
-            other => {
-                return Err(VmError::new(format!("Неизвестный флаг regex: '{other}'"), span));
-            }
-        }
-    }
-    if has_inline {
-        prefix.push(')');
-    }
-    let full = format!("{prefix}{transformed}");
-
-    if needs_fancy(pattern) {
-        let re = fancy_regex::RegexBuilder::new(&full)
-            .backtrack_limit(FANCY_BACKTRACK_LIMIT)
-            .build()
-            .map_err(|e| VmError::new(format!("Ошибка regex /{pattern}/: {e}"), span))?;
-        Ok(Rc::new(YopRegex::Fancy(re)))
-    } else {
-        let re = regex::Regex::new(&full).map_err(|e| VmError::new(format!("Ошибка regex /{pattern}/: {e}"), span))?;
-        Ok(Rc::new(YopRegex::Fast(re)))
-    }
+    compile_engine(pattern, flags, span).map_err(to_vm)
 }
 
-fn needs_fancy(pattern: &str) -> bool {
-    let bytes = pattern.as_bytes();
-    let mut i = 0;
-    let mut in_class = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\\' {
-            if i + 1 < bytes.len() {
-                let nxt = bytes[i + 1];
-                if !in_class && ((b'1'..=b'9').contains(&nxt) || nxt == b'k') {
-                    return true;
-                }
-                i += 2;
-                continue;
-            }
-            i += 1;
-            continue;
-        }
-        if !in_class {
-            if b == b'[' {
-                in_class = true;
-                i += 1;
-                continue;
-            }
-            if b == b'(' && i + 2 < bytes.len() && bytes[i + 1] == b'?' {
-                let c2 = bytes[i + 2];
-                if c2 == b'=' || c2 == b'!' {
-                    return true;
-                }
-                if c2 == b'<' && i + 3 < bytes.len() {
-                    let c3 = bytes[i + 3];
-                    if c3 == b'=' || c3 == b'!' {
-                        return true;
-                    }
-                }
-            }
-        } else if b == b']' {
-            in_class = false;
-        }
-        i += 1;
-    }
-    false
-}
-
-fn pre_transform(pattern: &str) -> String {
-    let bytes = pattern.as_bytes();
-    let mut out = String::with_capacity(bytes.len());
-    let mut i = 0;
-    let mut in_class = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\\' {
-            out.push(b as char);
-            if i + 1 < bytes.len() {
-                let nb = bytes[i + 1];
-                if nb < 0x80 {
-                    out.push(nb as char);
-                } else {
-                    let ch_start = i + 1;
-                    let rest = &pattern[ch_start..];
-                    if let Some(ch) = rest.chars().next() {
-                        out.push(ch);
-                        i = ch_start + ch.len_utf8();
-                        continue;
-                    }
-                }
-                i += 2;
-                continue;
-            }
-            i += 1;
-            continue;
-        }
-        if !in_class {
-            if b == b'[' {
-                in_class = true;
-                out.push('[');
-                i += 1;
-                continue;
-            }
-            if b == b'(' && i + 2 < bytes.len() && bytes[i + 1] == b'?' && bytes[i + 2] == b'<' {
-                let after = if i + 3 < bytes.len() { bytes[i + 3] } else { 0 };
-                if after != b'=' && after != b'!' {
-                    out.push_str("(?P<");
-                    i += 3;
-                    continue;
-                }
-            }
-        } else if b == b']' {
-            in_class = false;
-            out.push(']');
-            i += 1;
-            continue;
-        }
-        if b < 0x80 {
-            out.push(b as char);
-            i += 1;
-        } else {
-            let rest = &pattern[i..];
-            if let Some(ch) = rest.chars().next() {
-                out.push(ch);
-                i += ch.len_utf8();
-            } else {
-                i += 1;
-            }
-        }
-    }
-    out
+fn match_whole(md: &MatchData) -> &GroupSlot {
+    md.groups[0].as_ref().expect("match group 0")
 }
 
 fn char_index_at(s: &str, byte_pos: usize) -> i64 {
@@ -258,7 +39,7 @@ pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value 
             None => map.insert(key, Value::Null),
         };
     }
-    let whole = md.whole();
+    let whole = match_whole(md);
     map.insert("index".to_string(), Value::Number(char_index_at(s, whole.start) as f64));
     map.insert("input".to_string(), Value::string(s));
 
@@ -325,7 +106,7 @@ pub fn exec_stateful(
     let stateful = flags.contains('g') || flags.contains('y');
     let has_indices = flags.contains('d');
     if !stateful {
-        return Ok(match re.captures(s, span)? {
+        return Ok(match re.captures(s, span).map_err(to_vm)? {
             Some(md) => build_match_object(&md, s, has_indices),
             None => Value::Null,
         });
@@ -338,9 +119,9 @@ pub fn exec_stateful(
             return Ok(Value::Null);
         }
     };
-    match re.captures_from_pos(s, byte_pos, span)? {
+    match re.captures_from_pos(s, byte_pos, span).map_err(to_vm)? {
         Some(md) => {
-            let whole = md.whole();
+            let whole = match_whole(&md);
             if flags.contains('y') && whole.start != byte_pos {
                 *last_index.borrow_mut() = 0;
                 return Ok(Value::Null);
@@ -385,7 +166,7 @@ pub fn call(receiver: &Value, method: &str, args: &[Value], span: Span) -> Resul
     let result = match method {
         "проверить" | "test" => {
             let s = require_str(args, span, "regex.проверить")?;
-            Value::Bool(compiled.is_match(&s, span)?)
+            Value::Bool(compiled.is_match(&s, span).map_err(to_vm)?)
         }
         "найти" | "exec" => {
             let s = require_str(args, span, "regex.найти")?;
