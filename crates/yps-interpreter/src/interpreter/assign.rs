@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use indexmap::IndexMap;
 use yps_lexer::Span;
-use yps_parser::ast::{BinaryOp, Block, Expr, Literal, ObjectEntry, PostfixOp, PropKey};
+use yps_parser::ast::{BinaryOp, Block, Expr, Literal, ObjectEntry, PostfixOp};
 
 use crate::environment::{EnvFrame, Environment};
 use crate::error::RuntimeError;
@@ -157,17 +157,7 @@ impl Interpreter {
         for entry in entries {
             match entry {
                 ObjectEntry::Property { key, value: target } => {
-                    let key_str = match key {
-                        PropKey::Identifier(ident) => ident.name.clone(),
-                        PropKey::Computed(expr) => {
-                            let k = self.eval_expr(expr)?;
-                            if let Value::Symbol { id, .. } = &k {
-                                crate::symbols::symbol_key(*id)
-                            } else {
-                                k.to_string()
-                            }
-                        }
-                    };
+                    let key_str = self.eval_prop_key(key)?;
                     let val = map.get(&key_str).cloned().unwrap_or(Value::Undefined);
                     used_keys.push(key_str);
                     self.assign_destructure_element(target, val, span)?;
