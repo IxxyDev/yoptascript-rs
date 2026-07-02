@@ -150,27 +150,7 @@ impl Interpreter {
                             *span,
                         ));
                     }
-                    if matches!(
-                        obj,
-                        Value::Array(_)
-                            | Value::String(_)
-                            | Value::Number(_)
-                            | Value::Map(_)
-                            | Value::Set(_)
-                            | Value::Symbol { .. }
-                            | Value::Promise { .. }
-                            | Value::Iterator(_)
-                            | Value::RegExp { .. }
-                            | Value::Date(_)
-                            | Value::TypedArray { .. }
-                            | Value::DataView { .. }
-                            | Value::AbortController { .. }
-                            | Value::AbortSignal { .. }
-                            | Value::WeakMap(_)
-                            | Value::WeakSet(_)
-                            | Value::WeakRef(_)
-                            | Value::FinalizationRegistry(_)
-                    ) {
+                    if crate::stdlib::has_builtin_methods(&obj) {
                         let arg_values = self.eval_args(args)?;
                         let (ret, new_receiver) =
                             crate::stdlib::call_method(self, obj, &property.name, arg_values, *span)?;
