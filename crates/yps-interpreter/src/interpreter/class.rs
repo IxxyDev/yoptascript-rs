@@ -9,7 +9,7 @@ use yps_parser::ast::{Block, ClassMember, Expr, Param};
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, Value};
+use crate::value::{ClassDef, MethodDef, Value};
 
 use super::{ControlFlow, Interpreter};
 
@@ -119,7 +119,8 @@ impl Interpreter {
             let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
             match member {
                 ClassMember::Constructor { params, body, .. } => {
-                    constructor = Some((params.clone(), body.clone(), self.env.snapshot()));
+                    constructor =
+                        Some(MethodDef { params: params.clone(), body: body.clone(), env: self.env.snapshot() });
                 }
                 ClassMember::Method { name: m_name, params, body, is_static, is_private, .. } => {
                     let method_fn = Value::Function {
@@ -140,7 +141,7 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => (params, body, env),
+                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
                         _ => return Err(RuntimeError::new("Декоратор метода должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -170,7 +171,7 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => (params, body, env),
+                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
                         _ => return Err(RuntimeError::new("Декоратор геттера должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -200,7 +201,7 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => (params, body, env),
+                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
                         _ => return Err(RuntimeError::new("Декоратор сеттера должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -321,7 +322,7 @@ impl Interpreter {
             self.env = saved;
         }
 
-        if let Some((ref params, ref body, ref env)) = class_def.constructor {
+        if let Some(MethodDef { params, body, env }) = &class_def.constructor {
             let saved_env = self.env.clone();
             self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
             self.env.push_scope();
@@ -373,7 +374,7 @@ impl Interpreter {
                 )),
             }
         } else if let Some(ref parent) = class_def.parent {
-            if let Some((ref params, ..)) = parent.constructor
+            if let Some(MethodDef { params, .. }) = &parent.constructor
                 && !params.is_empty()
                 && params.iter().filter(|p| p.default.is_none() && !p.is_rest).count() > 0
             {
@@ -404,7 +405,7 @@ impl Interpreter {
         };
 
         let (params, body, env) = match &parent_def.constructor {
-            Some(c) => (c.0.clone(), c.1.clone(), Rc::clone(&c.2)),
+            Some(c) => (c.params.clone(), c.body.clone(), Rc::clone(&c.env)),
             None => {
                 if let Some(grandparent) = &parent_def.parent {
                     let grandparent_val = Value::Class(Rc::clone(grandparent));
@@ -574,9 +575,9 @@ impl Interpreter {
                 && let Some(Value::Class(cls)) = self.env.get(&class_name)
                 && let Some(method) = Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD)
             {
-                let params = method.0.clone();
-                let body = Rc::clone(&method.1);
-                let env = Rc::clone(&method.2);
+                let params = method.params.clone();
+                let body = Rc::clone(&method.body);
+                let env = Rc::clone(&method.env);
                 self.call_method_with_this(Rc::from("<dispose>"), &params, &body, &env, vec![], Some(resource), span)?;
                 return Ok(());
             }

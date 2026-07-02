@@ -279,7 +279,7 @@ impl Marker {
     }
 
     fn mark_class(&mut self, class: &ClassDef) {
-        for (_, _, env) in class
+        for method in class
             .constructor
             .iter()
             .chain(class.methods.values())
@@ -289,7 +289,7 @@ impl Marker {
             .chain(class.static_getters.values())
             .chain(class.static_setters.values())
         {
-            self.work.push(Work::Frame(Rc::clone(env)));
+            self.work.push(Work::Frame(Rc::clone(&method.env)));
         }
         for value in class.static_fields.borrow().values() {
             self.push_value(value);

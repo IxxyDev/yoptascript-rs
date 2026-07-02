@@ -8,7 +8,7 @@ use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, Temp
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{Value, to_int_n, to_uint_n};
+use crate::value::{MethodDef, Value, to_int_n, to_uint_n};
 
 use super::Interpreter;
 use super::call::RelOp;
@@ -127,7 +127,7 @@ impl Interpreter {
                     if let Expr::Super { .. } = object.as_ref()
                         && let Value::Class(cls) = &obj
                     {
-                        if let Some((params, body, env)) = Self::find_method_in_class(cls, &property.name) {
+                        if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, &property.name) {
                             let params = params.clone();
                             let body = Rc::clone(body);
                             let env = Rc::clone(env);
@@ -199,7 +199,7 @@ impl Interpreter {
                         RuntimeError::new("'яга' (super) используется вне класса-наследника", *super_span)
                     })?;
                     if let Value::Class(cls) = &super_val
-                        && let Some((ref params, ref body, ref env)) = cls.constructor
+                        && let Some(MethodDef { params, body, env }) = &cls.constructor
                     {
                         let arg_values = self.eval_args(args)?;
                         let this_val = self.env.get(symbols::THIS);
