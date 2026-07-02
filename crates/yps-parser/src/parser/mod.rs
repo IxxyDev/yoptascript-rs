@@ -42,6 +42,28 @@ impl<'a> Parser<'a> {
         Ok(span)
     }
 
+    fn expect_keyword(&mut self, kind: KeywordKind, msg: &str) -> Result<Span, ()> {
+        if !matches!(&self.current().kind, TokenKind::Keyword(k) if *k == kind) {
+            let span = self.current().span;
+            self.push_error(span, msg);
+            return Err(());
+        }
+        let span = self.current().span;
+        self.advance();
+        Ok(span)
+    }
+
+    fn expect_operator(&mut self, kind: OperatorKind, msg: &str) -> Result<Span, ()> {
+        if !matches!(&self.current().kind, TokenKind::Operator(k) if *k == kind) {
+            let span = self.current().span;
+            self.push_error(span, msg);
+            return Err(());
+        }
+        let span = self.current().span;
+        self.advance();
+        Ok(span)
+    }
+
     fn enter_depth(&mut self) -> Result<(), ()> {
         if self.depth >= MAX_PARSE_DEPTH {
             let span = self.current().span;

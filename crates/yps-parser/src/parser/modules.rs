@@ -40,12 +40,7 @@ impl<'a> Parser<'a> {
             return Err(());
         }
 
-        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::In)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалось 'из' в импорте");
-            return Err(());
-        }
-        self.advance();
+        self.expect_keyword(KeywordKind::In, "Ожидалось 'из' в импорте")?;
 
         let source = if matches!(self.current().kind, TokenKind::StringLiteral) {
             let span = self.current().span;

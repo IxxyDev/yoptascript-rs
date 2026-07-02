@@ -76,12 +76,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let pattern = self.parse_pattern()?;
-        if !matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался '=' после имени переменной");
-            return Err(());
-        }
-        self.advance();
+        self.expect_operator(OperatorKind::Assign, "Ожидался '=' после имени переменной")?;
 
         let init = self.parse_expr()?;
         let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после объявления переменной")?.end;
@@ -94,12 +89,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let name = self.parse_identifier()?;
-        if !matches!(self.current().kind, TokenKind::Operator(OperatorKind::Assign)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался '=' после имени ресурса в 'юзай'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_operator(OperatorKind::Assign, "Ожидался '=' после имени ресурса в 'юзай'")?;
 
         let init = self.parse_expr()?;
         let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после объявления 'юзай'")?.end;
@@ -427,12 +417,7 @@ impl<'a> Parser<'a> {
 
         let body = Box::new(self.parse_statement()?);
 
-        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Potreshchim)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалось 'потрещим' после тела 'крутани'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_keyword(KeywordKind::Potreshchim, "Ожидалось 'потрещим' после тела 'крутани'")?;
 
         self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'потрещим'")?;
 
