@@ -317,7 +317,6 @@ impl Value {
             Value::Number(n) => *n != 0.0,
             Value::BigInt(n) => *n != 0,
             Value::Str(s) => !s.is_empty(),
-            Value::Array(a) => !a.borrow().is_empty(),
             Value::Host(iv) => iv.is_truthy(),
             _ => true,
         }

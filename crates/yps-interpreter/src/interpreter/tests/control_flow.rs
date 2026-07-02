@@ -647,3 +647,14 @@ fn for_loop_sum_still_accumulates() {
     );
     assert_eq!(interp.get("с"), Some(Value::Number(10.0)));
 }
+
+#[test]
+fn empty_array_is_truthy() {
+    let interp = run_code(
+        r#"
+        гыы результат = "лож";
+        вилкойвглаз ([]) { результат = "правда"; }
+        "#,
+    );
+    assert_eq!(interp.get("результат"), Some(Value::String("правда".to_string())));
+}
