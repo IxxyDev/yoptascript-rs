@@ -60,6 +60,30 @@ pub fn call_method(
     }
 }
 
+pub(crate) fn has_builtin_methods(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Array(_)
+            | Value::String(_)
+            | Value::Number(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Symbol { .. }
+            | Value::Date(_)
+            | Value::Promise { .. }
+            | Value::Iterator(_)
+            | Value::RegExp { .. }
+            | Value::TypedArray { .. }
+            | Value::DataView { .. }
+            | Value::AbortController { .. }
+            | Value::AbortSignal { .. }
+            | Value::WeakMap(_)
+            | Value::WeakSet(_)
+            | Value::WeakRef(_)
+            | Value::FinalizationRegistry(_)
+    )
+}
+
 pub fn call_static_namespaced(
     interp: &mut Interpreter,
     namespaced: &str,
