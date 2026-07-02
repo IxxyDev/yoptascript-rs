@@ -210,12 +210,9 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    pub(super) fn parse_call(&mut self, callee: Expr) -> Result<Expr, ()> {
-        let start = callee.span().start;
-        self.advance();
-
+    pub(super) fn parse_arguments(&mut self, close: PunctuationKind, msg: &str) -> Result<(Vec<Expr>, Span), ()> {
         let mut args = Vec::new();
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
+        if !matches!(&self.current().kind, TokenKind::Punctuation(k) if *k == close) {
             loop {
                 if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
                     let spread_start = self.current().span.start;
@@ -238,9 +235,17 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end = self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?.end;
+        let close_span = self.expect_punct(close, msg)?;
+        Ok((args, close_span))
+    }
 
-        Ok(Expr::Call { callee: Box::new(callee), args, span: Span { start, end } })
+    pub(super) fn parse_call(&mut self, callee: Expr) -> Result<Expr, ()> {
+        let start = callee.span().start;
+        self.advance();
+
+        let (args, close) = self.parse_arguments(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?;
+
+        Ok(Expr::Call { callee: Box::new(callee), args, span: Span { start, end: close.end } })
     }
 
     pub(super) fn parse_index(&mut self, object: Expr) -> Result<Expr, ()> {
@@ -278,19 +283,9 @@ impl<'a> Parser<'a> {
 
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             self.advance();
-            let mut args = Vec::new();
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                loop {
-                    args.push(self.parse_expr()?);
-                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-            }
-            let end = self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?.end;
-            Ok(Expr::OptionalCall { callee: Box::new(object), args, span: Span { start, end } })
+            let (args, close) =
+                self.parse_arguments(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?;
+            Ok(Expr::OptionalCall { callee: Box::new(object), args, span: Span { start, end: close.end } })
         } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
             self.advance();
             let index = self.parse_expr()?;
@@ -312,41 +307,14 @@ impl<'a> Parser<'a> {
             callee = self.parse_member(callee)?;
         }
 
-        let mut args = Vec::new();
-        let end;
-        if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
+        let (args, end) = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             self.advance();
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                loop {
-                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
-                        let spread_start = self.current().span.start;
-                        self.advance();
-                        let expr = self.parse_expr()?;
-                        let spread_end = expr.span().end;
-                        args.push(Expr::Spread {
-                            expr: Box::new(expr),
-                            span: Span { start: spread_start, end: spread_end },
-                        });
-                    } else {
-                        args.push(self.parse_expr()?);
-                    }
-                    if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-            }
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась ')' после аргументов конструктора");
-                return Err(());
-            }
-            end = self.current().span.end;
-            self.advance();
+            let (args, close) =
+                self.parse_arguments(PunctuationKind::RParen, "Ожидалась ')' после аргументов конструктора")?;
+            (args, close.end)
         } else {
-            end = callee.span().end;
-        }
+            (Vec::new(), callee.span().end)
+        };
 
         Ok(Expr::New { callee: Box::new(callee), args, span: Span { start, end } })
     }
