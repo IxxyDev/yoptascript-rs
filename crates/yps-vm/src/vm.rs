@@ -916,6 +916,17 @@ impl Vm {
         Ok(Step::Continue)
     }
 
+    fn enter_handler(&mut self, handler: &Handler, value: Value) {
+        self.frames.truncate(handler.frame_len);
+        if handler.stack_len <= self.stack.len() {
+            self.close_upvalues(handler.stack_len);
+            self.stack.truncate(handler.stack_len);
+        }
+        self.stack.push(value);
+        let top = self.frames.len() - 1;
+        self.frames[top].ip = handler.target;
+    }
+
     fn unwind_to_handler_above(&mut self, value: Value, min_depth: usize) -> bool {
         while let Some(handler) = self.handlers.last() {
             if handler.frame_len <= min_depth {
@@ -925,14 +936,7 @@ impl Vm {
             if handler.frame_len > self.frames.len() {
                 continue;
             }
-            self.frames.truncate(handler.frame_len);
-            if handler.stack_len <= self.stack.len() {
-                self.close_upvalues(handler.stack_len);
-                self.stack.truncate(handler.stack_len);
-            }
-            self.stack.push(value);
-            let top = self.frames.len() - 1;
-            self.frames[top].ip = handler.target;
+            self.enter_handler(&handler, value);
             return true;
         }
         false
@@ -1537,14 +1541,7 @@ impl Vm {
             if handler.frame_len > self.frames.len() {
                 continue;
             }
-            self.frames.truncate(handler.frame_len);
-            if handler.stack_len <= self.stack.len() {
-                self.close_upvalues(handler.stack_len);
-                self.stack.truncate(handler.stack_len);
-            }
-            self.stack.push(value);
-            let top = self.frames.len() - 1;
-            self.frames[top].ip = handler.target;
+            self.enter_handler(&handler, value);
             return Ok(None);
         }
         Ok(Some(GenRun::Threw(value)))
@@ -1560,15 +1557,8 @@ impl Vm {
             if handler.frame_len > self.frames.len() {
                 continue;
             }
-            self.frames.truncate(handler.frame_len);
-            if handler.stack_len <= self.stack.len() {
-                self.close_upvalues(handler.stack_len);
-                self.stack.truncate(handler.stack_len);
-            }
             let token = self.make_return_token(value);
-            self.stack.push(token);
-            let top = self.frames.len() - 1;
-            self.frames[top].ip = handler.target;
+            self.enter_handler(&handler, token);
             return Ok(None);
         }
         Ok(Some(GenRun::Done(value)))
