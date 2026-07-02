@@ -1094,9 +1094,7 @@ dependencies = [
 name = "yps-vm"
 version = "1.4.1"
 dependencies = [
- "fancy-regex",
  "indexmap",
- "regex",
  "stacker",
  "yps-interpreter",
  "yps-lexer",
