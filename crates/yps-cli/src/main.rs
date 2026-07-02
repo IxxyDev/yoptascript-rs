@@ -146,10 +146,7 @@ fn run_fmt(args: &[String]) {
         match e {
             yps_fmt::FormatError::ParseError(diags) => {
                 let sf = SourceFile::new(filename.clone(), source.clone());
-                for d in &diags {
-                    let (line, col) = sf.position(d.span.start);
-                    eprintln!("{filename}:{line}:{col}: {:?}: {}", d.severity, d.message);
-                }
+                print_diagnostics(&sf, &diags, filename);
                 eprintln!("Форматирование отклонено: файл содержит синтаксические ошибки");
             }
             yps_fmt::FormatError::RoundTripFailed(msg) => {
