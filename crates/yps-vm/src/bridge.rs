@@ -109,6 +109,15 @@ impl Drop for VmGuard {
     }
 }
 
+fn with_interp<R>(
+    vm: &mut Vm,
+    f: impl FnOnce(&mut yps_interpreter::Interpreter) -> Result<R, VmError>,
+) -> Result<R, VmError> {
+    let _guard = VmGuard::enter(vm);
+    let mut interp = yps_interpreter::Interpreter::new();
+    f(&mut interp)
+}
+
 #[must_use]
 pub fn namespace_value(name: &str) -> Option<Value> {
     let obj = match name {
@@ -144,17 +153,14 @@ pub fn is_bridged_call(name: &str) -> bool {
 }
 
 pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Result<Value, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    let value = match yps_interpreter::stdlib::call_static_namespaced(&mut interp, name, interp_args, span) {
-        Some(res) => res.map_err(map_err)?,
-        None => {
-            let args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
-            yps_interpreter::builtins::call_builtin(name, args, span).map_err(map_err)?
-        }
-    };
-    interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    with_interp(vm, |interp| {
+        let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
+        let value = match yps_interpreter::stdlib::call_static_namespaced(interp, name, interp_args.clone(), span) {
+            Some(res) => res.map_err(map_err)?,
+            None => yps_interpreter::builtins::call_builtin(name, interp_args, span).map_err(map_err)?,
+        };
+        interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    })
 }
 
 pub fn call_host_method(
@@ -164,49 +170,49 @@ pub fn call_host_method(
     args: Vec<Value>,
     span: Span,
 ) -> Result<Value, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    let (value, _) = yps_interpreter::stdlib::call_method(&mut interp, receiver.clone(), method, interp_args, span)
-        .map_err(map_err)?;
-    interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    with_interp(vm, |interp| {
+        let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
+        let (value, _) = yps_interpreter::stdlib::call_method(interp, receiver.clone(), method, interp_args, span)
+            .map_err(map_err)?;
+        interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    })
 }
 
 pub fn host_member_get(vm: &mut Vm, receiver: &IValue, prop: &str, span: Span) -> Result<Value, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let mut interp = yps_interpreter::Interpreter::new();
-    let value = interp.host_member_get(receiver.clone(), prop, span).map_err(map_err)?;
-    interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    with_interp(vm, |interp| {
+        let value = interp.host_member_get(receiver.clone(), prop, span).map_err(map_err)?;
+        interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    })
 }
 
 pub fn host_index_get(vm: &mut Vm, receiver: &IValue, index: &Value, span: Span) -> Result<Value, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let idx = vm_to_interp(index, span)?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    let value = interp.host_index_get(receiver.clone(), idx, span).map_err(map_err)?;
-    interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    with_interp(vm, |interp| {
+        let idx = vm_to_interp(index, span)?;
+        let value = interp.host_index_get(receiver.clone(), idx, span).map_err(map_err)?;
+        interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    })
 }
 
 pub fn host_index_set(vm: &mut Vm, receiver: &IValue, index: &Value, value: &Value, span: Span) -> Result<(), VmError> {
-    let _guard = VmGuard::enter(vm);
-    let idx = vm_to_interp(index, span)?;
-    let val = vm_to_interp(value, span)?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    interp.host_index_set(receiver, &idx, val, span).map_err(map_err)
+    with_interp(vm, |interp| {
+        let idx = vm_to_interp(index, span)?;
+        let val = vm_to_interp(value, span)?;
+        interp.host_index_set(receiver, &idx, val, span).map_err(map_err)
+    })
 }
 
 pub fn host_member_set(vm: &mut Vm, receiver: &IValue, prop: &str, value: &Value, span: Span) -> Result<(), VmError> {
-    let _guard = VmGuard::enter(vm);
-    let val = vm_to_interp(value, span)?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    interp.host_member_set(receiver, prop, val, span).map_err(map_err)
+    with_interp(vm, |interp| {
+        let val = vm_to_interp(value, span)?;
+        interp.host_member_set(receiver, prop, val, span).map_err(map_err)
+    })
 }
 
 pub fn host_iterate(vm: &mut Vm, receiver: &IValue, span: Span) -> Result<Vec<Value>, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let mut interp = yps_interpreter::Interpreter::new();
-    let values = interp.host_iterate(receiver, span).map_err(map_err)?;
-    values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
+    with_interp(vm, |interp| {
+        let values = interp.host_iterate(receiver, span).map_err(map_err)?;
+        values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
+    })
 }
 
 #[must_use]
@@ -227,25 +233,25 @@ pub fn call_host_callback(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span)
 }
 
 pub fn host_call(vm: &mut Vm, callee: &IValue, args: &[Value], span: Span) -> Result<Value, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    let value = interp.host_call(callee.clone(), interp_args, span).map_err(map_err)?;
-    interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    with_interp(vm, |interp| {
+        let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
+        let value = interp.host_call(callee.clone(), interp_args, span).map_err(map_err)?;
+        interp_to_vm(&value).map_err(|m| VmError::new(m, span))
+    })
 }
 
 pub fn host_in(vm: &mut Vm, key: &Value, container: &IValue, span: Span) -> Result<bool, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let key = vm_to_interp(key, span)?;
-    let mut interp = yps_interpreter::Interpreter::new();
-    interp.host_in(&key, container, span).map_err(map_err)
+    with_interp(vm, |interp| {
+        let key = vm_to_interp(key, span)?;
+        interp.host_in(&key, container, span).map_err(map_err)
+    })
 }
 
 pub fn host_for_in_keys(vm: &mut Vm, receiver: &IValue, span: Span) -> Result<Vec<Value>, VmError> {
-    let _guard = VmGuard::enter(vm);
-    let mut interp = yps_interpreter::Interpreter::new();
-    let values = interp.host_for_in_keys(receiver, span).map_err(map_err)?;
-    values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
+    with_interp(vm, |interp| {
+        let values = interp.host_for_in_keys(receiver, span).map_err(map_err)?;
+        values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
+    })
 }
 
 fn map_err(e: yps_interpreter::RuntimeError) -> VmError {
