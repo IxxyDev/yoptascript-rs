@@ -105,57 +105,23 @@ impl<'a> Parser<'a> {
         Ok(lhs)
     }
 
+    pub(super) fn parse_unary(&mut self, op: UnaryOp) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.advance();
+        let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
+        let end = expr.span().end;
+        Ok(Expr::Unary { op, expr: Box::new(expr), span: Span { start, end } })
+    }
+
     pub(super) fn parse_prefix(&mut self) -> Result<Expr, ()> {
         let mut expr = match &self.current().kind {
-            TokenKind::Operator(OperatorKind::Plus) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Plus, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Operator(OperatorKind::Minus) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Minus, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Operator(OperatorKind::Not) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Not, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Operator(OperatorKind::BitwiseNot) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::BitwiseNot, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Keyword(KeywordKind::Typeof) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Typeof, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Keyword(KeywordKind::Delete) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Delete, expr: Box::new(expr), span: Span { start, end } }
-            }
-            TokenKind::Keyword(KeywordKind::Void) => {
-                let start = self.current().span.start;
-                self.advance();
-                let expr = self.parse_expression_with_precedence(UNARY_PRECEDENCE)?;
-                let end = expr.span().end;
-                Expr::Unary { op: UnaryOp::Void, expr: Box::new(expr), span: Span { start, end } }
-            }
+            TokenKind::Operator(OperatorKind::Plus) => self.parse_unary(UnaryOp::Plus)?,
+            TokenKind::Operator(OperatorKind::Minus) => self.parse_unary(UnaryOp::Minus)?,
+            TokenKind::Operator(OperatorKind::Not) => self.parse_unary(UnaryOp::Not)?,
+            TokenKind::Operator(OperatorKind::BitwiseNot) => self.parse_unary(UnaryOp::BitwiseNot)?,
+            TokenKind::Keyword(KeywordKind::Typeof) => self.parse_unary(UnaryOp::Typeof)?,
+            TokenKind::Keyword(KeywordKind::Delete) => self.parse_unary(UnaryOp::Delete)?,
+            TokenKind::Keyword(KeywordKind::Void) => self.parse_unary(UnaryOp::Void)?,
             TokenKind::Keyword(KeywordKind::Await) => {
                 let start = self.current().span.start;
                 self.advance();
