@@ -648,8 +648,7 @@ impl Vm {
                 }
                 Op::ObjectRest(key_count) => {
                     let key_count = key_count as usize;
-                    let keys: Vec<String> =
-                        self.stack.split_off(self.stack.len() - key_count).iter().map(|k| k.to_ecma_string()).collect();
+                    let keys: Vec<String> = self.pop_args(key_count).iter().map(|k| k.to_ecma_string()).collect();
                     let src = self.pop();
                     let mut map = ObjMap::new();
                     match src {
@@ -1675,7 +1674,7 @@ impl Vm {
 
         let value_count =
             blueprint.members.iter().filter(|m| m.has_value).count() + usize::from(blueprint.has_constructor);
-        let mut values: Vec<Value> = self.stack.split_off(self.stack.len() - value_count);
+        let mut values: Vec<Value> = self.pop_args(value_count);
         let mut it = values.drain(..);
 
         let parent = if blueprint.has_parent {
