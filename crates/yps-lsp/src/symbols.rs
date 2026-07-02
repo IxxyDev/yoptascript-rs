@@ -1,13 +1,12 @@
 use tower_lsp::lsp_types::{DocumentSymbol, SymbolKind};
 use yps_lexer::Span;
+use yps_parser::Program;
 use yps_parser::ast::{ClassMember, Identifier, Pattern, Stmt};
 
-use crate::parse_program;
 use crate::position::span_to_range;
 
 #[must_use]
-pub fn document_symbols(text: &str) -> Vec<DocumentSymbol> {
-    let program = parse_program(text);
+pub fn document_symbols(program: &Program, text: &str) -> Vec<DocumentSymbol> {
     let mut out = Vec::new();
     for stmt in &program.items {
         collect(stmt, text, &mut out);
@@ -133,10 +132,14 @@ mod tests {
         symbols.iter().map(|s| s.name.as_str()).collect()
     }
 
+    fn symbols_of(src: &str) -> Vec<DocumentSymbol> {
+        crate::analyze(src).symbols
+    }
+
     #[test]
     fn collects_functions_classes_and_vars() {
         let src = "йопта приветствие(имя) { отвечаю имя; }\nясенХуй x = 1;\nгыы y = 2;";
-        let syms = document_symbols(src);
+        let syms = symbols_of(src);
         assert_eq!(names(&syms), vec!["приветствие", "x", "y"]);
         assert_eq!(syms[0].kind, SymbolKind::FUNCTION);
         assert_eq!(syms[1].kind, SymbolKind::CONSTANT);
@@ -146,7 +149,7 @@ mod tests {
     #[test]
     fn class_members_are_nested() {
         let src = "клёво Кот { constructor() {} мяу() {} }";
-        let syms = document_symbols(src);
+        let syms = symbols_of(src);
         assert_eq!(syms.len(), 1);
         assert_eq!(syms[0].kind, SymbolKind::CLASS);
         let children = syms[0].children.as_ref().unwrap();
@@ -157,7 +160,7 @@ mod tests {
     #[test]
     fn selection_range_points_at_name() {
         let src = "йопта фу() {}";
-        let syms = document_symbols(src);
+        let syms = symbols_of(src);
         let sel = syms[0].selection_range;
         assert_eq!(sel.start.character, 6);
     }
@@ -165,7 +168,7 @@ mod tests {
     #[test]
     fn array_destructuring_yields_one_symbol_per_binding() {
         let src = "ясенХуй [первый, второй] = [1, 2];";
-        let syms = document_symbols(src);
+        let syms = symbols_of(src);
         assert_eq!(names(&syms), vec!["первый", "второй"]);
         assert!(syms.iter().all(|s| s.kind == SymbolKind::CONSTANT));
     }
@@ -173,7 +176,7 @@ mod tests {
     #[test]
     fn object_destructuring_yields_one_symbol_per_binding() {
         let src = "гыы { ключ, значение } = объект;";
-        let syms = document_symbols(src);
+        let syms = symbols_of(src);
         assert_eq!(names(&syms), vec!["ключ", "значение"]);
         assert!(syms.iter().all(|s| s.kind == SymbolKind::VARIABLE));
     }

@@ -9,11 +9,13 @@ pub mod symbols;
 pub mod types;
 
 use tower_lsp::lsp_types::{
-    CompletionOptions, HoverProviderCapability, OneOf, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind,
+    CompletionOptions, Diagnostic, DocumentSymbol, HoverProviderCapability, OneOf, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use yps_lexer::{Lexer, SourceFile};
-use yps_parser::{Parser, Program};
+use yps_parser::Parser;
+
+use crate::definition::Declaration;
 
 #[must_use]
 pub fn server_capabilities() -> ServerCapabilities {
@@ -31,12 +33,24 @@ pub fn server_capabilities() -> ServerCapabilities {
     }
 }
 
+pub struct Analyzed {
+    pub text: String,
+    pub diagnostics: Vec<Diagnostic>,
+    pub symbols: Vec<DocumentSymbol>,
+    pub declarations: Vec<Declaration>,
+}
+
 #[must_use]
-pub fn parse_program(text: &str) -> Program {
+pub fn analyze(text: &str) -> Analyzed {
     let sf = SourceFile::new("inline".to_string(), text.to_string());
-    let (tokens, _) = Lexer::new(&sf).tokenize();
-    let (program, _) = Parser::new(&tokens, &sf).parse_program();
-    program
+    let (tokens, lex_diags) = Lexer::new(&sf).tokenize();
+    let (program, parse_diags) = Parser::new(&tokens, &sf).parse_program();
+    Analyzed {
+        diagnostics: diagnostics::to_lsp_diagnostics(text, &lex_diags, &parse_diags),
+        symbols: symbols::document_symbols(&program, text),
+        declarations: definition::declarations(&program),
+        text: text.to_string(),
+    }
 }
 
 #[cfg(test)]
