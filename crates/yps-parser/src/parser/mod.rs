@@ -31,6 +31,17 @@ impl<'a> Parser<'a> {
         Self { tokens, source, position: 0, diagnostics: Vec::new(), unexpected_eof: false, depth: 0 }
     }
 
+    fn expect_punct(&mut self, kind: PunctuationKind, msg: &str) -> Result<Span, ()> {
+        if !matches!(&self.current().kind, TokenKind::Punctuation(k) if *k == kind) {
+            let span = self.current().span;
+            self.push_error(span, msg);
+            return Err(());
+        }
+        let span = self.current().span;
+        self.advance();
+        Ok(span)
+    }
+
     fn enter_depth(&mut self) -> Result<(), ()> {
         if self.depth >= MAX_PARSE_DEPTH {
             let span = self.current().span;

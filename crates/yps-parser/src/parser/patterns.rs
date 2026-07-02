@@ -65,13 +65,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался ']'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBracket, "Ожидался ']'")?.end;
 
         Ok(Pattern::Array { elements, rest, span: Span { start, end } })
     }
@@ -123,13 +117,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался '}'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBrace, "Ожидался '}'")?.end;
 
         Ok(Pattern::Object { properties, rest, span: Span { start, end } })
     }

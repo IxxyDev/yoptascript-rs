@@ -28,25 +28,14 @@ impl<'a> Parser<'a> {
             None
         };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '{' после имени класса");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LBrace, "Ожидалась '{' после имени класса")?;
 
         let mut members = Vec::new();
         while !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace) | TokenKind::Eof) {
             members.push(self.parse_class_member(&name.name)?);
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '}' в конце класса");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBrace, "Ожидалась '}' в конце класса")?.end;
 
         Ok(Stmt::ClassDecl { name, super_class, members, decorators, span: Span { start, end } })
     }
@@ -71,18 +60,8 @@ impl<'a> Parser<'a> {
         {
             self.advance();
             let (member_name, is_private) = self.parse_member_name(modifier_private)?;
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась '(' после имени геттера");
-                return Err(());
-            }
-            self.advance();
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Геттер не принимает параметров");
-                return Err(());
-            }
-            self.advance();
+            self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени геттера")?;
+            self.expect_punct(PunctuationKind::RParen, "Геттер не принимает параметров")?;
             let body = self.parse_block()?;
             let end = body.span.end;
             return Ok(ClassMember::Getter {
@@ -101,24 +80,14 @@ impl<'a> Parser<'a> {
         {
             self.advance();
             let (member_name, is_private) = self.parse_member_name(modifier_private)?;
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась '(' после имени сеттера");
-                return Err(());
-            }
-            self.advance();
+            self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени сеттера")?;
             let params = self.parse_function_params()?;
             if params.len() != 1 {
                 let span = self.current().span;
                 self.push_error(span, "Сеттер принимает ровно один параметр");
                 return Err(());
             }
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась ')' после параметра сеттера");
-                return Err(());
-            }
-            self.advance();
+            self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметра сеттера")?;
             let body = self.parse_block()?;
             let end = body.span.end;
             let param = params.into_iter().next().unwrap();
@@ -139,12 +108,7 @@ impl<'a> Parser<'a> {
             self.advance();
             let params = self.parse_function_params()?;
 
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась ')' после параметров метода");
-                return Err(());
-            }
-            self.advance();
+            self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
 
             let body = self.parse_block()?;
             let end = body.span.end;
