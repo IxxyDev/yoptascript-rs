@@ -96,6 +96,16 @@ impl Interpreter {
         )
     }
 
+    pub(super) fn eval_prop_key(&mut self, key: &PropKey) -> Result<String, RuntimeError> {
+        Ok(match key {
+            PropKey::Identifier(ident) => ident.name.clone(),
+            PropKey::Computed(expr) => {
+                let k = self.eval_expr(expr)?;
+                if let Value::Symbol { id, .. } = &k { crate::symbols::symbol_key(*id) } else { k.to_string() }
+            }
+        })
+    }
+
     fn eval_expr_inner(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
@@ -474,17 +484,7 @@ impl Interpreter {
                 for entry in entries {
                     match entry {
                         ObjectEntry::Property { key, value } => {
-                            let key_str = match key {
-                                PropKey::Identifier(ident) => ident.name.clone(),
-                                PropKey::Computed(expr) => {
-                                    let k = self.eval_expr(expr)?;
-                                    if let Value::Symbol { id, .. } = &k {
-                                        crate::symbols::symbol_key(*id)
-                                    } else {
-                                        k.to_string()
-                                    }
-                                }
-                            };
+                            let key_str = self.eval_prop_key(key)?;
                             let val = self.eval_expr(value)?;
                             map.insert(key_str, val);
                         }
@@ -511,17 +511,7 @@ impl Interpreter {
                             }
                         }
                         ObjectEntry::Getter { key, body, .. } => {
-                            let key_str = match key {
-                                PropKey::Identifier(ident) => ident.name.clone(),
-                                PropKey::Computed(expr) => {
-                                    let k = self.eval_expr(expr)?;
-                                    if let Value::Symbol { id, .. } = &k {
-                                        crate::symbols::symbol_key(*id)
-                                    } else {
-                                        k.to_string()
-                                    }
-                                }
-                            };
+                            let key_str = self.eval_prop_key(key)?;
                             let getter_fn = Value::Function {
                                 name: Rc::from(format!("get {key_str}").as_str()),
                                 params: Rc::from([] as [Param; 0]),
@@ -533,17 +523,7 @@ impl Interpreter {
                             map.insert(symbols::getter_key(&key_str), getter_fn);
                         }
                         ObjectEntry::Setter { key, param, body, .. } => {
-                            let key_str = match key {
-                                PropKey::Identifier(ident) => ident.name.clone(),
-                                PropKey::Computed(expr) => {
-                                    let k = self.eval_expr(expr)?;
-                                    if let Value::Symbol { id, .. } = &k {
-                                        crate::symbols::symbol_key(*id)
-                                    } else {
-                                        k.to_string()
-                                    }
-                                }
-                            };
+                            let key_str = self.eval_prop_key(key)?;
                             let setter_fn = Value::Function {
                                 name: Rc::from(format!("set {key_str}").as_str()),
                                 params: Rc::from([param.clone()]),
