@@ -176,6 +176,33 @@ impl Environment {
         }
     }
 
+    pub fn lookup(&self, name: &str) -> (bool, Option<Value>) {
+        let mut frame_rc = Rc::clone(&self.current);
+        let mut is_const = false;
+        let mut value: Option<Value> = None;
+        loop {
+            let parent = {
+                let frame = frame_rc.borrow();
+                if !is_const && frame.constants.contains(name) {
+                    is_const = true;
+                }
+                if value.is_none()
+                    && let Some(v) = frame.bindings.get(name)
+                {
+                    value = Some(v.clone());
+                }
+                if is_const && value.is_some() {
+                    return (is_const, value);
+                }
+                frame.parent.clone()
+            };
+            match parent {
+                Some(p) => frame_rc = p,
+                None => return (is_const, value),
+            }
+        }
+    }
+
     pub fn add_disposable(&mut self, value: Value) {
         self.current.borrow_mut().disposables.push(value);
     }

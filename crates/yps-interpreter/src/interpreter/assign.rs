@@ -92,18 +92,7 @@ impl Interpreter {
                 if property.name.starts_with('#') {
                     self.check_private_access_for_set(object, &property.name, span)?;
                 }
-                let mut path = Vec::new();
-                let root_name = self.collect_access_path(target, &mut path, span)?;
-                path.reverse();
-                if self.env.is_const(&root_name) {
-                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
-                }
-                let root = self
-                    .env
-                    .get(&root_name)
-                    .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-                Self::set_at_path(root, &path, value.clone(), span)?;
-                Ok(value)
+                self.assign_via_path(target, value, span)
             }
             Expr::Index { object, index, .. } => {
                 let obj = self.eval_expr(object)?;
@@ -112,18 +101,7 @@ impl Interpreter {
                     self.proxy_set(&ptarget, &handler, &key, value.clone(), obj, span)?;
                     return Ok(value);
                 }
-                let mut path = Vec::new();
-                let root_name = self.collect_access_path(target, &mut path, span)?;
-                path.reverse();
-                if self.env.is_const(&root_name) {
-                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
-                }
-                let root = self
-                    .env
-                    .get(&root_name)
-                    .ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-                Self::set_at_path(root, &path, value.clone(), span)?;
-                Ok(value)
+                self.assign_via_path(target, value, span)
             }
             Expr::Literal(Literal::Array { elements, .. }) => {
                 self.destructure_assign_array(elements, value.clone(), span)?;
@@ -356,6 +334,19 @@ impl Interpreter {
             ));
         }
         Ok(())
+    }
+
+    fn assign_via_path(&mut self, target: &Expr, value: Value, span: Span) -> Result<Value, RuntimeError> {
+        let mut path = Vec::new();
+        let root_name = self.collect_access_path(target, &mut path, span)?;
+        path.reverse();
+        let (is_const, root) = self.env.lookup(&root_name);
+        if is_const {
+            return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
+        }
+        let root = root.ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
+        Self::set_at_path(root, &path, value.clone(), span)?;
+        Ok(value)
     }
 
     pub(super) fn collect_access_path(
