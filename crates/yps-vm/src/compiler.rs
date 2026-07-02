@@ -1381,45 +1381,19 @@ impl Compiler {
             }
             Expr::TemplateLiteral { parts, span } => self.compile_template(parts, *span),
             Expr::OptionalMember { object, property, span } => {
-                self.compile_expr(object)?;
-                let nullish = self.emit(Op::JumpIfNullishPeek(0), *span);
                 let idx = self.str_const(&property.name);
-                self.emit(Op::GetProp(idx), *span);
-                let done = self.emit(Op::Jump(0), *span);
-                let nullish_here = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(nullish, nullish_here);
-                self.emit(Op::Pop, *span);
-                self.emit(Op::Undefined, *span);
-                let end = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(done, end);
-                Ok(())
+                self.compile_optional_chain(object, *span, |c| {
+                    c.emit(Op::GetProp(idx), *span);
+                    Ok(())
+                })
             }
-            Expr::OptionalIndex { object, index, span } => {
-                self.compile_expr(object)?;
-                let nullish = self.emit(Op::JumpIfNullishPeek(0), *span);
-                self.compile_expr(index)?;
-                self.emit(Op::GetIndex, *span);
-                let done = self.emit(Op::Jump(0), *span);
-                let nullish_here = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(nullish, nullish_here);
-                self.emit(Op::Pop, *span);
-                self.emit(Op::Undefined, *span);
-                let end = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(done, end);
+            Expr::OptionalIndex { object, index, span } => self.compile_optional_chain(object, *span, |c| {
+                c.compile_expr(index)?;
+                c.emit(Op::GetIndex, *span);
                 Ok(())
-            }
+            }),
             Expr::OptionalCall { callee, args, span } => {
-                self.compile_expr(callee)?;
-                let nullish = self.emit(Op::JumpIfNullishPeek(0), *span);
-                self.compile_call_args(args, *span)?;
-                let done = self.emit(Op::Jump(0), *span);
-                let nullish_here = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(nullish, nullish_here);
-                self.emit(Op::Pop, *span);
-                self.emit(Op::Undefined, *span);
-                let end = self.cur().chunk.code.len();
-                self.cur().chunk.patch_jump(done, end);
-                Ok(())
+                self.compile_optional_chain(callee, *span, |c| c.compile_call_args(args, *span))
             }
             Expr::This { span } => {
                 if matches!(self.resolve(THIS_LOCAL), VarLoc::Global(_)) {
@@ -1906,6 +1880,25 @@ impl Compiler {
             _ => self.compile_expr(callee)?,
         }
         self.compile_call_args(args, span)
+    }
+
+    fn compile_optional_chain(
+        &mut self,
+        base: &Expr,
+        span: Span,
+        emit_access: impl FnOnce(&mut Self) -> Result<(), CompileError>,
+    ) -> Result<(), CompileError> {
+        self.compile_expr(base)?;
+        let nullish = self.emit(Op::JumpIfNullishPeek(0), span);
+        emit_access(self)?;
+        let done = self.emit(Op::Jump(0), span);
+        let nullish_here = self.cur().chunk.code.len();
+        self.cur().chunk.patch_jump(nullish, nullish_here);
+        self.emit(Op::Pop, span);
+        self.emit(Op::Undefined, span);
+        let end = self.cur().chunk.code.len();
+        self.cur().chunk.patch_jump(done, end);
+        Ok(())
     }
 
     fn compile_spread_array(&mut self, args: &[Expr], span: Span) -> Result<(), CompileError> {
