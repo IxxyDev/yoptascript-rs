@@ -25,25 +25,41 @@ impl Interpreter {
         rhs: &Expr,
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        if let Expr::Index { object, index, .. } = lhs {
+            let (obj, key, old) = self.resolve_index_place(object, index, span)?;
+            let right = self.eval_expr(rhs)?;
+            let result = self.eval_binary(compound_arith_op(op), old, right, span)?;
+            self.store_index_place(object, obj, key, result.clone(), span)?;
+            return Ok(result);
+        }
         let old = self.eval_expr(lhs)?;
         let right = self.eval_expr(rhs)?;
-        let arith_op = match op {
-            BinaryOp::PlusAssign => BinaryOp::Add,
-            BinaryOp::MinusAssign => BinaryOp::Sub,
-            BinaryOp::MulAssign => BinaryOp::Mul,
-            BinaryOp::DivAssign => BinaryOp::Div,
-            BinaryOp::ExpAssign => BinaryOp::Exp,
-            BinaryOp::ModAssign => BinaryOp::Mod,
-            BinaryOp::BitAndAssign => BinaryOp::BitAnd,
-            BinaryOp::BitOrAssign => BinaryOp::BitOr,
-            BinaryOp::BitXorAssign => BinaryOp::BitXor,
-            BinaryOp::ShlAssign => BinaryOp::LeftShift,
-            BinaryOp::ShrAssign => BinaryOp::RightShift,
-            BinaryOp::UshrAssign => BinaryOp::UnsignedRightShift,
-            _ => unreachable!(),
-        };
-        let result = self.eval_binary(arith_op, old, right, span)?;
+        let result = self.eval_binary(compound_arith_op(op), old, right, span)?;
         self.assign_to_target(lhs, result, span)
+    }
+
+    pub(super) fn eval_logical_assign(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        span: Span,
+        should_write: impl FnOnce(&Value) -> bool,
+    ) -> Result<Value, RuntimeError> {
+        if let Expr::Index { object, index, .. } = lhs {
+            let (obj, key, old) = self.resolve_index_place(object, index, span)?;
+            if !should_write(&old) {
+                return Ok(old);
+            }
+            let right = self.eval_expr(rhs)?;
+            self.store_index_place(object, obj, key, right.clone(), span)?;
+            return Ok(right);
+        }
+        let left = self.eval_expr(lhs)?;
+        if !should_write(&left) {
+            return Ok(left);
+        }
+        let right = self.eval_expr(rhs)?;
+        self.assign_to_target(lhs, right, span)
     }
 
     pub(super) fn assign_to_target(&mut self, target: &Expr, value: Value, span: Span) -> Result<Value, RuntimeError> {
@@ -364,6 +380,47 @@ impl Interpreter {
         }
     }
 
+    pub(super) fn resolve_index_place(
+        &mut self,
+        object: &Expr,
+        index: &Expr,
+        span: Span,
+    ) -> Result<(Value, Value, Value), RuntimeError> {
+        let obj = self.eval_expr(object)?;
+        let key = self.eval_expr(index)?;
+        let old = self.eval_index(obj.clone(), key.clone(), span)?;
+        Ok((obj, key, old))
+    }
+
+    pub(super) fn store_index_place(
+        &mut self,
+        object: &Expr,
+        obj: Value,
+        key: Value,
+        value: Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if let Some((target, handler)) = obj.proxy_parts() {
+            return self.proxy_set(&target, &handler, &key.to_string(), value, obj, span);
+        }
+        if let Some(root) = Self::root_ident_name(object)
+            && self.env.is_const(&root)
+        {
+            return Err(RuntimeError::new(format!("Нельзя изменить константу '{root}'"), span));
+        }
+        Self::set_at_path(obj, &[AccessSegment::Index(key)], value, span)
+    }
+
+    fn root_ident_name(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Identifier(ident) => Some(ident.name.clone()),
+            Expr::This { .. } => Some(symbols::THIS.to_string()),
+            Expr::Member { object, .. } | Expr::Index { object, .. } => Self::root_ident_name(object),
+            Expr::Grouping { expr, .. } => Self::root_ident_name(expr),
+            _ => None,
+        }
+    }
+
     fn set_at_path(target: Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
         if path.is_empty() {
             return Ok(());
@@ -519,5 +576,23 @@ impl Interpreter {
             return Err(RuntimeError::new(format!("Переменная '{name}' не определена"), span));
         }
         Ok(())
+    }
+}
+
+fn compound_arith_op(op: BinaryOp) -> BinaryOp {
+    match op {
+        BinaryOp::PlusAssign => BinaryOp::Add,
+        BinaryOp::MinusAssign => BinaryOp::Sub,
+        BinaryOp::MulAssign => BinaryOp::Mul,
+        BinaryOp::DivAssign => BinaryOp::Div,
+        BinaryOp::ExpAssign => BinaryOp::Exp,
+        BinaryOp::ModAssign => BinaryOp::Mod,
+        BinaryOp::BitAndAssign => BinaryOp::BitAnd,
+        BinaryOp::BitOrAssign => BinaryOp::BitOr,
+        BinaryOp::BitXorAssign => BinaryOp::BitXor,
+        BinaryOp::ShlAssign => BinaryOp::LeftShift,
+        BinaryOp::ShrAssign => BinaryOp::RightShift,
+        BinaryOp::UshrAssign => BinaryOp::UnsignedRightShift,
+        _ => unreachable!(),
     }
 }

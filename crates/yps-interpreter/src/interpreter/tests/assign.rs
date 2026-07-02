@@ -167,3 +167,45 @@ fn assign_array_in_object() {
     );
     assert_eq!(interp.get("результат"), Some(Value::Number(99.0)));
 }
+
+#[test]
+fn compound_assign_evaluates_index_once() {
+    let interp = run_code(
+        r#"
+        гыы вызовы = 0;
+        йопта индекс() { вызовы += 1; отвечаю 0; }
+        гыы список = [5];
+        список[индекс()] += 1;
+        "#,
+    );
+    assert_eq!(interp.get("вызовы"), Some(Value::Number(1.0)));
+    assert_struct_eq(interp.get("список"), Value::array(vec![Value::Number(6.0)]));
+}
+
+#[test]
+fn logical_assign_evaluates_index_once() {
+    let interp = run_code(
+        r#"
+        гыы вызовы = 0;
+        йопта индекс() { вызовы += 1; отвечаю 0; }
+        гыы список = [0];
+        список[индекс()] ||= 7;
+        "#,
+    );
+    assert_eq!(interp.get("вызовы"), Some(Value::Number(1.0)));
+    assert_struct_eq(interp.get("список"), Value::array(vec![Value::Number(7.0)]));
+}
+
+#[test]
+fn logical_assign_skips_write_when_short_circuited() {
+    let interp = run_code(
+        r#"
+        гыы вызовы = 0;
+        йопта индекс() { вызовы += 1; отвечаю 0; }
+        гыы список = [3];
+        список[индекс()] ||= 7;
+        "#,
+    );
+    assert_eq!(interp.get("вызовы"), Some(Value::Number(1.0)));
+    assert_struct_eq(interp.get("список"), Value::array(vec![Value::Number(3.0)]));
+}
