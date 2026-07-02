@@ -204,12 +204,9 @@ impl Interpreter {
                 let result = match try_result {
                     Err(err) => {
                         debug_assert_eq!(self.call_stack.len(), stack_depth, "стек вызовов разбалансирован после try");
-                        if let Some(cb) = catch_block {
-                            self.env.push_scope();
-                            if let Some(param) = catch_param {
-                                let bound = if let Some(thrown) = err.thrown {
-                                    *thrown
-                                } else {
+                        match catch_block {
+                            Some(cb) => {
+                                let thrown = err.thrown.map(|t| *t).unwrap_or_else(|| {
                                     let mut map = IndexMap::new();
                                     map.insert(
                                         symbols::ERROR_NAME_FIELD.to_string(),
@@ -217,28 +214,17 @@ impl Interpreter {
                                     );
                                     map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
                                     Value::object(map)
-                                };
-                                self.env.define(param.name.clone(), bound, false);
+                                });
+                                self.run_catch(cb, catch_param.as_ref(), thrown)
                             }
-                            let r = self.exec_block_stmts(&cb.stmts);
-                            self.env.pop_scope();
-                            r
-                        } else {
-                            Err(err)
+                            None => Err(err),
                         }
                     }
                     Ok(Some(ControlFlow::Throw(val))) => {
                         debug_assert_eq!(self.call_stack.len(), stack_depth, "стек вызовов разбалансирован после try");
-                        if let Some(cb) = catch_block {
-                            self.env.push_scope();
-                            if let Some(param) = catch_param {
-                                self.env.define(param.name.clone(), val, false);
-                            }
-                            let r = self.exec_block_stmts(&cb.stmts);
-                            self.env.pop_scope();
-                            r
-                        } else {
-                            Ok(Some(ControlFlow::Throw(val)))
+                        match catch_block {
+                            Some(cb) => self.run_catch(cb, catch_param.as_ref(), val),
+                            None => Ok(Some(ControlFlow::Throw(val))),
                         }
                     }
                     other => other,
@@ -340,6 +326,21 @@ impl Interpreter {
                 }
             },
         }
+    }
+
+    fn run_catch(
+        &mut self,
+        catch_block: &Block,
+        catch_param: Option<&Identifier>,
+        thrown: Value,
+    ) -> Result<Option<ControlFlow>, RuntimeError> {
+        self.env.push_scope();
+        if let Some(param) = catch_param {
+            self.env.define(param.name.clone(), thrown, false);
+        }
+        let r = self.exec_block_stmts(&catch_block.stmts);
+        self.env.pop_scope();
+        r
     }
 
     fn exec_block(&mut self, block: &Block) -> Result<Option<ControlFlow>, RuntimeError> {
