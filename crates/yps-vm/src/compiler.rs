@@ -396,14 +396,12 @@ impl Compiler {
                 *span,
             ),
             Stmt::Switch { expr, cases, default, span } => self.compile_switch(expr, cases, default.as_ref(), *span),
-            Stmt::ForIn { variable, iterable, body, span } => {
-                self.compile_for_each(variable, iterable, body, true, false, *span)
-            }
+            Stmt::ForIn { variable, iterable, body, span } => self.compile_for_in(variable, iterable, body, *span),
             Stmt::ForOf { variable, iterable, body, span } => {
-                self.compile_for_each(variable, iterable, body, false, false, *span)
+                self.compile_for_of(variable, iterable, body, false, *span)
             }
             Stmt::ForAwaitOf { variable, iterable, body, span } => {
-                self.compile_for_each(variable, iterable, body, false, true, *span)
+                self.compile_for_of(variable, iterable, body, true, *span)
             }
             Stmt::Debugger { .. } => Ok(()),
             Stmt::ClassDecl { name, super_class, members, decorators, span } => {
@@ -527,18 +525,13 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_for_each(
+    fn compile_for_in(
         &mut self,
         variable: &Identifier,
         iterable: &Expr,
         body: &Stmt,
-        is_for_in: bool,
-        is_await: bool,
         span: Span,
     ) -> Result<(), CompileError> {
-        if !is_for_in {
-            return self.compile_for_of(variable, iterable, body, is_await, span);
-        }
         let label = self.take_pending_label();
         self.begin_scope();
         self.compile_expr(iterable)?;
