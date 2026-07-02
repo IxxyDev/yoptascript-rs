@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind};
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionItemKind, DocumentSymbol, Documentation, MarkupContent, MarkupKind,
+};
 use yps_interpreter::builtins::builtin_names;
 use yps_lexer::KEYWORDS;
 
 use crate::builtins::builtin_doc;
 use crate::position::member_receiver;
-use crate::symbols::document_symbols;
 use crate::types::{global_type_items, is_known_global, member_items_for};
 
 fn markdown(value: &str) -> Documentation {
@@ -14,7 +15,7 @@ fn markdown(value: &str) -> Documentation {
 }
 
 #[must_use]
-pub fn completion_items(text: &str, cursor: Option<usize>) -> Vec<CompletionItem> {
+pub fn completion_items(symbols: &[DocumentSymbol], text: &str, cursor: Option<usize>) -> Vec<CompletionItem> {
     if let Some(byte) = cursor
         && let Some(receiver) = member_receiver(text, byte)
     {
@@ -47,10 +48,10 @@ pub fn completion_items(text: &str, cursor: Option<usize>) -> Vec<CompletionItem
         }
     }
 
-    for symbol in document_symbols(text) {
+    for symbol in symbols {
         if seen.insert(symbol.name.clone()) {
             items.push(CompletionItem {
-                label: symbol.name,
+                label: symbol.name.clone(),
                 kind: Some(symbol_completion_kind(symbol.kind)),
                 detail: Some("из текущего файла".to_string()),
                 ..Default::default()
@@ -105,9 +106,13 @@ mod tests {
         items.iter().map(|i| i.label.as_str()).collect()
     }
 
+    fn items_for(src: &str, cursor: Option<usize>) -> Vec<CompletionItem> {
+        completion_items(&crate::analyze(src).symbols, src, cursor)
+    }
+
     #[test]
     fn includes_keywords_and_builtins() {
-        let items = completion_items("", None);
+        let items = items_for("", None);
         let labels = labels(&items);
         assert!(labels.contains(&"йопта"));
         assert!(labels.contains(&"сказать"));
@@ -116,7 +121,7 @@ mod tests {
     #[test]
     fn includes_document_declarations() {
         let src = "йопта мояФункция() {}\nясенХуй мояКонстанта = 1;";
-        let items = completion_items(src, None);
+        let items = items_for(src, None);
         let labels = labels(&items);
         assert!(labels.contains(&"мояФункция"), "got {labels:?}");
         assert!(labels.contains(&"мояКонстанта"), "got {labels:?}");
@@ -124,7 +129,7 @@ mod tests {
 
     #[test]
     fn builtins_carry_js_documentation() {
-        let items = completion_items("", None);
+        let items = items_for("", None);
         let say = items.iter().find(|i| i.label == "сказать").unwrap();
         match &say.documentation {
             Some(Documentation::MarkupContent(mc)) => assert!(mc.value.contains("console.log")),
@@ -135,7 +140,7 @@ mod tests {
     #[test]
     fn document_declaration_marked_with_detail() {
         let src = "йопта фу() {}";
-        let items = completion_items(src, None);
+        let items = items_for(src, None);
         let fu = items.iter().find(|i| i.label == "фу").unwrap();
         assert_eq!(fu.detail.as_deref(), Some("из текущего файла"));
         assert_eq!(fu.kind, Some(CompletionItemKind::FUNCTION));
@@ -143,7 +148,7 @@ mod tests {
 
     #[test]
     fn includes_builtin_classes_and_namespaces() {
-        let items = completion_items("", None);
+        let items = items_for("", None);
         let labels = labels(&items);
         assert!(labels.contains(&"Матан"), "ожидался namespace Матан");
         assert!(labels.contains(&"Карта"), "ожидался класс Карта");
@@ -153,7 +158,7 @@ mod tests {
     #[test]
     fn member_position_offers_namespace_members() {
         let src = "Матан.";
-        let items = completion_items(src, Some(src.len()));
+        let items = items_for(src, Some(src.len()));
         let labels = labels(&items);
         assert!(labels.contains(&"корень"), "got {labels:?}");
         assert!(!labels.contains(&"йопта"), "ключевые слова не должны быть среди членов");
@@ -163,7 +168,7 @@ mod tests {
     #[test]
     fn member_position_unknown_receiver_unions_members() {
         let src = "x.";
-        let items = completion_items(src, Some(src.len()));
+        let items = items_for(src, Some(src.len()));
         let labels = labels(&items);
         assert!(labels.contains(&"вВерхнийРегистр"));
         assert!(labels.contains(&"добавить"));
@@ -172,7 +177,7 @@ mod tests {
     #[test]
     fn member_position_offers_console_family() {
         let src = "сказать.";
-        let items = completion_items(src, Some(src.len()));
+        let items = items_for(src, Some(src.len()));
         let labels = labels(&items);
         assert!(labels.contains(&"ошибка"), "ожидалось сказать.ошибка, got {labels:?}");
         assert!(labels.contains(&"время"));

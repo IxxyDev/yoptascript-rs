@@ -1,18 +1,14 @@
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
-use yps_lexer::{Lexer, Severity, SourceFile};
-use yps_parser::Parser;
+use yps_lexer::Severity;
 
 use crate::position::span_to_range;
 
 #[must_use]
-pub fn analyze(uri: &str, text: &str) -> Vec<Diagnostic> {
-    let sf = SourceFile::new(uri.to_string(), text.to_string());
-    let lexer = Lexer::new(&sf);
-    let (tokens, lex_diags) = lexer.tokenize();
-
-    let parser = Parser::new(&tokens, &sf);
-    let (_, parse_diags) = parser.parse_program();
-
+pub fn to_lsp_diagnostics(
+    text: &str,
+    lex_diags: &[yps_lexer::Diagnostic],
+    parse_diags: &[yps_lexer::Diagnostic],
+) -> Vec<Diagnostic> {
     lex_diags
         .iter()
         .chain(parse_diags.iter())
@@ -37,13 +33,13 @@ mod tests {
 
     #[test]
     fn clean_source_has_no_diagnostics() {
-        let diags = analyze("file:///a.yopta", "ясенХуй x = 1;\n");
+        let diags = crate::analyze("ясенХуй x = 1;\n").diagnostics;
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
     }
 
     #[test]
     fn broken_source_reports_error() {
-        let diags = analyze("file:///a.yopta", "йопта (");
+        let diags = crate::analyze("йопта (").diagnostics;
         assert!(diags.iter().any(|d| d.severity == Some(DiagnosticSeverity::ERROR)));
     }
 }

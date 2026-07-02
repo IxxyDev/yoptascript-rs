@@ -1,38 +1,42 @@
 use tower_lsp::lsp_types::Position;
 use yps_lexer::Span;
+use yps_parser::Program;
 use yps_parser::ast::{
     Block, ClassMember, ExportKind, Expr, Identifier, ImportSpec, Literal, ObjectEntry, Param, Pattern, PropKey, Stmt,
 };
 
-use crate::parse_program;
 use crate::position::{pos_to_byte, word_at};
 
-struct Decl {
-    name: String,
-    span: Span,
+pub struct Declaration {
+    pub name: String,
+    pub span: Span,
 }
 
 #[must_use]
-pub fn goto_definition(text: &str, pos: Position) -> Option<Span> {
+pub fn declarations(program: &Program) -> Vec<Declaration> {
+    let mut decls = Vec::new();
+    for stmt in &program.items {
+        collect_stmt(stmt, &mut decls);
+    }
+    decls
+}
+
+#[must_use]
+pub fn goto_definition(declarations: &[Declaration], text: &str, pos: Position) -> Option<Span> {
     let byte = pos_to_byte(text, pos);
     let word = word_at(text, byte);
     if word.is_empty() {
         return None;
     }
 
-    let program = parse_program(text);
-    let mut decls = Vec::new();
-    for stmt in &program.items {
-        collect_stmt(stmt, &mut decls);
-    }
-    decls.into_iter().find(|d| d.name == word).map(|d| d.span)
+    declarations.iter().find(|d| d.name == word).map(|d| d.span)
 }
 
-fn push_ident(ident: &Identifier, out: &mut Vec<Decl>) {
-    out.push(Decl { name: ident.name.clone(), span: ident.span });
+fn push_ident(ident: &Identifier, out: &mut Vec<Declaration>) {
+    out.push(Declaration { name: ident.name.clone(), span: ident.span });
 }
 
-fn collect_pattern(pattern: &Pattern, out: &mut Vec<Decl>) {
+fn collect_pattern(pattern: &Pattern, out: &mut Vec<Declaration>) {
     match pattern {
         Pattern::Identifier(ident) => push_ident(ident, out),
         Pattern::Array { elements, rest, .. } => {
@@ -61,7 +65,7 @@ fn collect_pattern(pattern: &Pattern, out: &mut Vec<Decl>) {
     }
 }
 
-fn collect_params(params: &[Param], out: &mut Vec<Decl>) {
+fn collect_params(params: &[Param], out: &mut Vec<Declaration>) {
     for param in params {
         match &param.pattern {
             Some(pattern) => collect_pattern(pattern, out),
@@ -73,13 +77,13 @@ fn collect_params(params: &[Param], out: &mut Vec<Decl>) {
     }
 }
 
-fn collect_block(block: &Block, out: &mut Vec<Decl>) {
+fn collect_block(block: &Block, out: &mut Vec<Declaration>) {
     for stmt in &block.stmts {
         collect_stmt(stmt, out);
     }
 }
 
-fn collect_members(members: &[ClassMember], out: &mut Vec<Decl>) {
+fn collect_members(members: &[ClassMember], out: &mut Vec<Declaration>) {
     for member in members {
         match member {
             ClassMember::Constructor { params, body, .. } => {
@@ -118,7 +122,7 @@ fn collect_members(members: &[ClassMember], out: &mut Vec<Decl>) {
     }
 }
 
-fn collect_stmt(stmt: &Stmt, out: &mut Vec<Decl>) {
+fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
     match stmt {
         Stmt::VarDecl { pattern, init, .. } => {
             collect_pattern(pattern, out);
@@ -220,7 +224,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Decl>) {
     }
 }
 
-fn collect_literal(lit: &Literal, out: &mut Vec<Decl>) {
+fn collect_literal(lit: &Literal, out: &mut Vec<Declaration>) {
     match lit {
         Literal::Array { elements, .. } => {
             for el in elements {
@@ -257,13 +261,13 @@ fn collect_literal(lit: &Literal, out: &mut Vec<Decl>) {
     }
 }
 
-fn collect_prop_key(key: &PropKey, out: &mut Vec<Decl>) {
+fn collect_prop_key(key: &PropKey, out: &mut Vec<Declaration>) {
     if let PropKey::Computed(expr) = key {
         collect_expr(expr, out);
     }
 }
 
-fn collect_expr(expr: &Expr, out: &mut Vec<Decl>) {
+fn collect_expr(expr: &Expr, out: &mut Vec<Declaration>) {
     match expr {
         Expr::Identifier(_) | Expr::This { .. } | Expr::Super { .. } => {}
         Expr::Literal(lit) => collect_literal(lit, out),
@@ -331,16 +335,20 @@ mod tests {
     use super::*;
     use crate::position::byte_to_pos;
 
+    fn resolve(src: &str, pos: Position) -> Option<Span> {
+        goto_definition(&crate::analyze(src).declarations, src, pos)
+    }
+
     fn def_at(src: &str, needle: &str) -> Option<Span> {
         let byte = src.find(needle).unwrap();
-        goto_definition(src, byte_to_pos(src, byte))
+        resolve(src, byte_to_pos(src, byte))
     }
 
     #[test]
     fn jumps_to_function_declaration() {
         let src = "йопта фу() { отвечаю 1; }\nфу();";
         let usage = src.rfind("фу").unwrap();
-        let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("фу").unwrap());
     }
 
@@ -348,7 +356,7 @@ mod tests {
     fn jumps_to_variable_declaration() {
         let src = "ясенХуй x = 1;\nсказать(x);";
         let usage = src.rfind('x').unwrap();
-        let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find('x').unwrap());
     }
 
@@ -356,7 +364,7 @@ mod tests {
     fn jumps_to_parameter() {
         let src = "йопта фу(парам) { отвечаю парам; }";
         let usage = src.rfind("парам").unwrap();
-        let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("парам").unwrap());
     }
 
@@ -364,7 +372,7 @@ mod tests {
     fn resolves_param_inside_array_literal_arrow() {
         let src = "ясенХуй список = [йопта(элемент) { отвечаю элемент; }];";
         let usage = src.rfind("элемент").unwrap();
-        let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("элемент").unwrap());
     }
 
@@ -372,7 +380,7 @@ mod tests {
     fn resolves_param_inside_object_method_value() {
         let src = "ясенХуй объект = { метод: йопта(арг) { отвечаю арг; } };";
         let usage = src.rfind("арг").unwrap();
-        let span = goto_definition(src, byte_to_pos(src, usage)).expect("should resolve");
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("арг").unwrap());
     }
 
@@ -386,6 +394,6 @@ mod tests {
     fn unknown_identifier_has_no_definition() {
         let src = "ясенХуй x = 1;";
         let pos = byte_to_pos(src, 0);
-        assert!(goto_definition("неизвестно;", pos).is_none());
+        assert!(resolve("неизвестно;", pos).is_none());
     }
 }
