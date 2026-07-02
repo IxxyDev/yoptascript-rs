@@ -247,32 +247,27 @@ pub(crate) fn apply_aggregate(
         let s = state.borrow();
         (s.kind, s.settled)
     };
+    if settled {
+        return Ok(());
+    }
 
     let action: Option<(Value, Value)> = match (kind, role) {
         (AggregateKind::All, AggregateRole::Fulfill) => {
-            if settled {
-                None
+            let mut s = state.borrow_mut();
+            s.results[index] = value;
+            s.remaining -= 1;
+            if s.remaining == 0 {
+                s.settled = true;
+                let res = std::mem::take(&mut s.results);
+                Some((s.resolve.clone(), Value::array(res)))
             } else {
-                let mut s = state.borrow_mut();
-                s.results[index] = value;
-                s.remaining -= 1;
-                if s.remaining == 0 {
-                    s.settled = true;
-                    let res = std::mem::take(&mut s.results);
-                    Some((s.resolve.clone(), Value::array(res)))
-                } else {
-                    None
-                }
+                None
             }
         }
         (AggregateKind::All, AggregateRole::Reject) => {
-            if settled {
-                None
-            } else {
-                let mut s = state.borrow_mut();
-                s.settled = true;
-                Some((s.reject.clone(), value))
-            }
+            let mut s = state.borrow_mut();
+            s.settled = true;
+            Some((s.reject.clone(), value))
         }
         (AggregateKind::AllSettled, role) => {
             let mut entry = IndexMap::new();
@@ -298,42 +293,30 @@ pub(crate) fn apply_aggregate(
             }
         }
         (AggregateKind::Any, AggregateRole::Fulfill) => {
-            if settled {
-                None
-            } else {
-                let mut s = state.borrow_mut();
-                s.settled = true;
-                Some((s.resolve.clone(), value))
-            }
+            let mut s = state.borrow_mut();
+            s.settled = true;
+            Some((s.resolve.clone(), value))
         }
         (AggregateKind::Any, AggregateRole::Reject) => {
-            if settled {
-                None
+            let mut s = state.borrow_mut();
+            s.results[index] = value;
+            s.remaining -= 1;
+            if s.remaining == 0 {
+                s.settled = true;
+                let errs = std::mem::take(&mut s.results);
+                Some((s.reject.clone(), aggregate_error(errs)))
             } else {
-                let mut s = state.borrow_mut();
-                s.results[index] = value;
-                s.remaining -= 1;
-                if s.remaining == 0 {
-                    s.settled = true;
-                    let errs = std::mem::take(&mut s.results);
-                    Some((s.reject.clone(), aggregate_error(errs)))
-                } else {
-                    None
-                }
+                None
             }
         }
         (AggregateKind::Race, role) => {
-            if settled {
-                None
-            } else {
-                let mut s = state.borrow_mut();
-                s.settled = true;
-                let cap = match role {
-                    AggregateRole::Fulfill => s.resolve.clone(),
-                    AggregateRole::Reject => s.reject.clone(),
-                };
-                Some((cap, value))
-            }
+            let mut s = state.borrow_mut();
+            s.settled = true;
+            let cap = match role {
+                AggregateRole::Fulfill => s.resolve.clone(),
+                AggregateRole::Reject => s.reject.clone(),
+            };
+            Some((cap, value))
         }
     };
 
