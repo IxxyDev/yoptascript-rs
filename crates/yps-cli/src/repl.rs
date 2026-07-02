@@ -7,9 +7,37 @@ use rustyline::error::ReadlineError;
 
 use yps_interpreter::Interpreter;
 use yps_lexer::{Lexer, SourceFile};
-use yps_parser::Parser;
+use yps_parser::{Parser, Program};
 
 use crate::{print_diagnostics, print_runtime_error};
+
+enum CheckOutcome {
+    Ready(Program),
+    Incomplete,
+    LexError,
+    ParseError,
+}
+
+fn check_and_report(source: &SourceFile, report_incomplete: bool) -> CheckOutcome {
+    let lexer = Lexer::new(source);
+    let (tokens, lex_diags) = lexer.tokenize();
+    if !lex_diags.is_empty() {
+        print_diagnostics(source, &lex_diags, "<repl>");
+        return CheckOutcome::LexError;
+    }
+
+    let parser = Parser::new(&tokens, source);
+    let (program, parse_diags, unexpected_eof) = parser.parse_program_extended();
+    if !parse_diags.is_empty() {
+        if unexpected_eof && !report_incomplete {
+            return CheckOutcome::Incomplete;
+        }
+        print_diagnostics(source, &parse_diags, "<repl>");
+        return if unexpected_eof { CheckOutcome::Incomplete } else { CheckOutcome::ParseError };
+    }
+
+    CheckOutcome::Ready(program)
+}
 
 #[derive(Debug, PartialEq)]
 enum ReplCommand {
@@ -186,28 +214,21 @@ pub fn run_repl() {
         }
 
         let source = SourceFile::new("<repl>".to_string(), buffer.clone());
-        let lexer = Lexer::new(&source);
-        let (tokens, lex_diags) = lexer.tokenize();
 
-        if !lex_diags.is_empty() {
-            print_diagnostics(&source, &lex_diags, "<repl>");
-            buffer.clear();
-            continue;
-        }
-
-        let parser = Parser::new(&tokens, &source);
-        let (program, parse_diags, unexpected_eof) = parser.parse_program_extended();
-
-        if !parse_diags.is_empty() {
-            if unexpected_eof {
+        let program = match check_and_report(&source, false) {
+            CheckOutcome::Incomplete => continue,
+            CheckOutcome::LexError => {
+                buffer.clear();
                 continue;
             }
-            print_diagnostics(&source, &parse_diags, "<repl>");
-            let completed_input = buffer.trim_end_matches('\n').to_string();
-            history.push(completed_input);
-            buffer.clear();
-            continue;
-        }
+            CheckOutcome::ParseError => {
+                let completed_input = buffer.trim_end_matches('\n').to_string();
+                history.push(completed_input);
+                buffer.clear();
+                continue;
+            }
+            CheckOutcome::Ready(program) => program,
+        };
 
         let completed_input = buffer.trim_end_matches('\n').to_string();
         history.push(completed_input);
@@ -224,22 +245,7 @@ pub fn run_repl() {
 
     if !buffer.is_empty() {
         let source = SourceFile::new("<repl>".to_string(), buffer.clone());
-        let lexer = Lexer::new(&source);
-        let (tokens, lex_diags) = lexer.tokenize();
-        let has_errors;
-        if !lex_diags.is_empty() {
-            print_diagnostics(&source, &lex_diags, "<repl>");
-            has_errors = true;
-        } else {
-            let parser = Parser::new(&tokens, &source);
-            let (_, parse_diags, _) = parser.parse_program_extended();
-            if !parse_diags.is_empty() {
-                print_diagnostics(&source, &parse_diags, "<repl>");
-                has_errors = true;
-            } else {
-                has_errors = false;
-            }
-        }
+        let has_errors = !matches!(check_and_report(&source, true), CheckOutcome::Ready(_));
         if is_tty {
             println!();
         } else if has_errors {
