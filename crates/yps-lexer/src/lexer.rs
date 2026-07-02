@@ -135,6 +135,7 @@ pub struct Lexer<'src> {
     template_brace_depth: Vec<usize>,
     last_kind: Option<TokenKind>,
     trivia: Vec<Trivia>,
+    collect_trivia: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -147,17 +148,23 @@ impl<'src> Lexer<'src> {
             template_brace_depth: Vec::new(),
             last_kind: None,
             trivia: Vec::new(),
+            collect_trivia: false,
         }
     }
 
     #[must_use]
     pub fn tokenize(self) -> (Vec<Token>, Vec<Diagnostic>) {
-        let (tokens, _trivia, diagnostics) = self.tokenize_with_trivia();
+        let (tokens, _trivia, diagnostics) = self.run();
         (tokens, diagnostics)
     }
 
     #[must_use]
     pub fn tokenize_with_trivia(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>) {
+        self.collect_trivia = true;
+        self.run()
+    }
+
+    fn run(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>) {
         let mut tokens = Vec::new();
 
         loop {
@@ -471,11 +478,13 @@ impl<'src> Lexer<'src> {
                         self.advance();
                     }
                     let span = Span { start, end: self.position };
-                    self.trivia.push(Trivia {
-                        kind: TriviaKind::LineComment,
-                        text: self.source.slice(span).to_string(),
-                        span,
-                    });
+                    if self.collect_trivia {
+                        self.trivia.push(Trivia {
+                            kind: TriviaKind::LineComment,
+                            text: self.source.slice(span).to_string(),
+                            span,
+                        });
+                    }
                     return self.next_token();
                 } else if self.current_char() == '*' {
                     self.advance();
@@ -492,11 +501,13 @@ impl<'src> Lexer<'src> {
                         self.advance();
                     }
                     let span = Span { start, end: self.position };
-                    self.trivia.push(Trivia {
-                        kind: TriviaKind::BlockComment,
-                        text: self.source.slice(span).to_string(),
-                        span,
-                    });
+                    if self.collect_trivia {
+                        self.trivia.push(Trivia {
+                            kind: TriviaKind::BlockComment,
+                            text: self.source.slice(span).to_string(),
+                            span,
+                        });
+                    }
                     return self.next_token();
                 } else if self.regex_context() {
                     return self.read_regex(start);
