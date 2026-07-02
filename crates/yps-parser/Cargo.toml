@@ -7,5 +7,5 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-yps-lexer = { path = "../yps-lexer" }
-stacker = "0.1"
+yps-lexer.workspace = true
+stacker.workspace = true

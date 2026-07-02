@@ -16,3 +16,19 @@ edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
 publish = false
+
+[workspace.dependencies]
+yps-cli = { path = "crates/yps-cli" }
+yps-fmt = { path = "crates/yps-fmt" }
+yps-interpreter = { path = "crates/yps-interpreter" }
+yps-lexer = { path = "crates/yps-lexer" }
+yps-lsp = { path = "crates/yps-lsp" }
+yps-parser = { path = "crates/yps-parser" }
+yps-vm = { path = "crates/yps-vm" }
+fancy-regex = "0.18.0"
+indexmap = "2"
+regex = "1"
+rustyline = "18.0.1"
+stacker = "0.1"
+tokio = { version = "1", features = ["full"] }
+tower-lsp = "0.20"

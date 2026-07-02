@@ -11,9 +11,9 @@ name = "yps-lsp"
 path = "src/main.rs"
 
 [dependencies]
-tower-lsp = "0.20"
-tokio = { version = "1", features = ["full"] }
-yps-lexer = { path = "../yps-lexer" }
-yps-parser = { path = "../yps-parser" }
-yps-interpreter = { path = "../yps-interpreter" }
-yps-fmt = { path = "../yps-fmt" }
+tower-lsp.workspace = true
+tokio.workspace = true
+yps-lexer.workspace = true
+yps-parser.workspace = true
+yps-interpreter.workspace = true
+yps-fmt.workspace = true
