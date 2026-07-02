@@ -389,7 +389,7 @@ impl Vm {
                 Op::DefineGlobal(idx, is_const) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.pop();
-                    self.globals.insert(name, (value, is_const));
+                    self.globals.insert(name.to_string(), (value, is_const));
                 }
                 Op::GetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
@@ -397,7 +397,7 @@ impl Vm {
                         let v = v.clone();
                         self.stack.push(v);
                     } else if builtins::is_builtin(&name) {
-                        self.stack.push(Value::Builtin(Rc::from(name.as_str())));
+                        self.stack.push(Value::Builtin(Rc::clone(&name)));
                     } else if let Some(ns) = crate::bridge::namespace_value(&name) {
                         self.stack.push(ns);
                     } else {
@@ -407,7 +407,7 @@ impl Vm {
                 Op::SetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.peek(0).clone();
-                    match self.globals.get_mut(&name) {
+                    match self.globals.get_mut(&*name) {
                         Some((slot, is_const)) => {
                             if *is_const {
                                 return Err(VmError::new(format!("нельзя менять константу '{name}'"), span));
@@ -821,7 +821,7 @@ impl Vm {
                 Op::RecordExport(idx) => {
                     let name = self.const_str(chunk, idx);
                     if let Some(value) = self.global_get(&name).cloned() {
-                        self.exports.insert(name, value);
+                        self.exports.insert(name.to_string(), value);
                     }
                 }
 
@@ -949,15 +949,19 @@ impl Vm {
         Value::Object(Rc::new(RefCell::new(map)))
     }
 
-    fn const_str(&self, chunk: &crate::chunk::Chunk, idx: u32) -> String {
+    fn const_str(&self, chunk: &crate::chunk::Chunk, idx: u32) -> Rc<str> {
         match &chunk.constants[idx as usize] {
-            Constant::Str(s) => s.to_string(),
-            _ => String::new(),
+            Constant::Str(s) => Rc::clone(s),
+            other => {
+                debug_assert!(false, "const_str: ожидался Constant::Str, получен {other:?}");
+                Rc::from("")
+            }
         }
     }
 
     fn do_closure(&mut self, chunk: &crate::chunk::Chunk, idx: u32, base: usize) {
         let Constant::Proto(proto) = &chunk.constants[idx as usize] else {
+            debug_assert!(false, "do_closure: ожидался Constant::Proto");
             return;
         };
         let proto = Rc::clone(proto);
