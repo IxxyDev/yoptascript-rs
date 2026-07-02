@@ -13,6 +13,21 @@ use crate::value::{ClassDef, MethodDef, Value};
 
 use super::{ControlFlow, Interpreter};
 
+#[derive(Default)]
+struct CollectedMembers {
+    constructor: Option<MethodDef>,
+    methods: HashMap<String, MethodDef>,
+    static_methods: HashMap<String, MethodDef>,
+    static_fields: HashMap<String, Value>,
+    field_inits: Vec<(String, Option<Rc<Block>>, Option<Value>)>,
+    getters: HashMap<String, MethodDef>,
+    setters: HashMap<String, MethodDef>,
+    static_getters: HashMap<String, MethodDef>,
+    static_setters: HashMap<String, MethodDef>,
+    static_inits: Vec<Value>,
+    instance_inits: Vec<Value>,
+}
+
 impl Interpreter {
     pub(super) fn build_decorator_context(&self, kind: &str, name: &str, is_static: bool, is_private: bool) -> Value {
         let mut ctx = IndexMap::new();
@@ -81,10 +96,46 @@ impl Interpreter {
             class_dec_fns.push(self.eval_expr(dec_expr)?);
         }
 
-        struct MemberDecFns {
-            decorator_fns: Vec<Value>,
+        let member_dec_fns = self.eval_member_decorator_fns(members)?;
+
+        let mut parts = CollectedMembers::default();
+        self.collect_method_members(members, &member_dec_fns, &mut parts, span)?;
+        self.collect_field_members(members, &member_dec_fns, &mut parts, span)?;
+
+        let class_def = ClassDef {
+            name: name.name.clone(),
+            constructor: parts.constructor,
+            methods: parts.methods,
+            static_methods: parts.static_methods,
+            static_fields: std::cell::RefCell::new(parts.static_fields),
+            field_inits: parts.field_inits,
+            getters: parts.getters,
+            setters: parts.setters,
+            static_getters: parts.static_getters,
+            static_setters: parts.static_setters,
+            parent,
+            instance_initializers: parts.instance_inits,
+            prototype_cache: std::cell::OnceCell::new(),
+        };
+
+        let class_val = self.apply_class_decorators(
+            Value::Class(Rc::new(class_def)),
+            &class_dec_fns,
+            &name.name,
+            &mut parts.static_inits,
+            span,
+        )?;
+
+        for init in &parts.static_inits {
+            self.call_function(init.clone(), vec![], span)?;
         }
-        let mut member_dec_fns: Vec<Option<MemberDecFns>> = Vec::new();
+
+        self.env.define(name.name.clone(), class_val, false);
+        Ok(None)
+    }
+
+    fn eval_member_decorator_fns(&mut self, members: &[ClassMember]) -> Result<Vec<Vec<Value>>, RuntimeError> {
+        let mut member_dec_fns = Vec::new();
         for member in members {
             let dec_exprs = match member {
                 ClassMember::Method { decorators, .. }
@@ -92,7 +143,7 @@ impl Interpreter {
                 | ClassMember::Getter { decorators, .. }
                 | ClassMember::Setter { decorators, .. } => decorators,
                 ClassMember::Constructor { .. } => {
-                    member_dec_fns.push(None);
+                    member_dec_fns.push(Vec::new());
                     continue;
                 }
             };
@@ -100,26 +151,23 @@ impl Interpreter {
             for dec_expr in dec_exprs {
                 fns.push(self.eval_expr(dec_expr)?);
             }
-            member_dec_fns.push(Some(MemberDecFns { decorator_fns: fns }));
+            member_dec_fns.push(fns);
         }
+        Ok(member_dec_fns)
+    }
 
-        let mut constructor = None;
-        let mut methods = HashMap::new();
-        let mut static_methods = HashMap::new();
-        let mut static_fields = HashMap::new();
-        let mut field_inits = Vec::new();
-        let mut getters = HashMap::new();
-        let mut setters = HashMap::new();
-        let mut static_getters = HashMap::new();
-        let mut static_setters = HashMap::new();
-        let mut static_inits = Vec::new();
-        let mut instance_inits = Vec::new();
-
+    fn collect_method_members(
+        &mut self,
+        members: &[ClassMember],
+        member_dec_fns: &[Vec<Value>],
+        parts: &mut CollectedMembers,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         for (i, member) in members.iter().enumerate() {
-            let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
+            let dec_fns = &member_dec_fns[i];
             match member {
                 ClassMember::Constructor { params, body, .. } => {
-                    constructor =
+                    parts.constructor =
                         Some(MethodDef { params: params.clone(), body: body.clone(), env: self.env.snapshot() });
                 }
                 ClassMember::Method { name: m_name, params, body, is_static, is_private, .. } => {
@@ -145,11 +193,11 @@ impl Interpreter {
                         _ => return Err(RuntimeError::new("Декоратор метода должен вернуть функцию", span)),
                     };
                     if *is_static {
-                        static_methods.insert(m_name.name.clone(), entry);
-                        static_inits.extend(inits);
+                        parts.static_methods.insert(m_name.name.clone(), entry);
+                        parts.static_inits.extend(inits);
                     } else {
-                        methods.insert(m_name.name.clone(), entry);
-                        instance_inits.extend(inits);
+                        parts.methods.insert(m_name.name.clone(), entry);
+                        parts.instance_inits.extend(inits);
                     }
                 }
                 ClassMember::Getter { name: g_name, body, is_static, is_private, .. } => {
@@ -175,11 +223,11 @@ impl Interpreter {
                         _ => return Err(RuntimeError::new("Декоратор геттера должен вернуть функцию", span)),
                     };
                     if *is_static {
-                        static_getters.insert(g_name.name.clone(), entry);
-                        static_inits.extend(inits);
+                        parts.static_getters.insert(g_name.name.clone(), entry);
+                        parts.static_inits.extend(inits);
                     } else {
-                        getters.insert(g_name.name.clone(), entry);
-                        instance_inits.extend(inits);
+                        parts.getters.insert(g_name.name.clone(), entry);
+                        parts.instance_inits.extend(inits);
                     }
                 }
                 ClassMember::Setter { name: s_name, param, body, is_static, is_private, .. } => {
@@ -205,20 +253,29 @@ impl Interpreter {
                         _ => return Err(RuntimeError::new("Декоратор сеттера должен вернуть функцию", span)),
                     };
                     if *is_static {
-                        static_setters.insert(s_name.name.clone(), entry);
-                        static_inits.extend(inits);
+                        parts.static_setters.insert(s_name.name.clone(), entry);
+                        parts.static_inits.extend(inits);
                     } else {
-                        setters.insert(s_name.name.clone(), entry);
-                        instance_inits.extend(inits);
+                        parts.setters.insert(s_name.name.clone(), entry);
+                        parts.instance_inits.extend(inits);
                     }
                 }
                 ClassMember::Field { .. } => {}
             }
         }
+        Ok(())
+    }
 
+    fn collect_field_members(
+        &mut self,
+        members: &[ClassMember],
+        member_dec_fns: &[Vec<Value>],
+        parts: &mut CollectedMembers,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         for (i, member) in members.iter().enumerate() {
             if let ClassMember::Field { name: f_name, init, is_static, is_private, .. } = member {
-                let dec_fns = member_dec_fns[i].as_ref().map_or(&[] as &[Value], |d| &d.decorator_fns);
+                let dec_fns = &member_dec_fns[i];
                 let (init_transform, inits) = self.apply_member_decorators(
                     Value::Undefined,
                     dec_fns,
@@ -238,8 +295,8 @@ impl Interpreter {
                     } else {
                         base_val
                     };
-                    static_fields.insert(f_name.name.clone(), val);
-                    static_inits.extend(inits);
+                    parts.static_fields.insert(f_name.name.clone(), val);
+                    parts.static_inits.extend(inits);
                 } else {
                     let body = init.as_ref().map(|expr| {
                         Rc::new(Block {
@@ -247,46 +304,32 @@ impl Interpreter {
                             span,
                         })
                     });
-                    field_inits.push((f_name.name.clone(), body, transform));
-                    instance_inits.extend(inits);
+                    parts.field_inits.push((f_name.name.clone(), body, transform));
+                    parts.instance_inits.extend(inits);
                 }
             }
         }
+        Ok(())
+    }
 
-        let class_def = ClassDef {
-            name: name.name.clone(),
-            constructor,
-            methods,
-            static_methods,
-            static_fields: std::cell::RefCell::new(static_fields),
-            field_inits,
-            getters,
-            setters,
-            static_getters,
-            static_setters,
-            parent,
-            instance_initializers: instance_inits,
-            prototype_cache: std::cell::OnceCell::new(),
-        };
-
-        let mut class_val = Value::Class(Rc::new(class_def));
-
+    fn apply_class_decorators(
+        &mut self,
+        mut class_val: Value,
+        class_dec_fns: &[Value],
+        name: &str,
+        static_inits: &mut Vec<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
         for decorator_fn in class_dec_fns.iter().rev() {
             self.pending_initializers.clear();
-            let context = self.build_decorator_context("класс", &name.name, false, false);
+            let context = self.build_decorator_context("класс", name, false, false);
             let result = self.call_function(decorator_fn.clone(), vec![class_val.clone(), context], span)?;
             static_inits.append(&mut self.pending_initializers);
             if !matches!(result, Value::Undefined) {
                 class_val = result;
             }
         }
-
-        for init in &static_inits {
-            self.call_function(init.clone(), vec![], span)?;
-        }
-
-        self.env.define(name.name.clone(), class_val, false);
-        Ok(None)
+        Ok(class_val)
     }
 
     pub(crate) fn construct_instance(
