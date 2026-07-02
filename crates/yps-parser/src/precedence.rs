@@ -43,5 +43,24 @@ pub fn binary_precedence(op: BinaryOp) -> u8 {
 }
 
 pub fn binary_is_right_assoc(op: BinaryOp) -> bool {
-    matches!(op, BinaryOp::Exp)
+    matches!(
+        op,
+        BinaryOp::Exp
+            | BinaryOp::Assign
+            | BinaryOp::PlusAssign
+            | BinaryOp::MinusAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign
+            | BinaryOp::ExpAssign
+            | BinaryOp::NullishAssign
+            | BinaryOp::AndAssign
+            | BinaryOp::OrAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::UshrAssign
+    )
 }

@@ -97,7 +97,7 @@ impl<'a> Parser<'a> {
 
             self.advance();
 
-            let right_assoc = matches!(op, BinaryOp::Exp);
+            let right_assoc = crate::precedence::binary_is_right_assoc(op);
             let next_prec = if right_assoc { precedence } else { precedence + 1 };
             let rhs = self.parse_expression_with_precedence(next_prec)?;
 
