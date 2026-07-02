@@ -17,7 +17,7 @@ pub(crate) fn to_number(value: &Value) -> f64 {
     }
 }
 
-pub(crate) fn string_to_number(s: &str) -> f64 {
+pub fn string_to_number(s: &str) -> f64 {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return 0.0;
@@ -78,7 +78,7 @@ pub(crate) fn coerce_to_f64_opt(value: &Value) -> Option<f64> {
     }
 }
 
-pub(crate) fn number_to_string(n: f64) -> String {
+pub fn number_to_string(n: f64) -> String {
     if n.is_nan() {
         return "NaN".to_string();
     }
