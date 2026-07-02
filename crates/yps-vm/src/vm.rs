@@ -15,6 +15,8 @@ use crate::value::{
 };
 
 const MAX_CALL_DEPTH: usize = 1000;
+const STACK_RED_ZONE: usize = 256 * 1024;
+const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 const ERROR_NAME: &str = "Косяк";
 const DISPOSE_METHOD: &str = "расход";
 
@@ -1075,10 +1077,12 @@ impl Vm {
         args: &[Value],
         span: Span,
     ) -> Result<Value, VmError> {
-        let target_depth = self.frames.len();
-        self.push_call_frame(closure, this, owner, args, span)?;
-        self.run_to_depth(target_depth)?;
-        Ok(self.pop())
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || {
+            let target_depth = self.frames.len();
+            self.push_call_frame(closure, this, owner, args, span)?;
+            self.run_to_depth(target_depth)?;
+            Ok(self.pop())
+        })
     }
 
     pub(crate) fn spawn_async(

@@ -948,3 +948,15 @@ fn yield_outside_generator_is_compile_error() {
 fn empty_array_is_truthy() {
     assert_eq!(run(r#"вилкойвглаз ([]) { сказать("правда"); } иливжопураз { сказать("лож"); }"#), "правда\n");
 }
+
+#[test]
+fn recursive_getter_overflows_gracefully_not_crash() {
+    let err = run_err(
+        r#"
+        клёво К { get значение() { отвечаю тырыпыры.значение; } }
+        гыы к = захуярить К();
+        сказать(к.значение);
+        "#,
+    );
+    assert!(err.contains("переполнение стека вызовов"), "ожидалась ловимая ошибка глубины, получено: {err}");
+}
