@@ -560,61 +560,7 @@ fn bigint_eq_str(a: i128, s: &str) -> bool {
     }
 }
 
-pub fn number_to_string(n: f64) -> String {
-    if n.is_nan() {
-        return "NaN".to_string();
-    }
-    if n.is_infinite() {
-        return if n > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
-    }
-    if n == 0.0 {
-        return "0".to_string();
-    }
-    let abs = n.abs();
-    if !(1e-6..1e21).contains(&abs) {
-        return format_exponential(n);
-    }
-    if n.fract() == 0.0 && abs < 9.007_199_254_740_992e15 {
-        return format!("{}", n as i64);
-    }
-    format!("{n}")
-}
-
-fn format_exponential(n: f64) -> String {
-    let raw = format!("{n:e}");
-    match raw.split_once('e') {
-        Some((mantissa, exp)) => {
-            if let Some(rest) = exp.strip_prefix('-') {
-                format!("{mantissa}e-{rest}")
-            } else {
-                format!("{mantissa}e+{exp}")
-            }
-        }
-        None => raw,
-    }
-}
-
-pub fn string_to_number(s: &str) -> f64 {
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        return 0.0;
-    }
-    match trimmed {
-        "Infinity" | "+Infinity" => return f64::INFINITY,
-        "-Infinity" => return f64::NEG_INFINITY,
-        _ => {}
-    }
-    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
-        return i64::from_str_radix(hex, 16).map(|v| v as f64).unwrap_or(f64::NAN);
-    }
-    if let Some(oct) = trimmed.strip_prefix("0o").or_else(|| trimmed.strip_prefix("0O")) {
-        return i64::from_str_radix(oct, 8).map(|v| v as f64).unwrap_or(f64::NAN);
-    }
-    if let Some(bin) = trimmed.strip_prefix("0b").or_else(|| trimmed.strip_prefix("0B")) {
-        return i64::from_str_radix(bin, 2).map(|v| v as f64).unwrap_or(f64::NAN);
-    }
-    trimmed.parse::<f64>().unwrap_or(f64::NAN)
-}
+pub use yps_interpreter::interpreter::coercion::{number_to_string, string_to_number};
 
 pub fn to_int32(n: f64) -> i32 {
     if !n.is_finite() || n == 0.0 {

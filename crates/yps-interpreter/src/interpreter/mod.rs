@@ -22,7 +22,7 @@ enum RunMode {
 mod assign;
 mod call;
 mod class;
-pub(crate) mod coercion;
+pub mod coercion;
 mod delete;
 mod eval_expr;
 mod event_loop;
