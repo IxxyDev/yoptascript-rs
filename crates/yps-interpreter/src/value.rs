@@ -136,7 +136,12 @@ impl fmt::Debug for LoopPhase {
     }
 }
 
-pub type MethodDef = (Rc<[Param]>, Rc<Block>, Rc<RefCell<EnvFrame>>);
+#[derive(Clone)]
+pub struct MethodDef {
+    pub params: Rc<[Param]>,
+    pub body: Rc<Block>,
+    pub env: Rc<RefCell<EnvFrame>>,
+}
 
 pub type SharedBuffer = Rc<RefCell<Vec<u8>>>;
 

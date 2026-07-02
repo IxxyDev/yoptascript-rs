@@ -6,7 +6,7 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, Value};
+use crate::value::{ClassDef, MethodDef, Value};
 
 use super::Interpreter;
 
@@ -124,7 +124,7 @@ impl Interpreter {
                     return Ok(Value::Class(std::rc::Rc::clone(cls)));
                 }
                 if let Some(cls) = &effective_class {
-                    if let Some((params, body, env)) = Self::find_getter_in_class(cls, property) {
+                    if let Some(MethodDef { params, body, env }) = Self::find_getter_in_class(cls, property) {
                         let params = params.clone();
                         let body = Rc::clone(body);
                         let env = Rc::clone(env);
@@ -140,7 +140,7 @@ impl Interpreter {
                             span,
                         );
                     }
-                    if let Some((params, body, env)) = Self::find_method_in_class(cls, property) {
+                    if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, property) {
                         return Ok(Value::Function {
                             name: Rc::from(property),
                             params: params.clone(),
@@ -164,13 +164,13 @@ impl Interpreter {
                 if property == "прототип" || property == "prototype" {
                     return Ok(Self::class_prototype_object(cls));
                 }
-                if let Some((params, body, env)) = Self::find_static_getter_in_class(cls, property) {
+                if let Some(MethodDef { params, body, env }) = Self::find_static_getter_in_class(cls, property) {
                     return self.call_method_with_this(Rc::from(property), params, body, env, vec![], None, span);
                 }
                 if let Some(val) = Self::find_static_field_in_class(cls, property) {
                     return Ok(val);
                 }
-                if let Some((params, body, env)) = Self::find_static_method_in_class(cls, property) {
+                if let Some(MethodDef { params, body, env }) = Self::find_static_method_in_class(cls, property) {
                     return Ok(Value::Function {
                         name: Rc::from(property),
                         params: params.clone(),
@@ -240,7 +240,7 @@ impl Interpreter {
                 let mut map = IndexMap::new();
                 let mut current: Option<&ClassDef> = Some(cls);
                 while let Some(c) = current {
-                    for (name, (params, body, env)) in &c.methods {
+                    for (name, MethodDef { params, body, env }) in &c.methods {
                         map.entry(name.clone()).or_insert_with(|| Value::Function {
                             name: Rc::from(name.as_str()),
                             params: params.clone(),

@@ -8,7 +8,7 @@ use yps_parser::ast::{BinaryOp, Block, Expr, Literal, ObjectEntry, PostfixOp, Pr
 use crate::environment::{EnvFrame, Environment};
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{MethodDef, Value};
 
 use super::{AccessSegment, ControlFlow, Interpreter};
 
@@ -234,7 +234,8 @@ impl Interpreter {
                     return Ok(Some(value));
                 }
                 let class_setter = Self::resolve_class_for_object(map, &self.env).and_then(|cls| {
-                    Self::find_setter_in_class(&cls, property).map(|(p, b, e)| (p.clone(), Rc::clone(b), Rc::clone(e)))
+                    Self::find_setter_in_class(&cls, property)
+                        .map(|m| (m.params.clone(), Rc::clone(&m.body), Rc::clone(&m.env)))
                 });
                 if let Some((params, body, env)) = class_setter {
                     self.call_setter_returning_this(
@@ -251,7 +252,7 @@ impl Interpreter {
                 Ok(None)
             }
             Value::Class(cls) => {
-                if let Some((params, body, env)) = Self::find_static_setter_in_class(cls, property) {
+                if let Some(MethodDef { params, body, env }) = Self::find_static_setter_in_class(cls, property) {
                     self.call_method_with_this(Rc::from(property), params, body, env, vec![value.clone()], None, span)?;
                     return Ok(Some(value));
                 }
