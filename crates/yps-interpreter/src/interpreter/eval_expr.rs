@@ -68,28 +68,14 @@ impl Interpreter {
                     return self.eval_expr(rhs);
                 }
                 if *op == BinaryOp::NullishAssign {
-                    let left = self.eval_expr(lhs)?;
-                    if !matches!(left, Value::Null | Value::Undefined) {
-                        return Ok(left);
-                    }
-                    let right = self.eval_expr(rhs)?;
-                    return self.assign_to_target(lhs, right, *span);
+                    return self
+                        .eval_logical_assign(lhs, rhs, *span, |left| matches!(left, Value::Null | Value::Undefined));
                 }
                 if *op == BinaryOp::AndAssign {
-                    let left = self.eval_expr(lhs)?;
-                    if !left.is_truthy() {
-                        return Ok(left);
-                    }
-                    let right = self.eval_expr(rhs)?;
-                    return self.assign_to_target(lhs, right, *span);
+                    return self.eval_logical_assign(lhs, rhs, *span, |left| left.is_truthy());
                 }
                 if *op == BinaryOp::OrAssign {
-                    let left = self.eval_expr(lhs)?;
-                    if left.is_truthy() {
-                        return Ok(left);
-                    }
-                    let right = self.eval_expr(rhs)?;
-                    return self.assign_to_target(lhs, right, *span);
+                    return self.eval_logical_assign(lhs, rhs, *span, |left| !left.is_truthy());
                 }
                 if *op == BinaryOp::Pipeline {
                     let left = self.eval_expr(lhs)?;
