@@ -943,3 +943,8 @@ fn generator_for_of_break_closes() {
 fn yield_outside_generator_is_compile_error() {
     assert!(compile_program(&parse("йопта об() { поебалу 1; } об();")).is_err());
 }
+
+#[test]
+fn empty_array_is_truthy() {
+    assert_eq!(run(r#"вилкойвглаз ([]) { сказать("правда"); } иливжопураз { сказать("лож"); }"#), "правда\n");
+}
