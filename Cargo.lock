@@ -1097,6 +1097,7 @@ dependencies = [
  "fancy-regex",
  "indexmap",
  "regex",
+ "stacker",
  "yps-interpreter",
  "yps-lexer",
  "yps-parser",
