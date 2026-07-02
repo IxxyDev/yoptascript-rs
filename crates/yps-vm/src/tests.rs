@@ -982,5 +982,22 @@ fn bridge_identity_cache_stays_bounded() {
         }
         "#);
     let len = crate::bridge::identity_cache_len();
-    assert!(len <= 2048, "кэш идентичности разросся неограниченно: {len}");
+    assert!(len <= 2 * crate::bridge::IDENTITY_CACHE_PRUNE_THRESHOLD, "кэш идентичности разросся неограниченно: {len}");
+}
+
+#[test]
+fn bridge_identity_cache_threshold_grows_for_many_live_objects() {
+    run(r#"
+        гыы хранилище = [];
+        го (гыы и = 0; и < 4000; и++) {
+            гыы обж = [и];
+            хранилище.втолкнуть(обж);
+            Жсон.вСтроку(обж);
+        }
+        "#);
+    let prune_at = crate::bridge::identity_cache_prune_at();
+    assert!(
+        prune_at > crate::bridge::IDENTITY_CACHE_PRUNE_THRESHOLD,
+        "порог не вырос при большом числе живых объектов: {prune_at}"
+    );
 }
