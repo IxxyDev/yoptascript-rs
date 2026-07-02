@@ -1,18 +1,17 @@
 use yps_parser::{
+    ASSIGN_PRECEDENCE, CALL_PRECEDENCE, POSTFIX_PRECEDENCE, TERNARY_PRECEDENCE, UNARY_PRECEDENCE,
+    binary_is_right_assoc, binary_precedence,
+};
+use yps_parser::{
     BinaryOp, Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, ObjectPatternProp, Param,
     Pattern, PostfixOp, Program, PropKey, Stmt, SwitchCase, TemplatePart, TemplateQuasi, UnaryOp,
 };
-use yps_parser::{TERNARY_PRECEDENCE, UNARY_PRECEDENCE, binary_is_right_assoc, binary_precedence};
 
 use crate::comments::CommentMap;
 use crate::sourcemap::{SourceMap, SourceMapBuilder};
 
 const INDENT: &str = "    ";
 const MAX_WIDTH: usize = 100;
-
-const ASSIGN_PRECEDENCE: u8 = 1;
-const POSTFIX_PRECEDENCE: u8 = 13;
-const CALL_PRECEDENCE: u8 = 14;
 
 pub fn print_program(program: &Program) -> String {
     let mut p = Printer { out: String::new(), depth: 0, comments: None, sm: None, gen_line: 0 };
