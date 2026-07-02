@@ -41,7 +41,7 @@ const HOST_CONSTRUCTORS: &[&str] = &[
     "СигналОтмены",
 ];
 
-const IDENTITY_CACHE_PRUNE_THRESHOLD: usize = 1024;
+pub(crate) const IDENTITY_CACHE_PRUNE_THRESHOLD: usize = 1024;
 
 enum CacheKeepalive {
     Array(Weak<RefCell<Vec<Value>>>),
@@ -61,6 +61,7 @@ thread_local! {
     static ACTIVE_VM: Cell<*mut Vm> = const { Cell::new(std::ptr::null_mut()) };
     static IDENTITY_CACHE: RefCell<std::collections::HashMap<usize, (CacheKeepalive, IValue)>> =
         RefCell::new(std::collections::HashMap::new());
+    static IDENTITY_CACHE_PRUNE_AT: Cell<usize> = const { Cell::new(IDENTITY_CACHE_PRUNE_THRESHOLD) };
 }
 
 fn cached_identity(ptr: usize) -> Option<IValue> {
@@ -80,8 +81,12 @@ fn cached_identity(ptr: usize) -> Option<IValue> {
 fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
     IDENTITY_CACHE.with(|c| {
         let mut cache = c.borrow_mut();
-        if cache.len() >= IDENTITY_CACHE_PRUNE_THRESHOLD {
+        let prune_at = IDENTITY_CACHE_PRUNE_AT.with(|t| t.get());
+        if cache.len() >= prune_at {
             cache.retain(|_, (k, _)| k.is_alive());
+            let live = cache.len();
+            let new_threshold = std::cmp::max(IDENTITY_CACHE_PRUNE_THRESHOLD, 2 * live);
+            IDENTITY_CACHE_PRUNE_AT.with(|t| t.set(new_threshold));
         }
         cache.insert(ptr, (keepalive, value));
     });
@@ -90,6 +95,11 @@ fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
 #[cfg(test)]
 pub(crate) fn identity_cache_len() -> usize {
     IDENTITY_CACHE.with(|c| c.borrow().len())
+}
+
+#[cfg(test)]
+pub(crate) fn identity_cache_prune_at() -> usize {
+    IDENTITY_CACHE_PRUNE_AT.with(|t| t.get())
 }
 
 struct VmGuard {
