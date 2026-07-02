@@ -3,86 +3,130 @@ use crate::{
     TriviaKind,
 };
 
-pub const KEYWORDS: &[&str] = &[
-    "гыы",
-    "участковый",
-    "ясенХуй",
-    "ЯсенХуй",
-    "вилкойвглаз",
-    "иливжопураз",
-    "потрещим",
-    "го",
-    "харэ",
-    "двигай",
-    "йопта",
-    "отвечаю",
-    "правда",
-    "трулио",
-    "чётко",
-    "четко",
-    "чотко",
-    "лож",
-    "нетрулио",
-    "пиздишь",
-    "нечётко",
-    "нечетко",
-    "нечотко",
-    "ноль",
-    "нуллио",
-    "порожняк",
-    "неибу",
-    "хапнуть",
-    "побратски",
-    "пабрацки",
-    "пабратски",
-    "гоп",
-    "аченетак",
-    "аченитак",
-    "ачёнетак",
-    "тюряжка",
-    "кидай",
-    "пнх",
-    "базарпо",
-    "естьчо",
-    "тема",
-    "лещ",
-    "аеслинайду",
-    "нуичо",
-    "пахану",
-    "апохуй",
-    "наотыбись",
-    "крутани",
-    "крч",
-    "из",
-    "чоунастут",
-    "клёво",
-    "клево",
-    "батя",
-    "яга",
-    "захуярить",
-    "гыйбать",
-    "тырыпыры",
-    "попонятия",
-    "чезажижан",
-    "шкура",
-    "пиздюли",
-    "поебалу",
-    "поебалуна",
-    "ассо",
-    "сидетьНахуй",
-    "спиздить",
-    "предъява",
-    "откуда",
-    "сашаГрей",
-    "ёбнуть",
-    "ебнуть",
-    "куку",
-    "юзай",
-    "логопед",
-    "мой",
-    "подкрыша",
-    "ебанное",
+const KEYWORD_TABLE: &[(&str, KeywordKind)] = &[
+    ("ЯсенХуй", KeywordKind::YasenHuy),
+    ("аеслинайду", KeywordKind::Case),
+    ("апохуй", KeywordKind::Default),
+    ("ассо", KeywordKind::Async),
+    ("аченетак", KeywordKind::Catch),
+    ("аченитак", KeywordKind::Catch),
+    ("ачёнетак", KeywordKind::Catch),
+    ("базарпо", KeywordKind::Switch),
+    ("батя", KeywordKind::Extends),
+    ("вилкойвглаз", KeywordKind::Vilkoyvglaz),
+    ("го", KeywordKind::Go),
+    ("гоп", KeywordKind::Catch),
+    ("гыйбать", KeywordKind::New),
+    ("гыы", KeywordKind::Gyy),
+    ("двигай", KeywordKind::Dvigay),
+    ("ебанное", KeywordKind::Public),
+    ("ебнуть", KeywordKind::Delete),
+    ("естьчо", KeywordKind::Switch),
+    ("захуярить", KeywordKind::New),
+    ("из", KeywordKind::In),
+    ("иливжопураз", KeywordKind::Ilivzhopuraz),
+    ("йопта", KeywordKind::Yopta),
+    ("кидай", KeywordKind::Throw),
+    ("клево", KeywordKind::Class),
+    ("клёво", KeywordKind::Class),
+    ("крутани", KeywordKind::DoWhile),
+    ("крч", KeywordKind::DoWhile),
+    ("куку", KeywordKind::Void),
+    ("лещ", KeywordKind::Case),
+    ("логопед", KeywordKind::Debugger),
+    ("лож", KeywordKind::Lozh),
+    ("мой", KeywordKind::Private),
+    ("наотыбись", KeywordKind::Default),
+    ("неибу", KeywordKind::Undefined),
+    ("нетрулио", KeywordKind::Lozh),
+    ("нечетко", KeywordKind::Lozh),
+    ("нечотко", KeywordKind::Lozh),
+    ("нечётко", KeywordKind::Lozh),
+    ("ноль", KeywordKind::Nol),
+    ("нуичо", KeywordKind::Default),
+    ("нуллио", KeywordKind::Nol),
+    ("отвечаю", KeywordKind::Otvechayu),
+    ("откуда", KeywordKind::From),
+    ("пабратски", KeywordKind::Try),
+    ("пабрацки", KeywordKind::Try),
+    ("пахану", KeywordKind::Default),
+    ("пиздишь", KeywordKind::Lozh),
+    ("пиздюли", KeywordKind::GeneratorFn),
+    ("пнх", KeywordKind::Throw),
+    ("побратски", KeywordKind::Try),
+    ("подкрыша", KeywordKind::Protected),
+    ("поебалу", KeywordKind::Yield),
+    ("поебалуна", KeywordKind::YieldDelegate),
+    ("попонятия", KeywordKind::Static),
+    ("порожняк", KeywordKind::Nol),
+    ("потрещим", KeywordKind::Potreshchim),
+    ("правда", KeywordKind::Pravda),
+    ("предъява", KeywordKind::Export),
+    ("сашаГрей", KeywordKind::Of),
+    ("сидетьНахуй", KeywordKind::Await),
+    ("спиздить", KeywordKind::Import),
+    ("тема", KeywordKind::Case),
+    ("трулио", KeywordKind::Pravda),
+    ("тырыпыры", KeywordKind::This),
+    ("тюряжка", KeywordKind::Finally),
+    ("участковый", KeywordKind::Uchastkoviy),
+    ("хапнуть", KeywordKind::Try),
+    ("харэ", KeywordKind::Hare),
+    ("чезажижан", KeywordKind::Typeof),
+    ("четко", KeywordKind::Pravda),
+    ("чотко", KeywordKind::Pravda),
+    ("чоунастут", KeywordKind::In),
+    ("чётко", KeywordKind::Pravda),
+    ("шкура", KeywordKind::Instanceof),
+    ("юзай", KeywordKind::Using),
+    ("яга", KeywordKind::Super),
+    ("ясенХуй", KeywordKind::YasenHuy),
+    ("ёбнуть", KeywordKind::Delete),
 ];
+
+const OPERATOR_WORD_TABLE: &[(&str, OperatorKind)] = &[
+    ("блябуду", OperatorKind::StrictEquals),
+    ("блясука", OperatorKind::Equals),
+    ("внатуре", OperatorKind::Assign),
+    ("иличо", OperatorKind::Or),
+    ("ичо", OperatorKind::And),
+    ("конкретно", OperatorKind::StrictEquals),
+    ("однахуйня", OperatorKind::Equals),
+    ("пизже", OperatorKind::Greater),
+    ("плюсуюНа", OperatorKind::Increment),
+    ("поц", OperatorKind::LessOrEqual),
+    ("поцик", OperatorKind::GreaterOrEqual),
+    ("ровно", OperatorKind::Equals),
+    ("слилсяНа", OperatorKind::Decrement),
+    ("сука", OperatorKind::Assign),
+    ("типа", OperatorKind::Equals),
+    ("хуевей", OperatorKind::Less),
+    ("хуёвей", OperatorKind::Less),
+    ("четкоровно", OperatorKind::StrictEquals),
+    ("чобля", OperatorKind::Not),
+    ("чоткоровно", OperatorKind::StrictEquals),
+    ("чёткоровно", OperatorKind::StrictEquals),
+    ("эквалио", OperatorKind::Equals),
+];
+
+const PUNCT_WORD_TABLE: &[(&str, PunctuationKind)] = &[
+    ("бля", PunctuationKind::Semicolon),
+    ("жЫ", PunctuationKind::LBrace),
+    ("нах", PunctuationKind::Semicolon),
+    ("нахуй", PunctuationKind::Semicolon),
+];
+
+const KEYWORDS_ARRAY: [&str; KEYWORD_TABLE.len()] = {
+    let mut arr = [""; KEYWORD_TABLE.len()];
+    let mut i = 0;
+    while i < KEYWORD_TABLE.len() {
+        arr[i] = KEYWORD_TABLE[i].0;
+        i += 1;
+    }
+    arr
+};
+
+pub const KEYWORDS: &[&str] = &KEYWORDS_ARRAY;
 
 pub struct Lexer<'src> {
     source: &'src SourceFile,
@@ -260,87 +304,22 @@ impl<'src> Lexer<'src> {
         let span = Span { start, end };
         let text = self.source.slice(span);
 
-        let kind = match text {
-            "гыы" => TokenKind::Keyword(KeywordKind::Gyy),
-            "участковый" => TokenKind::Keyword(KeywordKind::Uchastkoviy),
-            "ясенХуй" | "ЯсенХуй" => TokenKind::Keyword(KeywordKind::YasenHuy),
-            "вилкойвглаз" => TokenKind::Keyword(KeywordKind::Vilkoyvglaz),
-            "иливжопураз" => TokenKind::Keyword(KeywordKind::Ilivzhopuraz),
-            "потрещим" => TokenKind::Keyword(KeywordKind::Potreshchim),
-            "го" => TokenKind::Keyword(KeywordKind::Go),
-            "харэ" => TokenKind::Keyword(KeywordKind::Hare),
-            "двигай" => TokenKind::Keyword(KeywordKind::Dvigay),
-            "йопта" => TokenKind::Keyword(KeywordKind::Yopta),
-            "отвечаю" => TokenKind::Keyword(KeywordKind::Otvechayu),
-            "правда" | "трулио" | "чётко" | "четко" | "чотко" => {
-                TokenKind::Keyword(KeywordKind::Pravda)
-            }
-            "лож" | "нетрулио" | "пиздишь" | "нечётко" | "нечетко" | "нечотко" => {
-                TokenKind::Keyword(KeywordKind::Lozh)
-            }
-            "ноль" | "нуллио" | "порожняк" => TokenKind::Keyword(KeywordKind::Nol),
-            "неибу" => TokenKind::Keyword(KeywordKind::Undefined),
-            "хапнуть" | "побратски" | "пабрацки" | "пабратски" => {
-                TokenKind::Keyword(KeywordKind::Try)
-            }
-            "гоп" | "аченетак" | "аченитак" | "ачёнетак" => {
-                TokenKind::Keyword(KeywordKind::Catch)
-            }
-            "тюряжка" => TokenKind::Keyword(KeywordKind::Finally),
-            "кидай" | "пнх" => TokenKind::Keyword(KeywordKind::Throw),
-            "базарпо" | "естьчо" => TokenKind::Keyword(KeywordKind::Switch),
-            "тема" | "лещ" | "аеслинайду" => TokenKind::Keyword(KeywordKind::Case),
-            "нуичо" | "пахану" | "апохуй" | "наотыбись" => {
-                TokenKind::Keyword(KeywordKind::Default)
-            }
-            "крутани" | "крч" => TokenKind::Keyword(KeywordKind::DoWhile),
-            "из" | "чоунастут" => TokenKind::Keyword(KeywordKind::In),
-            "клёво" | "клево" => TokenKind::Keyword(KeywordKind::Class),
-            "батя" => TokenKind::Keyword(KeywordKind::Extends),
-            "яга" => TokenKind::Keyword(KeywordKind::Super),
-            "захуярить" | "гыйбать" => TokenKind::Keyword(KeywordKind::New),
-            "тырыпыры" => TokenKind::Keyword(KeywordKind::This),
-            "попонятия" => TokenKind::Keyword(KeywordKind::Static),
-            "чезажижан" => TokenKind::Keyword(KeywordKind::Typeof),
-            "шкура" => TokenKind::Keyword(KeywordKind::Instanceof),
-            "пиздюли" => TokenKind::Keyword(KeywordKind::GeneratorFn),
-            "поебалу" => TokenKind::Keyword(KeywordKind::Yield),
-            "поебалуна" => TokenKind::Keyword(KeywordKind::YieldDelegate),
-            "ассо" => TokenKind::Keyword(KeywordKind::Async),
-            "сидетьНахуй" => TokenKind::Keyword(KeywordKind::Await),
-            "спиздить" => TokenKind::Keyword(KeywordKind::Import),
-            "предъява" => TokenKind::Keyword(KeywordKind::Export),
-            "откуда" => TokenKind::Keyword(KeywordKind::From),
-            "сашаГрей" => TokenKind::Keyword(KeywordKind::Of),
-            "ёбнуть" | "ебнуть" => TokenKind::Keyword(KeywordKind::Delete),
-            "куку" => TokenKind::Keyword(KeywordKind::Void),
-            "юзай" => TokenKind::Keyword(KeywordKind::Using),
-            "логопед" => TokenKind::Keyword(KeywordKind::Debugger),
-            "мой" => TokenKind::Keyword(KeywordKind::Private),
-            "подкрыша" => TokenKind::Keyword(KeywordKind::Protected),
-            "ебанное" => TokenKind::Keyword(KeywordKind::Public),
-            "эквалио" | "однахуйня" | "ровно" | "типа" | "блясука" => {
-                TokenKind::Operator(OperatorKind::Equals)
-            }
-            "блябуду" | "чёткоровно" | "четкоровно" | "чоткоровно" | "конкретно" => {
-                TokenKind::Operator(OperatorKind::StrictEquals)
-            }
-            "ичо" => TokenKind::Operator(OperatorKind::And),
-            "иличо" => TokenKind::Operator(OperatorKind::Or),
-            "пизже" => TokenKind::Operator(OperatorKind::Greater),
-            "хуёвей" | "хуевей" => TokenKind::Operator(OperatorKind::Less),
-            "поцик" => TokenKind::Operator(OperatorKind::GreaterOrEqual),
-            "поц" => TokenKind::Operator(OperatorKind::LessOrEqual),
-            "сука" | "внатуре" => TokenKind::Operator(OperatorKind::Assign),
-            "чобля" => TokenKind::Operator(OperatorKind::Not),
-            "плюсуюНа" => TokenKind::Operator(OperatorKind::Increment),
-            "слилсяНа" => TokenKind::Operator(OperatorKind::Decrement),
-            "жЫ" => TokenKind::Punctuation(PunctuationKind::LBrace),
-            "нах" | "нахуй" | "бля" => TokenKind::Punctuation(PunctuationKind::Semicolon),
-            _ => TokenKind::Identifier,
-        };
+        let kind = Self::word_token_kind(text);
 
         Token { kind, span }
+    }
+
+    fn word_token_kind(text: &str) -> TokenKind {
+        if let Ok(i) = KEYWORD_TABLE.binary_search_by_key(&text, |&(s, _)| s) {
+            return TokenKind::Keyword(KEYWORD_TABLE[i].1.clone());
+        }
+        if let Ok(i) = OPERATOR_WORD_TABLE.binary_search_by_key(&text, |&(s, _)| s) {
+            return TokenKind::Operator(OPERATOR_WORD_TABLE[i].1.clone());
+        }
+        if let Ok(i) = PUNCT_WORD_TABLE.binary_search_by_key(&text, |&(s, _)| s) {
+            return TokenKind::Punctuation(PUNCT_WORD_TABLE[i].1.clone());
+        }
+        TokenKind::Identifier
     }
 
     fn read_private_identifier(&mut self) -> Token {
@@ -800,6 +779,43 @@ impl<'src> Lexer<'src> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_tables_are_sorted_and_unique() {
+        fn assert_sorted<T>(name: &str, table: &[(&str, T)]) {
+            for pair in table.windows(2) {
+                assert!(pair[0].0 < pair[1].0, "{name}: '{}' must sort strictly before '{}'", pair[0].0, pair[1].0);
+            }
+        }
+        assert_sorted("KEYWORD_TABLE", KEYWORD_TABLE);
+        assert_sorted("OPERATOR_WORD_TABLE", OPERATOR_WORD_TABLE);
+        assert_sorted("PUNCT_WORD_TABLE", PUNCT_WORD_TABLE);
+    }
+
+    #[test]
+    fn every_word_operator_spelling_lexes_as_that_operator() {
+        for (word, expected) in OPERATOR_WORD_TABLE {
+            let source = SourceFile::new("test.yopta".to_string(), (*word).to_string());
+            let (tokens, diags) = Lexer::new(&source).tokenize();
+            assert!(diags.is_empty(), "'{word}' produced diagnostics: {diags:?}");
+            assert_eq!(tokens[0].kind, TokenKind::Operator(expected.clone()), "'{word}' lexed as {:?}", tokens[0].kind);
+        }
+    }
+
+    #[test]
+    fn every_word_punct_spelling_lexes_as_that_punct() {
+        for (word, expected) in PUNCT_WORD_TABLE {
+            let source = SourceFile::new("test.yopta".to_string(), (*word).to_string());
+            let (tokens, diags) = Lexer::new(&source).tokenize();
+            assert!(diags.is_empty(), "'{word}' produced diagnostics: {diags:?}");
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::Punctuation(expected.clone()),
+                "'{word}' lexed as {:?}",
+                tokens[0].kind
+            );
+        }
+    }
 
     #[test]
     fn every_keyword_spelling_lexes_as_keyword() {
