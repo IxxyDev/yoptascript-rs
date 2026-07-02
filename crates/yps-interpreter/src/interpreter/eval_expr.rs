@@ -8,7 +8,7 @@ use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, Temp
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{MethodDef, Value, to_int_n, to_uint_n};
+use crate::value::{ClassDef, MethodDef, Value, to_int_n, to_uint_n};
 
 use super::Interpreter;
 use super::call::RelOp;
@@ -17,6 +17,83 @@ use super::coercion;
 impl Interpreter {
     pub(super) fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         stacker::maybe_grow(super::STACK_RED_ZONE, super::STACK_GROW_SIZE, || self.eval_expr_inner(expr))
+    }
+
+    fn call_super_method(
+        &mut self,
+        cls: &Rc<ClassDef>,
+        property: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, property) {
+            let params = params.clone();
+            let body = Rc::clone(body);
+            let env = Rc::clone(env);
+            let super_class = Self::find_method_owner_parent(cls, property);
+            let this_val = self.env.get(symbols::THIS);
+            let arg_values = self.eval_args(args)?;
+            return self.call_method_with_this_super(
+                Rc::from(property),
+                &params,
+                &body,
+                &env,
+                arg_values,
+                this_val,
+                super_class,
+                span,
+            );
+        }
+        Err(RuntimeError::new(format!("'{property}' не является методом родительского класса"), span))
+    }
+
+    fn call_object_method(
+        &mut self,
+        obj: Value,
+        func: &Value,
+        property: &str,
+        arg_values: Vec<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let (Value::Object(map), Value::Function { params, body, env, .. }) = (&obj, func) else {
+            return self.call_function(func.clone(), arg_values, span);
+        };
+        let super_class = Self::resolve_class_for_object(map, &self.env)
+            .and_then(|cls| Self::find_method_owner_parent(&cls, property));
+        self.call_method_with_this_super(
+            Rc::from(property),
+            params,
+            body,
+            env,
+            arg_values,
+            Some(obj.clone()),
+            super_class,
+            span,
+        )
+    }
+
+    fn call_class_method(
+        &mut self,
+        obj: Value,
+        func: &Value,
+        property: &str,
+        arg_values: Vec<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let (Value::Class(cls), Value::Function { params, body, env, .. }) = (&obj, func) else {
+            return self.call_function(func.clone(), arg_values, span);
+        };
+        let super_class = Self::find_static_method_owner_parent(cls, property);
+        self.call_method_with_this_super(
+            Rc::from(property),
+            params,
+            body,
+            env,
+            arg_values,
+            Some(obj.clone()),
+            super_class,
+            span,
+        )
     }
 
     fn eval_expr_inner(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -127,28 +204,7 @@ impl Interpreter {
                     if let Expr::Super { .. } = object.as_ref()
                         && let Value::Class(cls) = &obj
                     {
-                        if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, &property.name) {
-                            let params = params.clone();
-                            let body = Rc::clone(body);
-                            let env = Rc::clone(env);
-                            let super_class = Self::find_method_owner_parent(cls, &property.name);
-                            let this_val = self.env.get(symbols::THIS);
-                            let arg_values = self.eval_args(args)?;
-                            return self.call_method_with_this_super(
-                                Rc::from(property.name.as_str()),
-                                &params,
-                                &body,
-                                &env,
-                                arg_values,
-                                this_val,
-                                super_class,
-                                *span,
-                            );
-                        }
-                        return Err(RuntimeError::new(
-                            format!("'{}' не является методом родительского класса", property.name),
-                            *span,
-                        ));
+                        return self.call_super_method(cls, &property.name, args, *span);
                     }
                     if crate::stdlib::has_builtin_methods(&obj) {
                         let arg_values = self.eval_args(args)?;
@@ -161,39 +217,15 @@ impl Interpreter {
                     }
                     let func = self.eval_member(obj.clone(), &property.name, *span)?;
                     let arg_values = self.eval_args(args)?;
-                    if let Value::Object(map) = &obj
-                        && let Value::Function { params, body, env, .. } = &func
-                    {
-                        let super_class = Self::resolve_class_for_object(map, &self.env)
-                            .and_then(|cls| Self::find_method_owner_parent(&cls, &property.name));
-                        return self.call_method_with_this_super(
-                            Rc::from(property.name.as_str()),
-                            params,
-                            body,
-                            env,
-                            arg_values,
-                            Some(obj.clone()),
-                            super_class,
-                            *span,
-                        );
+                    match &obj {
+                        Value::Object(_) => {
+                            self.call_object_method(obj.clone(), &func, &property.name, arg_values, *span)
+                        }
+                        Value::Class(cls) if Self::find_static_method_in_class(cls, &property.name).is_some() => {
+                            self.call_class_method(obj.clone(), &func, &property.name, arg_values, *span)
+                        }
+                        _ => self.call_function(func, arg_values, *span),
                     }
-                    if let Value::Class(cls) = &obj
-                        && let Value::Function { params, body, env, .. } = &func
-                        && Self::find_static_method_in_class(cls, &property.name).is_some()
-                    {
-                        let super_class = Self::find_static_method_owner_parent(cls, &property.name);
-                        return self.call_method_with_this_super(
-                            Rc::from(property.name.as_str()),
-                            params,
-                            body,
-                            env,
-                            arg_values,
-                            Some(obj.clone()),
-                            super_class,
-                            *span,
-                        );
-                    }
-                    self.call_function(func, arg_values, *span)
                 } else if let Expr::Super { span: super_span } = callee.as_ref() {
                     let super_val = self.env.get(symbols::SUPER).ok_or_else(|| {
                         RuntimeError::new("'яга' (super) используется вне класса-наследника", *super_span)
