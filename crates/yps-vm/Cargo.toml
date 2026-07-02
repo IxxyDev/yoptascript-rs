@@ -7,8 +7,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-yps-lexer = { path = "../yps-lexer" }
-yps-parser = { path = "../yps-parser" }
-yps-interpreter = { path = "../yps-interpreter" }
-indexmap = "2"
-stacker = "0.1"
+yps-lexer.workspace = true
+yps-parser.workspace = true
+yps-interpreter.workspace = true
+indexmap.workspace = true
+stacker.workspace = true
