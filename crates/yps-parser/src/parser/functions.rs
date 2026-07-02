@@ -259,21 +259,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_function_params_and_body(&mut self) -> Result<(Vec<Param>, Block), ()> {
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после имени функции");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени функции")?;
 
         let params = self.parse_function_params()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после параметров функции");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров функции")?;
 
         let body = self.parse_block()?;
         Ok((params, body))

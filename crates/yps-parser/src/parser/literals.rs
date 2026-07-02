@@ -285,13 +285,7 @@ impl<'a> Parser<'a> {
 
         let expr = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался ')'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RParen, "Ожидался ')'")?.end;
 
         Ok(Expr::Grouping { expr: Box::new(expr), span: Span { start, end } })
     }
@@ -324,13 +318,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался ']'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBracket, "Ожидался ']'")?.end;
 
         Ok(Expr::Literal(Literal::Array { elements, span: Span { start, end } }))
     }
@@ -349,21 +337,11 @@ impl<'a> Parser<'a> {
                 } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
                     self.advance();
                     let key_expr = self.parse_expr()?;
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Ожидался ']' после вычисляемого ключа");
-                        return Err(());
-                    }
-                    self.advance();
+                    self.expect_punct(PunctuationKind::RBracket, "Ожидался ']' после вычисляемого ключа")?;
                     if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                         self.advance();
                         let params = self.parse_function_params()?;
-                        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                            let span = self.current().span;
-                            self.push_error(span, "Ожидалась ')' после параметров метода");
-                            return Err(());
-                        }
-                        self.advance();
+                        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
                         let body = self.parse_block()?;
                         let func_span = body.span;
                         let value = Expr::ArrowFunction {
@@ -390,12 +368,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => unreachable!(),
                     };
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Ожидалось ':' после ключа объекта");
-                        return Err(());
-                    }
-                    self.advance();
+                    self.expect_punct(PunctuationKind::Colon, "Ожидалось ':' после ключа объекта")?;
                     let value = self.parse_expr()?;
                     entries.push(ObjectEntry::Property { key: key_expr, value });
                 } else if matches!(self.current().kind, TokenKind::Identifier)
@@ -405,18 +378,8 @@ impl<'a> Parser<'a> {
                     let gs_start = self.current().span.start;
                     self.advance();
                     let key = self.parse_identifier()?;
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Ожидалась '(' после имени геттера");
-                        return Err(());
-                    }
-                    self.advance();
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Геттер не принимает параметров");
-                        return Err(());
-                    }
-                    self.advance();
+                    self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени геттера")?;
+                    self.expect_punct(PunctuationKind::RParen, "Геттер не принимает параметров")?;
                     let body = self.parse_block()?;
                     let gs_end = body.span.end;
                     entries.push(ObjectEntry::Getter {
@@ -431,24 +394,14 @@ impl<'a> Parser<'a> {
                     let gs_start = self.current().span.start;
                     self.advance();
                     let key = self.parse_identifier()?;
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Ожидалась '(' после имени сеттера");
-                        return Err(());
-                    }
-                    self.advance();
+                    self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени сеттера")?;
                     let params = self.parse_function_params()?;
                     if params.len() != 1 {
                         let span = self.current().span;
                         self.push_error(span, "Сеттер принимает ровно один параметр");
                         return Err(());
                     }
-                    if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                        let span = self.current().span;
-                        self.push_error(span, "Ожидалась ')' после параметра сеттера");
-                        return Err(());
-                    }
-                    self.advance();
+                    self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметра сеттера")?;
                     let body = self.parse_block()?;
                     let gs_end = body.span.end;
                     let param = params.into_iter().next().unwrap();
@@ -467,12 +420,7 @@ impl<'a> Parser<'a> {
                     } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                         self.advance();
                         let params = self.parse_function_params()?;
-                        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                            let span = self.current().span;
-                            self.push_error(span, "Ожидалась ')' после параметров метода");
-                            return Err(());
-                        }
-                        self.advance();
+                        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
                         let body = self.parse_block()?;
                         let func_span = Span { start: key.span.start, end: body.span.end };
                         let value = Expr::ArrowFunction {
@@ -496,13 +444,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался '}'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBrace, "Ожидался '}'")?.end;
 
         Ok(Expr::Literal(Literal::Object { entries, span: Span { start, end } }))
     }

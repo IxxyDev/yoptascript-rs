@@ -84,13 +84,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let init = self.parse_expr()?;
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после объявления переменной");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после объявления переменной")?.end;
 
         Ok(Stmt::VarDecl { pattern, init, is_const, span: Span { start, end } })
     }
@@ -108,13 +102,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let init = self.parse_expr()?;
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после объявления 'юзай'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после объявления 'юзай'")?.end;
 
         Ok(Stmt::Using { name, init, span: Span { start, end } })
     }
@@ -122,12 +110,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_block(&mut self) -> Result<Block, ()> {
         let start = self.current().span.start;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '{'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LBrace, "Ожидалась '{'")?;
 
         let mut stmts = Vec::new();
 
@@ -144,13 +127,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '}'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBrace, "Ожидалась '}'")?.end;
 
         Ok(Block { stmts, span: Span { start, end } })
     }
@@ -158,13 +135,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_expr_stmt(&mut self) -> Result<Stmt, ()> {
         let expr = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после выражения");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после выражения")?.end;
 
         let span = Span { start: expr.span().start, end };
 
@@ -175,21 +146,11 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после 'вилкойвглаз'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'вилкойвглаз'")?;
 
         let condition = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после условия");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после условия")?;
 
         let then_branch = Box::new(self.parse_statement()?);
 
@@ -209,21 +170,11 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после 'потрещим'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'потрещим'")?;
 
         let condition = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после условия");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после условия")?;
 
         let body = Box::new(self.parse_statement()?);
 
@@ -241,12 +192,7 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после 'го'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'го'")?;
 
         let decl_offset = if matches!(
             self.current().kind,
@@ -301,12 +247,7 @@ impl<'a> Parser<'a> {
             Some(Box::new(self.parse_var_decl()?))
         } else {
             let expr = self.parse_expr()?;
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась ';' после инициализации");
-                return Err(());
-            }
-            self.advance();
+            self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после инициализации")?;
             Some(Box::new(Stmt::Expr { span: expr.span(), expr }))
         };
 
@@ -316,12 +257,7 @@ impl<'a> Parser<'a> {
             Some(self.parse_expr()?)
         };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после условия");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после условия")?;
 
         let update = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
             None
@@ -329,12 +265,7 @@ impl<'a> Parser<'a> {
             Some(self.parse_expr()?)
         };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после 'го'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
         let body = Box::new(self.parse_statement()?);
 
@@ -350,13 +281,7 @@ impl<'a> Parser<'a> {
         let label =
             if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после 'харэ'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'харэ'")?.end;
 
         Ok(Stmt::Break { label, span: Span { start, end } })
     }
@@ -368,13 +293,7 @@ impl<'a> Parser<'a> {
         let label =
             if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после 'двигай'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'двигай'")?.end;
 
         Ok(Stmt::Continue { label, span: Span { start, end } })
     }
@@ -397,13 +316,7 @@ impl<'a> Parser<'a> {
             Some(self.parse_expr()?)
         };
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после 'отвечаю'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'отвечаю'")?.end;
 
         Ok(Stmt::Return { value, span: Span { start, end } })
     }
@@ -420,12 +333,7 @@ impl<'a> Parser<'a> {
             let param = if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
                 self.advance();
                 let ident = self.parse_identifier()?;
-                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                    let span = self.current().span;
-                    self.push_error(span, "Ожидалась ')' после параметра 'гоп'");
-                    return Err(());
-                }
-                self.advance();
+                self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметра 'гоп'")?;
                 Some(ident)
             } else {
                 None
@@ -465,13 +373,7 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после 'кидай'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'кидай'")?.end;
 
         Ok(Stmt::Throw { value, span: Span { start, end } })
     }
@@ -482,12 +384,7 @@ impl<'a> Parser<'a> {
 
         let iterable = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после 'го'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
         let body = Box::new(self.parse_statement()?);
 
@@ -502,12 +399,7 @@ impl<'a> Parser<'a> {
 
         let iterable = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после 'го'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
         let body = Box::new(self.parse_statement()?);
         let end = body.span().end;
@@ -521,12 +413,7 @@ impl<'a> Parser<'a> {
 
         let iterable = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после 'го сидетьНахуй'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го сидетьНахуй'")?;
 
         let body = Box::new(self.parse_statement()?);
         let end = body.span().end;
@@ -547,29 +434,13 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после 'потрещим'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'потрещим'")?;
 
         let condition = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после условия");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после условия")?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Semicolon)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ';' после 'крутани...потрещим'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'крутани...потрещим'")?.end;
 
         Ok(Stmt::DoWhile { body, condition, span: Span { start, end } })
     }
@@ -578,28 +449,13 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '(' после 'базарпо'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после 'базарпо'")?;
 
         let expr = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после выражения");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после выражения")?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '{' после 'базарпо'");
-            return Err(());
-        }
-        self.advance();
+        self.expect_punct(PunctuationKind::LBrace, "Ожидалась '{' после 'базарпо'")?;
 
         let mut cases = Vec::new();
         let mut default = None;
@@ -611,12 +467,7 @@ impl<'a> Parser<'a> {
 
                 let value = self.parse_expr()?;
 
-                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
-                    let span = self.current().span;
-                    self.push_error(span, "Ожидалось ':' после значения 'тема'");
-                    return Err(());
-                }
-                self.advance();
+                self.expect_punct(PunctuationKind::Colon, "Ожидалось ':' после значения 'тема'")?;
 
                 let body = self.parse_block()?;
                 let case_end = body.span.end;
@@ -634,13 +485,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBrace)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась '}' после 'базарпо'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBrace, "Ожидалась '}' после 'базарпо'")?.end;
 
         Ok(Stmt::Switch { expr, cases, default, span: Span { start, end } })
     }

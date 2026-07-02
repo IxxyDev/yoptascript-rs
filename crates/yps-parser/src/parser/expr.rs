@@ -70,12 +70,7 @@ impl<'a> Parser<'a> {
                 let start = lhs.span().start;
                 self.advance();
                 let then_expr = self.parse_expression_with_precedence(0)?;
-                if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Colon)) {
-                    let span = self.current().span;
-                    self.push_error(span, "Ожидалось ':' в тернарном операторе");
-                    return Err(());
-                }
-                self.advance();
+                self.expect_punct(PunctuationKind::Colon, "Ожидалось ':' в тернарном операторе")?;
                 let else_expr = self.parse_expression_with_precedence(TERNARY_PRECEDENCE)?;
                 let end = else_expr.span().end;
                 lhs = Expr::Conditional {
@@ -242,13 +237,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидалась ')' после аргументов функции");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?.end;
 
         Ok(Expr::Call { callee: Box::new(callee), args, span: Span { start, end } })
     }
@@ -259,13 +248,7 @@ impl<'a> Parser<'a> {
 
         let index = self.parse_expr()?;
 
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-            let span = self.current().span;
-            self.push_error(span, "Ожидался ']'");
-            return Err(());
-        }
-        let end = self.current().span.end;
-        self.advance();
+        let end = self.expect_punct(PunctuationKind::RBracket, "Ожидался ']'")?.end;
 
         Ok(Expr::Index { object: Box::new(object), index: Box::new(index), span: Span { start, end } })
     }
@@ -305,24 +288,12 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RParen)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидалась ')' после аргументов функции");
-                return Err(());
-            }
-            let end = self.current().span.end;
-            self.advance();
+            let end = self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после аргументов функции")?.end;
             Ok(Expr::OptionalCall { callee: Box::new(object), args, span: Span { start, end } })
         } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBracket)) {
             self.advance();
             let index = self.parse_expr()?;
-            if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-                let span = self.current().span;
-                self.push_error(span, "Ожидался ']'");
-                return Err(());
-            }
-            let end = self.current().span.end;
-            self.advance();
+            let end = self.expect_punct(PunctuationKind::RBracket, "Ожидался ']'")?.end;
             Ok(Expr::OptionalIndex { object: Box::new(object), index: Box::new(index), span: Span { start, end } })
         } else {
             let property = self.parse_identifier()?;
