@@ -1,7 +1,7 @@
 use yps_lexer::Span;
 
 use crate::error::VmError;
-use crate::value::{Value, number_to_string};
+use crate::value::{BigIntOperand, Value, bigint_from_operand, number_to_string};
 
 pub fn is_builtin(name: &str) -> bool {
     if let Some(method) = name.strip_prefix("сказать.") {
@@ -100,25 +100,14 @@ fn builtin_bigint(args: &[Value], span: Span) -> Result<Value, VmError> {
     if args.len() != 1 {
         return Err(VmError::new("'БигЦелое' принимает 1 аргумент", span));
     }
-    match &args[0] {
-        Value::BigInt(n) => Ok(Value::BigInt(*n)),
-        Value::Number(n) => {
-            if !n.is_finite() || n.fract() != 0.0 {
-                return Err(VmError::new("БигЦелое требует целое число", span));
-            }
-            if *n < i128::MIN as f64 || *n > i128::MAX as f64 {
-                return Err(VmError::new("Число вне диапазона бигцелого", span));
-            }
-            Ok(Value::BigInt(*n as i128))
-        }
-        Value::Str(s) => s
-            .trim()
-            .parse::<i128>()
-            .map(Value::BigInt)
-            .map_err(|_| VmError::new(format!("Нельзя разобрать '{s}' как бигцелое"), span)),
-        Value::Bool(b) => Ok(Value::BigInt(if *b { 1 } else { 0 })),
-        other => Err(VmError::new(format!("Нельзя сконвертировать '{}' в бигцелое", other.type_name()), span)),
-    }
+    let operand = match &args[0] {
+        Value::BigInt(n) => BigIntOperand::Int(*n),
+        Value::Number(n) => BigIntOperand::Float(*n),
+        Value::Str(s) => BigIntOperand::Text(s),
+        Value::Bool(b) => BigIntOperand::Flag(*b),
+        other => BigIntOperand::Other(other.type_name()),
+    };
+    bigint_from_operand(operand).map(Value::BigInt).map_err(|m| VmError::new(m, span))
 }
 
 fn builtin_vtolknut(args: Vec<Value>, span: Span) -> Result<Value, VmError> {

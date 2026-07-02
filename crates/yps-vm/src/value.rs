@@ -560,7 +560,9 @@ fn bigint_eq_str(a: i128, s: &str) -> bool {
     }
 }
 
-pub use yps_interpreter::interpreter::coercion::{number_to_string, string_to_number};
+pub use yps_interpreter::interpreter::coercion::{
+    BigIntOperand, bigint_from_operand, number_to_string, string_to_number,
+};
 
 pub fn to_int32(n: f64) -> i32 {
     if !n.is_finite() || n == 0.0 {

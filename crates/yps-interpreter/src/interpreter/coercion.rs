@@ -98,6 +98,32 @@ pub fn number_to_string(n: f64) -> String {
     format!("{n}")
 }
 
+pub enum BigIntOperand<'a> {
+    Int(i128),
+    Float(f64),
+    Text(&'a str),
+    Flag(bool),
+    Other(&'a str),
+}
+
+pub fn bigint_from_operand(operand: BigIntOperand<'_>) -> Result<i128, String> {
+    match operand {
+        BigIntOperand::Int(n) => Ok(n),
+        BigIntOperand::Float(n) => {
+            if !n.is_finite() || n.fract() != 0.0 {
+                return Err("БигЦелое требует целое число".to_string());
+            }
+            if n < i128::MIN as f64 || n > i128::MAX as f64 {
+                return Err("Число вне диапазона бигцелого".to_string());
+            }
+            Ok(n as i128)
+        }
+        BigIntOperand::Text(s) => s.trim().parse::<i128>().map_err(|_| format!("Нельзя разобрать '{s}' как бигцелое")),
+        BigIntOperand::Flag(b) => Ok(if b { 1 } else { 0 }),
+        BigIntOperand::Other(type_name) => Err(format!("Нельзя сконвертировать '{type_name}' в бигцелое")),
+    }
+}
+
 fn format_exponential(n: f64) -> String {
     let raw = format!("{n:e}");
     match raw.split_once('e') {
