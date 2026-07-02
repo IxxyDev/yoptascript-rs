@@ -196,6 +196,17 @@ fn deeply_nested_arrays_yield_diagnostic_not_crash() {
 }
 
 #[test]
+fn deeply_nested_destructuring_pattern_yields_diagnostic_not_crash() {
+    let src = format!("гыы {}z{} = 1;", "[".repeat(10_000), "]".repeat(10_000));
+    let (_, diags) = parse_program_from_source(&src);
+    assert!(
+        diags.iter().any(|d| d.message.contains("вложенность")),
+        "ожидалась диагностика о вложенности: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
 fn deeply_nested_blocks_yield_diagnostic_not_crash() {
     let src = format!("{}{}", "вилкойвглаз (правда) { ".repeat(10_000), "}".repeat(10_000));
     let (_, diags) = parse_program_from_source(&src);

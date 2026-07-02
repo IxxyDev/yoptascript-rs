@@ -13,6 +13,13 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_pattern(&mut self) -> Result<Pattern, ()> {
+        self.enter_depth()?;
+        let result = stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || self.parse_pattern_inner());
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_pattern_inner(&mut self) -> Result<Pattern, ()> {
         match &self.current().kind {
             TokenKind::Punctuation(PunctuationKind::LBracket) => self.parse_array_pattern(),
             TokenKind::Punctuation(PunctuationKind::LBrace) => self.parse_object_pattern(),
