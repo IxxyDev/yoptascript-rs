@@ -828,7 +828,7 @@ impl Vm {
                 Op::BuildClass(idx) => self.build_class(chunk, idx, span)?,
                 Op::New(argc) => {
                     let argc = argc as usize;
-                    let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                    let args: Vec<Value> = self.pop_args(argc);
                     let callee = self.pop();
                     let instance = self.instantiate(callee, args, span)?;
                     self.stack.push(instance);
@@ -866,7 +866,7 @@ impl Vm {
                 }
                 Op::SuperCall(argc) => {
                     let argc = argc as usize;
-                    let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                    let args: Vec<Value> = self.pop_args(argc);
                     let this = self.stack[base].clone();
                     let owner = self.frames[frame_idx].owner.clone();
                     self.super_call(owner, this, args, span)?;
@@ -889,7 +889,7 @@ impl Vm {
                 Op::SuperInvoke(idx, argc) => {
                     let name = self.const_str(chunk, idx);
                     let argc = argc as usize;
-                    let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                    let args: Vec<Value> = self.pop_args(argc);
                     let this = self.stack[base].clone();
                     let owner = self.frames[frame_idx].owner.clone();
                     let result = self.super_invoke(owner, this, &name, args, span)?;
@@ -973,12 +973,31 @@ impl Vm {
         self.stack.push(Value::Function(Rc::new(Closure { proto, upvalues })));
     }
 
+    fn pop_args(&mut self, argc: usize) -> Vec<Value> {
+        self.stack.split_off(self.stack.len() - argc)
+    }
+
+    fn callee_slot(&self, argc: usize) -> usize {
+        self.stack.len() - 1 - argc
+    }
+
+    fn bind_args(&mut self, proto: &FnProto, args: &[Value]) {
+        let fixed = if proto.has_rest { proto.arity.saturating_sub(1) } else { proto.arity };
+        for i in 0..fixed {
+            self.stack.push(args.get(i).cloned().unwrap_or(Value::Undefined));
+        }
+        if proto.has_rest {
+            let rest: Vec<Value> = if args.len() > fixed { args[fixed..].to_vec() } else { Vec::new() };
+            self.stack.push(Value::Array(Rc::new(RefCell::new(rest))));
+        }
+    }
+
     fn do_call(&mut self, argc: usize, span: Span) -> Result<(), VmError> {
-        let callee_idx = self.stack.len() - 1 - argc;
+        let callee_idx = self.callee_slot(argc);
         let callee = self.stack[callee_idx].clone();
         match callee {
             Value::Builtin(name) => {
-                let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                let args: Vec<Value> = self.pop_args(argc);
                 self.pop();
                 let result = self.call_builtin_value(&name, args, span)?;
                 self.stack.push(result);
@@ -986,14 +1005,14 @@ impl Vm {
             }
             Value::Function(closure) => {
                 if closure.proto.is_generator {
-                    let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                    let args: Vec<Value> = self.pop_args(argc);
                     self.pop();
                     let genrc = self.make_generator(closure, Value::Undefined, None, args);
                     self.stack.push(genrc);
                     return Ok(());
                 }
                 if closure.proto.is_async {
-                    let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                    let args: Vec<Value> = self.pop_args(argc);
                     self.pop();
                     let promise = self.spawn_async(closure, None, None, args);
                     self.stack.push(promise);
@@ -1002,23 +1021,14 @@ impl Vm {
                 if self.frames.len() >= MAX_CALL_DEPTH {
                     return Err(VmError::new("переполнение стека вызовов", span));
                 }
-                let arity = closure.proto.arity;
-                let has_rest = closure.proto.has_rest;
-                let fixed = if has_rest { arity.saturating_sub(1) } else { arity };
-                let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                let args = self.pop_args(argc);
                 let base = self.stack.len() - 1;
-                for i in 0..fixed {
-                    self.stack.push(args.get(i).cloned().unwrap_or(Value::Undefined));
-                }
-                if has_rest {
-                    let rest: Vec<Value> = if args.len() > fixed { args[fixed..].to_vec() } else { Vec::new() };
-                    self.stack.push(Value::Array(Rc::new(RefCell::new(rest))));
-                }
+                self.bind_args(&closure.proto, &args);
                 self.frames.push(CallFrame { closure, ip: 0, base, owner: None });
                 Ok(())
             }
             Value::Class(_) => {
-                let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                let args: Vec<Value> = self.pop_args(argc);
                 self.pop();
                 let instance = self.instantiate(callee, args, span)?;
                 self.stack.push(instance);
@@ -1028,14 +1038,14 @@ impl Vm {
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => {
-                let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                let args: Vec<Value> = self.pop_args(argc);
                 self.pop();
                 let result = self.call_value(callee, None, &args, span)?;
                 self.stack.push(result);
                 Ok(())
             }
             Value::Host(iv) => {
-                let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+                let args: Vec<Value> = self.pop_args(argc);
                 self.pop();
                 let result = crate::bridge::host_call(self, &iv, &args, span)?;
                 self.stack.push(result);
@@ -1056,18 +1066,9 @@ impl Vm {
         if self.frames.len() >= MAX_CALL_DEPTH {
             return Err(VmError::new("переполнение стека вызовов", span));
         }
-        let arity = closure.proto.arity;
-        let has_rest = closure.proto.has_rest;
-        let fixed = if has_rest { arity.saturating_sub(1) } else { arity };
         let base = self.stack.len();
         self.stack.push(this.unwrap_or(Value::Undefined));
-        for i in 0..fixed {
-            self.stack.push(args.get(i).cloned().unwrap_or(Value::Undefined));
-        }
-        if has_rest {
-            let rest: Vec<Value> = if args.len() > fixed { args[fixed..].to_vec() } else { Vec::new() };
-            self.stack.push(Value::Array(Rc::new(RefCell::new(rest))));
-        }
+        self.bind_args(&closure.proto, args);
         self.frames.push(CallFrame { closure, ip: 0, base, owner });
         Ok(())
     }
@@ -2179,11 +2180,11 @@ impl Vm {
     }
 
     fn do_invoke(&mut self, name: &str, argc: usize, span: Span) -> Result<(), VmError> {
-        let recv_idx = self.stack.len() - 1 - argc;
+        let recv_idx = self.callee_slot(argc);
         let receiver = self.stack[recv_idx].clone();
 
         if let Value::RegExp { .. } = &receiver {
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let result = crate::regexp::call(&receiver, name, &args, span)?;
             self.stack.push(result);
@@ -2192,7 +2193,7 @@ impl Vm {
 
         if let Value::Generator(genrc) = &receiver {
             let genrc = Rc::clone(genrc);
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let arg = args.into_iter().next().unwrap_or(Value::Undefined);
             let result = match name {
@@ -2209,7 +2210,7 @@ impl Vm {
 
         if let Value::Promise { state } = &receiver {
             let state = Rc::clone(state);
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let result = crate::promise::call_promise_method(self, &state, name, args, span)?;
             self.stack.push(result);
@@ -2218,7 +2219,7 @@ impl Vm {
 
         if let Value::Host(iv) = &receiver {
             let iv = iv.clone();
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let result = crate::bridge::call_host_method(self, &iv, name, args, span)?;
             self.stack.push(result);
@@ -2231,7 +2232,7 @@ impl Vm {
             && let Some(method) = cls.find_method(name)
         {
             let owner = cls.find_method_owner(name);
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let result = self.call_closure_sync(method, Some(receiver), owner, &args, span)?;
             self.stack.push(result);
@@ -2241,7 +2242,7 @@ impl Vm {
         if let Value::Class(cls) = &receiver
             && let Some((method, owner)) = cls.find_static_method(name)
         {
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let result = self.call_closure_sync(method, Some(receiver.clone()), owner, &args, span)?;
             self.stack.push(result);
@@ -2251,7 +2252,7 @@ impl Vm {
         if let Value::Array(arr) = &receiver
             && matches!(name, "push" | "добавить" | "втолкнуть")
         {
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let len = {
                 let mut guard = arr.borrow_mut();
@@ -2274,10 +2275,10 @@ impl Vm {
     }
 
     fn do_call_with_this(&mut self, argc: usize, this: Value, span: Span) -> Result<(), VmError> {
-        let callee_idx = self.stack.len() - 1 - argc;
+        let callee_idx = self.callee_slot(argc);
         let callee = self.stack[callee_idx].clone();
         if let Value::Function(closure) = callee {
-            let args: Vec<Value> = self.stack.split_off(self.stack.len() - argc);
+            let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             if closure.proto.is_generator {
                 let genrc = self.make_generator(closure, this, None, args);
