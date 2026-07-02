@@ -13,6 +13,34 @@ fn test_parse_string() {
 }
 
 #[test]
+fn assignment_is_right_associative() {
+    let expr = parse_expr_from_source("a = b = c").unwrap();
+    match expr {
+        Expr::Binary { op: BinaryOp::Assign, rhs, .. } => {
+            assert!(
+                matches!(*rhs, Expr::Binary { op: BinaryOp::Assign, .. }),
+                "rhs должен быть вложенным присваиванием (b = c)"
+            );
+        }
+        _ => panic!("ожидалось присваивание на верхнем уровне"),
+    }
+}
+
+#[test]
+fn subtraction_stays_left_associative() {
+    let expr = parse_expr_from_source("a - b - c").unwrap();
+    match expr {
+        Expr::Binary { op: BinaryOp::Sub, lhs, .. } => {
+            assert!(
+                matches!(*lhs, Expr::Binary { op: BinaryOp::Sub, .. }),
+                "lhs должен быть вложенным вычитанием (a - b)"
+            );
+        }
+        _ => panic!("ожидалось вычитание на верхнем уровне"),
+    }
+}
+
+#[test]
 fn test_parse_string_escape_newline() {
     let expr = parse_expr_from_source(r#""hello\nworld""#).unwrap();
     match expr {
