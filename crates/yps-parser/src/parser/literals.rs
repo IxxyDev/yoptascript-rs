@@ -294,33 +294,9 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        let mut elements = Vec::new();
-        if !matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::RBracket)) {
-            loop {
-                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Spread)) {
-                    let spread_start = self.current().span.start;
-                    self.advance();
-                    let expr = self.parse_expr()?;
-                    let spread_end = expr.span().end;
-                    elements.push(Expr::Spread {
-                        expr: Box::new(expr),
-                        span: Span { start: spread_start, end: spread_end },
-                    });
-                } else {
-                    elements.push(self.parse_expr()?);
-                }
+        let (elements, close) = self.parse_arguments(PunctuationKind::RBracket, "Ожидался ']'")?;
 
-                if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Comma)) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-        }
-
-        let end = self.expect_punct(PunctuationKind::RBracket, "Ожидался ']'")?.end;
-
-        Ok(Expr::Literal(Literal::Array { elements, span: Span { start, end } }))
+        Ok(Expr::Literal(Literal::Array { elements, span: Span { start, end: close.end } }))
     }
 
     pub(super) fn parse_object(&mut self) -> Result<Expr, ()> {
