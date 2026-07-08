@@ -42,6 +42,22 @@ fn dynamic_import_returns_namespace() {
 }
 
 #[test]
+fn static_namespace_import_binds_all_exports() {
+    let module = r#"
+        предъява гыы х = 42;
+        предъява йопта удвоить(а) { отвечаю а * 2; }
+    "#;
+    let main = r#"
+        спиздить * как всё из "./модуль";
+        гыы результат_х = всё.х;
+        гыы результат_удв = всё.удвоить(10);
+    "#;
+    let interp = run_with_module(module, main);
+    assert_eq!(interp.get("результат_х"), Some(Value::Number(42.0)));
+    assert_eq!(interp.get("результат_удв"), Some(Value::Number(20.0)));
+}
+
+#[test]
 fn dynamic_import_missing_module_rejects() {
     let source = SourceFile::new(
         "test".to_string(),

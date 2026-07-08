@@ -80,6 +80,32 @@ fn test_parse_import_named() {
 }
 
 #[test]
+fn test_parse_import_namespace() {
+    let (program, diags) = parse_program_from_source(r#"спиздить * как ns из "./м";"#);
+    assert!(diags.is_empty(), "Parse errors: {diags:?}");
+    match &program.items[0] {
+        Stmt::Import { specifiers, source, .. } => {
+            assert_eq!(source, "./м");
+            assert_eq!(specifiers.len(), 1);
+            assert!(matches!(&specifiers[0], crate::ast::ImportSpec::Namespace { local } if local.name == "ns"));
+        }
+        other => panic!("Expected Import, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_import_namespace_missing_kak() {
+    let (_program, diags) = parse_program_from_source(r#"спиздить * из "./м";"#);
+    assert!(!diags.is_empty(), "Expected parse error for missing 'как'");
+}
+
+#[test]
+fn test_parse_import_namespace_missing_identifier() {
+    let (_program, diags) = parse_program_from_source(r#"спиздить * как из "./м";"#);
+    assert!(!diags.is_empty(), "Expected parse error for missing identifier after 'как'");
+}
+
+#[test]
 fn test_parse_export_named() {
     let (program, diags) = parse_program_from_source(r#"предъява { foo, bar };"#);
     assert!(diags.is_empty(), "Parse errors: {diags:?}");
