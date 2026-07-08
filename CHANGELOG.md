@@ -5,6 +5,48 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-09
+
+### Added
+
+- **Static namespace imports**: `спиздить * как ns из "модуль";` binds a
+  namespace object with all of the module's exports (the dynamic-import
+  namespace object already existed; the static form is now parseable too).
+- **User iterables everywhere.** Objects implementing `Symbol.iterator`
+  (`Симбол.итератор`) now work in array-literal spread, call-argument spread
+  and array destructuring (including rest) — in both the tree-walking
+  interpreter and the bytecode VM. The VM gained a `NormalizeIterable` op and
+  routes spread, `for…of` and `yield*` through a single shared iterator pump;
+  an interpreter-vs-VM conformance case pins identical behavior.
+- **`await using`** (`юзай сидетьНахуй`) with the new well-known symbol
+  `Симбол.асинхРасход` (`Symbol.asyncDispose`): async disposal is awaited on
+  scope exit, falls back to the sync `расход` method, and preserves LIFO
+  order and first-error-wins semantics with mixed sync/async resources.
+- **Property descriptor API on `Кент`**: `определитьСвойство`
+  (defineProperty, data and accessor forms) and `описатьСвойство`
+  (getOwnPropertyDescriptor).
+- **Bound method extraction**: builtin array and string methods can be
+  extracted as values and called later (`гыы м = массив.map; м(ф)`), with
+  the receiver kept alive and shared (`гыы п = массив.втолкнуть; п(4)`
+  mutates the original array).
+- **`Set.keys` / `Set.entries`** (`ключи` / `записи`), matching JS semantics
+  (`keys` aliases `values`, `entries` yields `[value, value]` pairs).
+- **LSP: scope-aware rename** with `prepareRename` support — an AST-driven
+  binding resolver renames declarations and uses per lexical scope, leaves
+  shadowed same-named variables and member/object-literal property names
+  untouched, and conservatively refuses on builtins and keywords.
+
+### Fixed
+
+- `Кент.имеетСвоё` now reports accessor-defined (getter/setter) properties
+  instead of only plain data properties.
+- The formatter printed the English `* as` instead of `* как` for namespace
+  import specifiers.
+- The module loader unit tests used non-existent keywords
+  (`импортировать`/`экспортировать`) and tautological assertions, so they
+  never validated anything; they now use the real syntax and assert concrete
+  exported values.
+
 ## [1.4.1] - 2026-06-29
 
 ### Fixed
