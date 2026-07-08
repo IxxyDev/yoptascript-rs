@@ -225,6 +225,9 @@ impl Interpreter {
                 Ok(Value::Undefined)
             }
             Value::Proxy { target, handler } => self.proxy_apply(&target, &handler, args, span),
+            Value::BoundMethod { receiver, method } => {
+                crate::stdlib::call_method(self, *receiver, &method, args, span).map(|(ret, _)| ret)
+            }
             _ => Err(RuntimeError::new(format!("'{}' не является функцией", func.type_name()), span)),
         }
     }

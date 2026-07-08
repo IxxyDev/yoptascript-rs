@@ -183,6 +183,7 @@ impl Marker {
                 }
             }
             Value::Function { env, .. } => self.work.push(Work::Frame(Rc::clone(env))),
+            Value::BoundMethod { receiver, .. } => self.push_value(receiver),
             Value::Class(rc) => self.work.push(Work::Class(Rc::clone(rc))),
             Value::Promise { state } | Value::PromiseCapability { state, .. } => {
                 self.work.push(Work::Promise(Rc::clone(state)));

@@ -22,6 +22,9 @@ impl Interpreter {
                 if property == "length" || property == "длина" {
                     return Ok(Value::Number(arr.borrow().len() as f64));
                 }
+                if crate::stdlib::array::method_exists(property) {
+                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: property.to_string() });
+                }
                 Ok(Value::Undefined)
             }
             Value::Map(entries) => {
@@ -39,6 +42,9 @@ impl Interpreter {
             Value::String(s) => {
                 if property == "length" || property == "длина" {
                     return Ok(Value::Number(s.encode_utf16().count() as f64));
+                }
+                if crate::stdlib::string::method_exists(property) {
+                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: property.to_string() });
                 }
                 Ok(Value::Undefined)
             }

@@ -394,3 +394,89 @@ fn eq_set_identity_true_structural_false() {
     assert_eq!(interp.get("ид"), Some(Value::Boolean(true)));
     assert_eq!(interp.get("структ"), Some(Value::Boolean(false)));
 }
+
+#[test]
+fn bound_array_method_extract_and_call() {
+    let interp = run_code(
+        r#"
+        гыы м = [1, 2, 3].map;
+        гыы рез = м((х) => х * 2);
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(2.0), Value::Number(4.0), Value::Number(6.0)]));
+}
+
+#[test]
+fn bound_array_method_extract_russian_alias() {
+    let interp = run_code(
+        r#"
+        гыы м = [1, 2, 3].преобразовать;
+        гыы рез = м((х) => х + 1);
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]));
+}
+
+#[test]
+fn bound_array_unknown_property_is_undefined() {
+    let interp = run_code(
+        r#"
+        гыы а = [1, 2];
+        гыы м = а.несуществующийМетод;
+        "#,
+    );
+    assert_eq!(interp.get("м"), Some(Value::Undefined));
+}
+
+#[test]
+fn bound_array_length_property_unchanged() {
+    let interp = run_code(
+        r#"
+        гыы а = [1, 2];
+        гыы д = а.length;
+        гыы д2 = а.длина;
+        "#,
+    );
+    assert_eq!(interp.get("д"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("д2"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn bound_method_typeof_matches_function() {
+    let interp = run_code(
+        r#"
+        гыы м = [1].map;
+        гыы тм = тип(м);
+        йопта ф() {}
+        гыы тф = тип(ф);
+        "#,
+    );
+    assert_eq!(interp.get("тм"), Some(Value::String("функция".to_string())));
+    assert_eq!(interp.get("тф"), Some(Value::String("функция".to_string())));
+}
+
+#[test]
+fn bound_array_push_mutates_original_via_shared_receiver() {
+    let interp = run_code(
+        r#"
+        гыы а = [1, 2, 3];
+        гыы п = а.push;
+        п(4);
+        гыы д = длина(а);
+        гыы посл = а[3];
+        "#,
+    );
+    assert_eq!(interp.get("д"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("посл"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn bound_array_index_access_with_string_key_errors() {
+    let err = run_code_err(
+        r#"
+        гыы а = [1, 2];
+        гыы м = а["map"];
+        "#,
+    );
+    assert!(err.message.contains("индексировать"), "ожидалась ошибка индексации, получено: {}", err.message);
+}
