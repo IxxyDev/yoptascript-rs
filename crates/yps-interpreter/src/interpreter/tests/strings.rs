@@ -393,3 +393,36 @@ fn string_index_access_utf16() {
     assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
     assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
 }
+
+#[test]
+fn bound_string_method_extract_and_call() {
+    let interp = run_code(
+        r#"
+        гыы в = "абв".toUpperCase;
+        гыы рез = в();
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("АБВ".to_string())));
+}
+
+#[test]
+fn bound_string_method_extract_russian_alias() {
+    let interp = run_code(
+        r#"
+        гыы в = "аБв".вНижнийРегистр;
+        гыы рез = в();
+        "#,
+    );
+    assert_eq!(interp.get("рез"), Some(Value::String("абв".to_string())));
+}
+
+#[test]
+fn bound_string_unknown_property_is_undefined() {
+    let interp = run_code(
+        r#"
+        гыы с = "абв";
+        гыы м = с.нетТакогоМетода;
+        "#,
+    );
+    assert_eq!(interp.get("м"), Some(Value::Undefined));
+}

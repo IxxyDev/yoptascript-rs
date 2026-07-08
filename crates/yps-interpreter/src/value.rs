@@ -473,6 +473,10 @@ pub enum Value {
         is_async: bool,
     },
     BuiltinFunction(String),
+    BoundMethod {
+        receiver: Box<Value>,
+        method: String,
+    },
     Class(Rc<ClassDef>),
     WeakClass(Weak<ClassDef>),
     Symbol {
@@ -659,6 +663,7 @@ impl Value {
             Value::Null => "объект",
             Value::Function { .. }
             | Value::BuiltinFunction(_)
+            | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
@@ -696,6 +701,7 @@ impl Value {
             self,
             Value::Function { .. }
                 | Value::BuiltinFunction(_)
+                | Value::BoundMethod { .. }
                 | Value::PromiseCapability { .. }
                 | Value::PromiseThenHandler { .. }
                 | Value::PromiseFinallyHandler { .. }
@@ -718,6 +724,7 @@ impl Value {
             Value::Set(_) => "набор",
             Value::Function { .. }
             | Value::BuiltinFunction(_)
+            | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
@@ -770,6 +777,9 @@ impl fmt::Debug for Value {
                 write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
+            Value::BoundMethod { receiver, method } => {
+                write!(f, "BoundMethod({}::{method:?})", receiver.type_name())
+            }
             Value::Class(cls) => write!(f, "Class({})", cls.name),
             Value::WeakClass(w) => match w.upgrade() {
                 Some(cls) => write!(f, "WeakClass({})", cls.name),
@@ -944,6 +954,7 @@ impl Value {
             Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function { name, .. } => write!(f, "[функция {name}]"),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
+            Value::BoundMethod { method, .. } => write!(f, "[метод {method}]"),
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
             Value::WeakClass(w) => match w.upgrade() {
                 Some(cls) => write!(f, "[класс {}]", cls.name),
@@ -1230,6 +1241,9 @@ impl PartialEq for Value {
             ) => Rc::ptr_eq(ba, bb) && oa == ob && la == lb,
             (Value::Proxy { target: ta, handler: ha }, Value::Proxy { target: tb, handler: hb }) => {
                 Rc::ptr_eq(ta, tb) && Rc::ptr_eq(ha, hb)
+            }
+            (Value::BoundMethod { receiver: ra, method: ma }, Value::BoundMethod { receiver: rb, method: mb }) => {
+                ma == mb && ra == rb
             }
             (Value::WeakMap(a), Value::WeakMap(b)) => Rc::ptr_eq(a, b),
             (Value::WeakSet(a), Value::WeakSet(b)) => Rc::ptr_eq(a, b),

@@ -365,6 +365,62 @@ pub fn call(
     }
 }
 
+pub fn method_exists(name: &str) -> bool {
+    matches!(
+        name,
+        "charAt"
+            | "символВ"
+            | "charCodeAt"
+            | "кодСимволаВ"
+            | "indexOf"
+            | "найтиПодстроку"
+            | "lastIndexOf"
+            | "найтиПодстрокуСконца"
+            | "includes"
+            | "содержит"
+            | "slice"
+            | "отрезать"
+            | "substring"
+            | "подстрока"
+            | "toUpperCase"
+            | "вВерхнийРегистр"
+            | "toLowerCase"
+            | "вНижнийРегистр"
+            | "trim"
+            | "обрезать"
+            | "trimStart"
+            | "обрезатьСлева"
+            | "trimEnd"
+            | "обрезатьСправа"
+            | "split"
+            | "разбить"
+            | "replace"
+            | "заменить"
+            | "replaceAll"
+            | "заменитьВсе"
+            | "match"
+            | "совпадает"
+            | "matchAll"
+            | "найтиВсе"
+            | "search"
+            | "найтиИндекс"
+            | "startsWith"
+            | "начинаетсяС"
+            | "endsWith"
+            | "заканчиваетсяНа"
+            | "repeat"
+            | "повторить"
+            | "padStart"
+            | "дополнитьСлева"
+            | "padEnd"
+            | "дополнитьСправа"
+            | "at"
+            | "поИндексу"
+            | "concat"
+            | "присоединить"
+    )
+}
+
 fn clamped_unit_index(arg: &Value, len: usize, span: Span, method: &str) -> Result<usize, RuntimeError> {
     Ok((as_number(arg, span, method)? as isize).clamp(0, len as isize) as usize)
 }
