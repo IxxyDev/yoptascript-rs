@@ -235,20 +235,22 @@ mod tests {
     #[test]
     fn test_self_import_no_stack_overflow() {
         let dir = TempDir::new("self");
-        write_file(&dir, "self_mod.yopta", "импортировать { x } из \"self_mod\";\nэкспортировать гыы x = 1;");
+        write_file(&dir, "self_mod.yopta", "спиздить { x } из \"self_mod\";\nпредъява гыы x = 1;");
         let mut i = interp_with_base(&dir);
         let result = i.load_module("self_mod", Span { start: 0, end: 0 });
-        assert!(result.is_ok() || result.is_err(), "должен завершиться без stack overflow");
+        let exports = result.expect("самоимпорт должен завершиться без stack overflow и без ошибки");
+        assert_eq!(exports.get("x"), Some(&Value::Number(1.0)));
     }
 
     #[test]
     fn test_cyclic_ab_no_stack_overflow() {
         let dir = TempDir::new("cyclic");
-        write_file(&dir, "a.yopta", "импортировать { b_val } из \"b\";\nэкспортировать гыы a_val = 1;");
-        write_file(&dir, "b.yopta", "импортировать { a_val } из \"a\";\nэкспортировать гыы b_val = 2;");
+        write_file(&dir, "a.yopta", "спиздить { b_val } из \"b\";\nпредъява гыы a_val = 1;");
+        write_file(&dir, "b.yopta", "спиздить { a_val } из \"a\";\nпредъява гыы b_val = 2;");
         let mut i = interp_with_base(&dir);
         let result = i.load_module("a", Span { start: 0, end: 0 });
-        assert!(result.is_ok() || result.is_err(), "A→B→A не должен вызывать stack overflow");
+        let exports = result.expect("A→B→A не должен вызывать stack overflow и должен успешно завершиться");
+        assert_eq!(exports.get("a_val"), Some(&Value::Number(1.0)));
     }
 
     #[test]
@@ -271,12 +273,13 @@ mod tests {
     #[test]
     fn test_loaded_state_cached() {
         let dir = TempDir::new("cached");
-        write_file(&dir, "mod.yopta", "экспортировать гыы val = 99;");
+        write_file(&dir, "mod.yopta", "предъява гыы val = 99;");
         let mut i = interp_with_base(&dir);
         let r1 = i.load_module("mod", Span { start: 0, end: 0 });
         let r2 = i.load_module("mod", Span { start: 0, end: 0 });
-        if r1.is_ok() {
-            assert!(r2.is_ok());
-        }
+        let exports1 = r1.expect("модуль должен успешно загрузиться");
+        let exports2 = r2.expect("повторная загрузка должна вернуть закэшированные экспорты");
+        assert_eq!(exports1.get("val"), Some(&Value::Number(99.0)));
+        assert_eq!(exports2.get("val"), Some(&Value::Number(99.0)));
     }
 }
