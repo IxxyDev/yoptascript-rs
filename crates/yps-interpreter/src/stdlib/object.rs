@@ -23,6 +23,8 @@ pub fn build_object() -> Value {
         ("назначитьПрототип", builtin("Кент.назначитьПрототип")),
         ("заморозить", builtin("Кент.заморозить")),
         ("заморожен", builtin("Кент.заморожен")),
+        ("определитьСвойство", builtin("Кент.определитьСвойство")),
+        ("описатьСвойство", builtin("Кент.описатьСвойство")),
     ])
 }
 
@@ -114,7 +116,14 @@ pub fn call_static(
             let key = args[1].to_string();
             match &args[0] {
                 Value::Object(map) => {
-                    let has = !symbols::is_internal_key(&key) && map.borrow().contains_key(&key);
+                    let has = if symbols::is_internal_key(&key) {
+                        false
+                    } else {
+                        let guard = map.borrow();
+                        guard.contains_key(&key)
+                            || guard.contains_key(&symbols::getter_key(&key))
+                            || guard.contains_key(&symbols::setter_key(&key))
+                    };
                     Ok(Value::Boolean(has))
                 }
                 _ => Err(RuntimeError::new("Кент.имеетСвоё ожидает объект", span)),
@@ -255,6 +264,86 @@ pub fn call_static(
             match &args[0] {
                 Value::Object(map) => Ok(Value::Boolean(map.borrow().frozen)),
                 _ => Ok(Value::Boolean(true)),
+            }
+        }
+        "определитьСвойство" => {
+            require_args(&args, 3, span, "Кент.определитьСвойство")?;
+            let mut iter = args.into_iter();
+            let target = iter.next().unwrap();
+            let key = iter.next().unwrap().to_string();
+            let descriptor = iter.next().unwrap();
+            let target_rc = match &target {
+                Value::Object(m) => m.clone(),
+                _ => return Err(RuntimeError::new("Кент.определитьСвойство ожидает объект", span)),
+            };
+            let desc_map = match &descriptor {
+                Value::Object(m) => m.clone(),
+                _ => {
+                    return Err(RuntimeError::new("Кент.определитьСвойство: дескриптор должен быть объектом", span));
+                }
+            };
+            let has_value = desc_map.borrow().contains_key("значение");
+            let getter = desc_map.borrow().get("получить").cloned();
+            let setter = desc_map.borrow().get("установить").cloned();
+            let has_accessor = getter.is_some() || setter.is_some();
+            if has_value && has_accessor {
+                return Err(RuntimeError::new(
+                    "Дескриптор не может одновременно содержать 'значение' и 'получить'/'установить'",
+                    span,
+                ));
+            }
+            if let Some(getter) = &getter
+                && !matches!(getter, Value::Undefined)
+                && !getter.is_callable()
+            {
+                return Err(RuntimeError::new("Кент.определитьСвойство: 'получить' должно быть функцией", span));
+            }
+            if let Some(setter) = &setter
+                && !matches!(setter, Value::Undefined)
+                && !setter.is_callable()
+            {
+                return Err(RuntimeError::new("Кент.определитьСвойство: 'установить' должно быть функцией", span));
+            }
+            if target_rc.borrow().frozen {
+                return Ok(target);
+            }
+            let mut guard = target_rc.borrow_mut();
+            if has_accessor {
+                guard.shift_remove(&key);
+                guard.insert(symbols::getter_key(&key), getter.unwrap_or(Value::Undefined));
+                guard.insert(symbols::setter_key(&key), setter.unwrap_or(Value::Undefined));
+            } else {
+                guard.shift_remove(&symbols::getter_key(&key));
+                guard.shift_remove(&symbols::setter_key(&key));
+                let value = desc_map.borrow().get("значение").cloned().unwrap_or(Value::Undefined);
+                guard.insert(key, value);
+            }
+            drop(guard);
+            Ok(target)
+        }
+        "описатьСвойство" => {
+            require_args(&args, 2, span, "Кент.описатьСвойство")?;
+            let key = args[1].to_string();
+            match &args[0] {
+                Value::Object(map) if !symbols::is_internal_key(&key) => {
+                    let guard = map.borrow();
+                    let getter = guard.get(&symbols::getter_key(&key)).cloned();
+                    let setter = guard.get(&symbols::setter_key(&key)).cloned();
+                    if getter.is_some() || setter.is_some() {
+                        let mut desc = IndexMap::new();
+                        desc.insert("получить".to_string(), getter.unwrap_or(Value::Undefined));
+                        desc.insert("установить".to_string(), setter.unwrap_or(Value::Undefined));
+                        return Ok(Value::object(desc));
+                    }
+                    if let Some(value) = guard.get(&key).cloned() {
+                        let mut desc = IndexMap::new();
+                        desc.insert("значение".to_string(), value);
+                        return Ok(Value::object(desc));
+                    }
+                    Ok(Value::Undefined)
+                }
+                Value::Object(_) => Ok(Value::Undefined),
+                _ => Err(RuntimeError::new("Кент.описатьСвойство ожидает объект", span)),
             }
         }
         _ => Err(RuntimeError::new(format!("У 'Кент' нет метода '{method}'"), span)),
