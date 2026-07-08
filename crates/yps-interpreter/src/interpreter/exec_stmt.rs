@@ -248,13 +248,22 @@ impl Interpreter {
                 result
             }
             Stmt::Debugger { .. } => Ok(None),
-            Stmt::Using { name, init, span } => {
+            Stmt::Using { name, init, is_await, span } => {
                 let value = self.eval_expr(init)?;
                 if !matches!(value, Value::Null | Value::Undefined) {
-                    if !Self::has_dispose_method(&value, &self.env) {
+                    if *is_await {
+                        if !Self::has_async_dispose_method(&value, &self.env)
+                            && !Self::has_dispose_method(&value, &self.env)
+                        {
+                            return Err(RuntimeError::new(
+                                "Ресурс 'юзай сидетьНахуй' должен иметь метод 'асинхРасход' или 'расход'",
+                                *span,
+                            ));
+                        }
+                    } else if !Self::has_dispose_method(&value, &self.env) {
                         return Err(RuntimeError::new("Ресурс 'юзай' должен иметь метод 'расход'", *span));
                     }
-                    self.env.add_disposable(value.clone());
+                    self.env.add_disposable(value.clone(), *is_await);
                 }
                 self.env.define(name.name.clone(), value, true);
                 Ok(None)

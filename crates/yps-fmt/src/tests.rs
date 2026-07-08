@@ -616,4 +616,20 @@ mod suite {
         assert!(out.contains("* как всё"), "форматтер должен печатать 'как', а не 'as': {out:?}");
         assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для namespace import");
     }
+
+    #[test]
+    fn using_await_round_trips() {
+        let src = "{\n    юзай сидетьНахуй р = получить();\n}\n";
+        let out = parse_and_format(src);
+        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для юзай сидетьНахуй");
+        assert!(out.contains("юзай сидетьНахуй р"), "форматтер должен печатать 'юзай сидетьНахуй': {out:?}");
+        assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для юзай сидетьНахуй");
+    }
+
+    #[test]
+    fn using_sync_stays_without_await() {
+        let src = "{\n    юзай р = получить();\n}\n";
+        let out = parse_and_format(src);
+        assert!(!out.contains("сидетьНахуй"), "синхронный юзай не должен печатать 'сидетьНахуй': {out:?}");
+    }
 }

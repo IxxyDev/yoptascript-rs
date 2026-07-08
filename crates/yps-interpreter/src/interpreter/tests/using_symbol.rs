@@ -183,3 +183,137 @@ fn using_symbol_dispose_invoked_with_this() {
     );
     assert_eq!(interp.get("видимое"), Some(Value::Number(5.0)));
 }
+
+#[test]
+fn async_using_disposes_on_scope_exit() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        {
+            юзай сидетьНахуй р = { асинхРасход: () => { счёт = счёт + 1; } };
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn async_using_lifo_mixed_with_sync() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        {
+            юзай а = { расход: () => { лог.push("а"); } };
+            юзай сидетьНахуй б = { асинхРасход: () => { лог.push("б"); } };
+            юзай в = { расход: () => { лог.push("в"); } };
+        }
+        "#,
+    );
+    let log = interp.get("лог").unwrap();
+    let Value::Array(items) = log else { panic!("expected array") };
+    let items = items.borrow();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0], Value::String("в".to_string()));
+    assert_eq!(items[1], Value::String("б".to_string()));
+    assert_eq!(items[2], Value::String("а".to_string()));
+}
+
+#[test]
+fn async_using_falls_back_to_sync_dispose() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        {
+            юзай сидетьНахуй р = { расход: () => { счёт = счёт + 5; } };
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn async_using_awaits_promise_before_scope_exit() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        {
+            юзай сидетьНахуй р = {
+                асинхРасход: ассо йопта() {
+                    лог.push("начало");
+                    сидетьНахуй СловоПацана.решить(0);
+                    лог.push("конец");
+                }
+            };
+            лог.push("тело");
+        }
+        лог.push("после");
+        "#,
+    );
+    let log = interp.get("лог").unwrap();
+    let Value::Array(items) = log else { panic!("expected array") };
+    let items = items.borrow();
+    assert_eq!(items[0], Value::String("тело".to_string()));
+    assert_eq!(items[1], Value::String("начало".to_string()));
+    assert_eq!(items[2], Value::String("конец".to_string()));
+    assert_eq!(items[3], Value::String("после".to_string()));
+}
+
+#[test]
+fn async_using_rejection_is_catchable() {
+    let interp = run_code(
+        r#"
+        гыы пойман = "";
+        хапнуть {
+            юзай сидетьНахуй р = {
+                асинхРасход: ассо йопта() { кидай "бабах"; }
+            };
+        } гоп (е) {
+            пойман = е;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("бабах".to_string())));
+}
+
+#[test]
+fn async_using_requires_dispose_method() {
+    let err = run_code_err(
+        r#"
+        {
+            юзай сидетьНахуй р = { данные: 42 };
+        }
+        "#,
+    );
+    assert!(err.message.contains("асинхРасход"));
+    assert!(err.message.contains("расход"));
+}
+
+#[test]
+fn symbol_well_known_async_dispose_distinct() {
+    let interp = run_code(
+        r#"
+        гыы р1 = Симбол.расход;
+        гыы а1 = Симбол.асинхРасход;
+        гыы а2 = Симбол.асинхРасход;
+        гыы разные = р1 === а1;
+        гыы одинаковые = а1 === а2;
+        "#,
+    );
+    assert_eq!(interp.get("разные"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("одинаковые"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn async_using_accepts_symbol_async_dispose_key() {
+    let interp = run_code(
+        r#"
+        гыы счёт = 0;
+        {
+            гыы р = {};
+            р[Симбол.асинхРасход] = () => { счёт = счёт + 1; };
+            юзай сидетьНахуй рес = р;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("счёт"), Some(Value::Number(1.0)));
+}

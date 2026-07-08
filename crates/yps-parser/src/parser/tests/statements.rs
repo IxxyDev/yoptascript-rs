@@ -549,3 +549,34 @@ fn test_parse_continue_in_for() {
         _ => panic!("Expected For statement"),
     }
 }
+
+#[test]
+fn test_parse_using_await() {
+    let (program, diags) = parse_program_from_source("юзай сидетьНахуй р = получить();");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    assert_eq!(program.items.len(), 1);
+    match &program.items[0] {
+        Stmt::Using { name, is_await, .. } => {
+            assert_eq!(name.name, "р");
+            assert!(*is_await);
+        }
+        other => panic!("Expected Using statement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_using_sync_not_await() {
+    let (program, diags) = parse_program_from_source("юзай р = получить();");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::Using { is_await, .. } => assert!(!*is_await),
+        other => panic!("Expected Using statement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_using_await_missing_name() {
+    let (_, diags) = parse_program_from_source("юзай сидетьНахуй = получить();");
+    let msgs = diag_messages(&diags);
+    assert!(msgs.iter().any(|m| m.contains("Ожидался идентификатор")), "Expected identifier error, got: {msgs:?}");
+}

@@ -88,13 +88,18 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
+        let is_await = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Await));
+        if is_await {
+            self.advance();
+        }
+
         let name = self.parse_identifier()?;
         self.expect_operator(OperatorKind::Assign, "Ожидался '=' после имени ресурса в 'юзай'")?;
 
         let init = self.parse_expr()?;
         let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после объявления 'юзай'")?.end;
 
-        Ok(Stmt::Using { name, init, span: Span { start, end } })
+        Ok(Stmt::Using { name, init, is_await, span: Span { start, end } })
     }
 
     pub(super) fn parse_block(&mut self) -> Result<Block, ()> {

@@ -33,9 +33,10 @@ fn stmt_eq(a: &Stmt, b: &Stmt) -> bool {
             Stmt::VarDecl { pattern: p1, init: i1, is_const: c1, .. },
             Stmt::VarDecl { pattern: p2, init: i2, is_const: c2, .. },
         ) => c1 == c2 && pattern_eq(p1, p2) && expr_eq(i1, i2),
-        (Stmt::Using { name: n1, init: i1, .. }, Stmt::Using { name: n2, init: i2, .. }) => {
-            n1.name == n2.name && expr_eq(i1, i2)
-        }
+        (
+            Stmt::Using { name: n1, init: i1, is_await: a1, .. },
+            Stmt::Using { name: n2, init: i2, is_await: a2, .. },
+        ) => a1 == a2 && n1.name == n2.name && expr_eq(i1, i2),
         (Stmt::Expr { expr: e1, .. }, Stmt::Expr { expr: e2, .. }) => expr_eq(e1, e2),
         (Stmt::Block(b1), Stmt::Block(b2)) => block_eq(b1, b2),
         (Stmt::Empty { .. }, Stmt::Empty { .. }) => true,

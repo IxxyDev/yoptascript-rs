@@ -13,6 +13,7 @@ pub const DISPOSE_ID: u64 = 2;
 pub const ASYNC_ITERATOR_ID: u64 = 3;
 pub const TO_PRIMITIVE_ID: u64 = 4;
 pub const TO_STRING_TAG_ID: u64 = 5;
+pub const ASYNC_DISPOSE_ID: u64 = 6;
 
 thread_local! {
     static NEXT_ID: Cell<u64> = const { Cell::new(100) };
@@ -31,6 +32,7 @@ pub fn well_known(property: &str) -> Option<Value> {
     let (desc, id) = match property {
         "итератор" => ("Symbol.iterator", ITERATOR_ID),
         s if s == symbols::DISPOSE_METHOD => ("Symbol.dispose", DISPOSE_ID),
+        s if s == symbols::ASYNC_DISPOSE_METHOD => ("Symbol.asyncDispose", ASYNC_DISPOSE_ID),
         "асинхИтератор" => ("Symbol.asyncIterator", ASYNC_ITERATOR_ID),
         "вПримитив" => ("Symbol.toPrimitive", TO_PRIMITIVE_ID),
         "строковыйТег" => ("Symbol.toStringTag", TO_STRING_TAG_ID),

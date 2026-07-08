@@ -226,8 +226,11 @@ impl Printer<'_> {
             Stmt::VarDecl { pattern, init, is_const, .. } => {
                 self.print_var_decl(pattern, init, *is_const);
             }
-            Stmt::Using { name, init, .. } => {
+            Stmt::Using { name, init, is_await, .. } => {
                 self.write("юзай ");
+                if *is_await {
+                    self.write("сидетьНахуй ");
+                }
                 self.write(&name.name);
                 self.write(" = ");
                 self.print_expr(init, 0);

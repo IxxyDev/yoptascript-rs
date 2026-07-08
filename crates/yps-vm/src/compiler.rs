@@ -407,7 +407,7 @@ impl Compiler {
             Stmt::ClassDecl { name, super_class, members, decorators, span } => {
                 self.compile_class_decl(name, super_class.as_ref(), members, decorators, *span)
             }
-            Stmt::Using { name, init, span } => self.compile_using(name, init, *span),
+            Stmt::Using { name, init, is_await, span } => self.compile_using(name, init, *is_await, *span),
             Stmt::Import { specifiers, source, attributes, span } => {
                 self.compile_import(specifiers, source, attributes, *span)
             }
@@ -670,7 +670,16 @@ impl Compiler {
         self.destructure_pattern(pattern, is_const, global, span)
     }
 
-    fn compile_using(&mut self, name: &Identifier, init: &Expr, span: Span) -> Result<(), CompileError> {
+    fn compile_using(
+        &mut self,
+        name: &Identifier,
+        init: &Expr,
+        is_await: bool,
+        span: Span,
+    ) -> Result<(), CompileError> {
+        if is_await {
+            return Err(CompileError::new("'юзай сидетьНахуй' пока не поддерживается в этом движке", span));
+        }
         self.compile_expr(init)?;
         self.emit(Op::RegisterDisposable, span);
         if self.is_global_scope() {

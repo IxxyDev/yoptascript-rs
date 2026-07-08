@@ -8,13 +8,13 @@ use crate::value::Value;
 pub struct EnvFrame {
     bindings: HashMap<String, Value>,
     constants: HashSet<String>,
-    disposables: Vec<Value>,
+    disposables: Vec<(Value, bool)>,
     parent: Option<Rc<RefCell<EnvFrame>>>,
 }
 
 impl EnvFrame {
     pub(crate) fn gc_values(&self) -> impl Iterator<Item = &Value> {
-        self.bindings.values().chain(self.disposables.iter())
+        self.bindings.values().chain(self.disposables.iter().map(|(v, _)| v))
     }
 
     pub(crate) fn gc_parent(&self) -> Option<Rc<RefCell<EnvFrame>>> {
@@ -203,11 +203,11 @@ impl Environment {
         }
     }
 
-    pub fn add_disposable(&mut self, value: Value) {
-        self.current.borrow_mut().disposables.push(value);
+    pub fn add_disposable(&mut self, value: Value, is_await: bool) {
+        self.current.borrow_mut().disposables.push((value, is_await));
     }
 
-    pub fn take_disposables(&mut self) -> Vec<Value> {
+    pub fn take_disposables(&mut self) -> Vec<(Value, bool)> {
         std::mem::take(&mut self.current.borrow_mut().disposables)
     }
 

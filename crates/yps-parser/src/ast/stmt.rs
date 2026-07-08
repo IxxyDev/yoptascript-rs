@@ -155,6 +155,7 @@ pub enum Stmt {
     Using {
         name: Identifier,
         init: Expr,
+        is_await: bool,
         span: Span,
     },
     Debugger {
