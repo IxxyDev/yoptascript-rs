@@ -5,12 +5,13 @@ pub mod diagnostics;
 pub mod format;
 pub mod hover;
 pub mod position;
+pub mod rename;
 pub mod symbols;
 pub mod types;
 
 use tower_lsp::lsp_types::{
-    CompletionOptions, Diagnostic, DocumentSymbol, HoverProviderCapability, OneOf, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionOptions, Diagnostic, DocumentSymbol, HoverProviderCapability, OneOf, RenameOptions, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, WorkDoneProgressOptions,
 };
 use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
@@ -29,6 +30,10 @@ pub fn server_capabilities() -> ServerCapabilities {
         document_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
         definition_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
         ..Default::default()
     }
 }
@@ -66,5 +71,6 @@ mod tests {
         assert!(caps.document_formatting_provider.is_some());
         assert!(caps.definition_provider.is_some());
         assert!(caps.text_document_sync.is_some());
+        assert!(caps.rename_provider.is_some());
     }
 }

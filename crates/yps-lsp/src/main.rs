@@ -11,6 +11,7 @@ use yps_lsp::definition::goto_definition;
 use yps_lsp::format::format_document;
 use yps_lsp::hover::keyword_hover;
 use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
+use yps_lsp::rename::{prepare, rename_edits};
 use yps_lsp::types::{member_doc, type_doc};
 use yps_lsp::{Analyzed, analyze};
 
@@ -108,6 +109,42 @@ impl LanguageServer for Backend {
             contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: doc }),
             range: None,
         }))
+    }
+
+    async fn prepare_rename(&self, params: TextDocumentPositionParams) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let pos = params.position;
+
+        let Some(analyzed) = self.get_document(uri).await else {
+            return Ok(None);
+        };
+
+        let byte_pos = pos_to_byte(&analyzed.text, pos);
+        Ok(prepare(&analyzed.text, byte_pos)
+            .map(|span| PrepareRenameResponse::Range(span_to_range(&analyzed.text, span))))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        let pos = params.text_document_position.position;
+
+        let Some(analyzed) = self.get_document(&uri).await else {
+            return Ok(None);
+        };
+
+        let byte_pos = pos_to_byte(&analyzed.text, pos);
+        let Some(spans) = rename_edits(&analyzed.text, byte_pos, &params.new_name) else {
+            return Ok(None);
+        };
+
+        let edits: Vec<TextEdit> = spans
+            .into_iter()
+            .map(|span| TextEdit { range: span_to_range(&analyzed.text, span), new_text: params.new_name.clone() })
+            .collect();
+
+        let mut changes = HashMap::new();
+        changes.insert(uri, edits);
+        Ok(Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }))
     }
 }
 
