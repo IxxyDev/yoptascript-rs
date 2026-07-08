@@ -608,7 +608,7 @@ impl Printer<'_> {
             match spec {
                 ImportSpec::Default { local } => self.write(&local.name),
                 ImportSpec::Namespace { local } => {
-                    self.write("* as ");
+                    self.write("* как ");
                     self.write(&local.name);
                 }
                 ImportSpec::Named { imported, .. } => self.write(&imported.name),

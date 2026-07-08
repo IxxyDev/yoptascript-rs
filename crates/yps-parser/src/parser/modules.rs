@@ -31,6 +31,18 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect_punct(PunctuationKind::RBrace, "Ожидалась '}' в списке импортов")?;
+        } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Multiply)) {
+            self.advance();
+            if matches!(self.current().kind, TokenKind::Identifier) && self.source.slice(self.current().span) == "как"
+            {
+                self.advance();
+            } else {
+                let span = self.current().span;
+                self.push_error(span, "Ожидалось 'как' после '*' в импорте");
+                return Err(());
+            }
+            let local = self.parse_identifier()?;
+            specifiers.push(crate::ast::ImportSpec::Namespace { local });
         } else if matches!(self.current().kind, TokenKind::Identifier) {
             let local = self.parse_identifier()?;
             specifiers.push(crate::ast::ImportSpec::Default { local });

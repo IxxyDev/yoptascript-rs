@@ -607,4 +607,13 @@ mod suite {
         assert!(programs_equivalent_str(src, &out));
         assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для function expression в аргументе");
     }
+
+    #[test]
+    fn import_namespace_round_trips() {
+        let src = "спиздить * как всё из \"./модуль\";\n";
+        let out = parse_and_format(src);
+        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для спиздить * как всё из ...");
+        assert!(out.contains("* как всё"), "форматтер должен печатать 'как', а не 'as': {out:?}");
+        assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для namespace import");
+    }
 }
