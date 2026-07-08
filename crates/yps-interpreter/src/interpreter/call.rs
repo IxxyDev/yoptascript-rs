@@ -356,11 +356,19 @@ impl Interpreter {
                     Value::Iterator(rc) => {
                         values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
                     }
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Нельзя развернуть тип '{}' в аргументы", val.type_name()),
-                            *span,
-                        ));
+                    other => {
+                        let iterator_obj = self.get_user_iterator(&other, *span)?;
+                        match iterator_obj {
+                            Some(iterator_obj) => {
+                                values.extend(self.collect_user_iterable(iterator_obj, *span)?);
+                            }
+                            None => {
+                                return Err(RuntimeError::new(
+                                    format!("Нельзя развернуть тип '{}' в аргументы", other.type_name()),
+                                    *span,
+                                ));
+                            }
+                        }
                     }
                 }
             } else {
