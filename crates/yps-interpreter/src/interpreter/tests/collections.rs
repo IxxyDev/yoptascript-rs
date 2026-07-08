@@ -309,6 +309,55 @@ fn test_nabor_values() {
 }
 
 #[test]
+fn test_nabor_keys_matches_values() {
+    let interp = run_code(
+        r#"
+        гыы н = захуярить Набор([3, 1, 2]);
+        гыы кл = н.ключи();
+        "#,
+    );
+    assert_struct_eq(interp.get("кл"), Value::array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
+}
+
+#[test]
+fn test_nabor_entries() {
+    let interp = run_code(
+        r#"
+        гыы н = захуярить Набор([3, 1, 2]);
+        гыы зп = н.entries();
+        "#,
+    );
+    assert_struct_eq(
+        interp.get("зп"),
+        Value::array(vec![
+            Value::array(vec![Value::Number(3.0), Value::Number(3.0)]),
+            Value::array(vec![Value::Number(1.0), Value::Number(1.0)]),
+            Value::array(vec![Value::Number(2.0), Value::Number(2.0)]),
+        ]),
+    );
+}
+
+#[test]
+fn test_for_of_set_entries() {
+    let interp = run_code(
+        r#"
+        гыы н = захуярить Набор([10, 20, 30]);
+        гыы первые = [];
+        гыы сумма = 0;
+        го (пара сашаГрей н.записи()) {
+            первые.push(пара[0]);
+            сумма += пара[1];
+        }
+        "#,
+    );
+    assert_struct_eq(
+        interp.get("первые"),
+        Value::array(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]),
+    );
+    assert_eq!(interp.get("сумма"), Some(Value::Number(60.0)));
+}
+
+#[test]
 fn test_nabor_for_each() {
     let interp = run_code(
         r#"
