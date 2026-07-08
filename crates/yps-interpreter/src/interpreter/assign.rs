@@ -119,11 +119,17 @@ impl Interpreter {
     fn destructure_assign_array(&mut self, elements: &[Expr], value: Value, span: Span) -> Result<(), RuntimeError> {
         let items: Vec<Value> = match &value {
             Value::Array(arr) => arr.borrow().0.clone(),
-            _ => {
-                return Err(RuntimeError::new(
-                    format!("Невозможно деструктурировать {} как массив", value.type_name()),
-                    span,
-                ));
+            other => {
+                let iterator_obj = self.get_user_iterator(other, span)?;
+                match iterator_obj {
+                    Some(iterator_obj) => self.collect_user_iterable(iterator_obj, span)?,
+                    None => {
+                        return Err(RuntimeError::new(
+                            format!("Невозможно деструктурировать {} как массив", value.type_name()),
+                            span,
+                        ));
+                    }
+                }
             }
         };
         for (i, elem) in elements.iter().enumerate() {

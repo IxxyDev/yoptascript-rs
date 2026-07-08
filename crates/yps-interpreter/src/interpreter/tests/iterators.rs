@@ -269,3 +269,124 @@ fn test_for_await_of_break_and_continue() {
     );
     assert_struct_eq(interp.get("итог"), Value::array(vec![Value::Number(1.0), Value::Number(3.0)]));
 }
+
+#[test]
+fn spread_array_literal_honors_user_symbol_iterator() {
+    let interp = run_code(
+        r#"
+        гыы об = { значения: [1, 2, 3] };
+        об[Симбол.итератор] = йопта() {
+            гыы источник = об.значения;
+            гыы индекс = 0;
+            отвечаю {
+                следующий: йопта() {
+                    вилкойвглаз (индекс < длина(источник)) {
+                        гыы зн = источник[индекс];
+                        индекс = индекс + 1;
+                        отвечаю { значение: зн, готово: лож };
+                    } иливжопураз {
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                }
+            };
+        };
+        гыы рез = [...об];
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+}
+
+#[test]
+fn spread_call_args_honors_user_symbol_iterator() {
+    let interp = run_code(
+        r#"
+        гыы об = { значения: [1, 2, 3] };
+        об[Симбол.итератор] = йопта() {
+            гыы источник = об.значения;
+            гыы индекс = 0;
+            отвечаю {
+                следующий: йопта() {
+                    вилкойвглаз (индекс < длина(источник)) {
+                        гыы зн = источник[индекс];
+                        индекс = индекс + 1;
+                        отвечаю { значение: зн, готово: лож };
+                    } иливжопураз {
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                }
+            };
+        };
+        йопта ф(а, б, в) { отвечаю [а, б, в]; }
+        гыы рез = ф(...об);
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+}
+
+#[test]
+fn destructure_array_rest_honors_user_symbol_iterator() {
+    let interp = run_code(
+        r#"
+        гыы об = { значения: [1, 2, 3] };
+        об[Симбол.итератор] = йопта() {
+            гыы источник = об.значения;
+            гыы индекс = 0;
+            отвечаю {
+                следующий: йопта() {
+                    вилкойвглаз (индекс < длина(источник)) {
+                        гыы зн = источник[индекс];
+                        индекс = индекс + 1;
+                        отвечаю { значение: зн, готово: лож };
+                    } иливжопураз {
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                }
+            };
+        };
+        гыы [а, ...остаток] = об;
+        "#,
+    );
+    assert_eq!(interp.get("а"), Some(Value::Number(1.0)));
+    assert_struct_eq(interp.get("остаток"), Value::array(vec![Value::Number(2.0), Value::Number(3.0)]));
+}
+
+#[test]
+fn spread_user_iterator_immediately_done_yields_empty_array() {
+    let interp = run_code(
+        r#"
+        гыы об = {};
+        об[Симбол.итератор] = йопта() {
+            отвечаю {
+                следующий: йопта() {
+                    отвечаю { значение: ноль, готово: правда };
+                }
+            };
+        };
+        гыы рез = [...об];
+        "#,
+    );
+    assert_struct_eq(interp.get("рез"), Value::array(vec![]));
+}
+
+#[test]
+fn spread_user_iterator_next_throws_is_catchable() {
+    let interp = run_code(
+        r#"
+        гыы об = {};
+        об[Симбол.итератор] = йопта() {
+            отвечаю {
+                следующий: йопта() {
+                    кидай "бум";
+                }
+            };
+        };
+        гыы поймали = ноль;
+        хапнуть {
+            гыы рез = [...об];
+        } гоп (е) {
+            поймали = е;
+        }
+        "#,
+    );
+    assert_eq!(interp.get("поймали"), Some(Value::String("бум".to_string())));
+}

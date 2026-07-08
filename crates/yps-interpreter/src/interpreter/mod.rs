@@ -35,6 +35,7 @@ mod module_loader;
 mod promise_rt;
 mod proxy;
 mod types;
+mod user_iter;
 
 use event_loop::MacrotaskQueue;
 

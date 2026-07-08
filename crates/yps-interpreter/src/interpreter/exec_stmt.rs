@@ -400,11 +400,17 @@ impl Interpreter {
             Pattern::Array { elements, rest, .. } => {
                 let items: Vec<Value> = match &value {
                     Value::Array(arr) => arr.borrow().0.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Невозможно деструктурировать {} как массив", value.type_name()),
-                            span,
-                        ));
+                    other => {
+                        let iterator_obj = self.get_user_iterator(other, span)?;
+                        match iterator_obj {
+                            Some(iterator_obj) => self.collect_user_iterable(iterator_obj, span)?,
+                            None => {
+                                return Err(RuntimeError::new(
+                                    format!("Невозможно деструктурировать {} как массив", value.type_name()),
+                                    span,
+                                ));
+                            }
+                        }
                     }
                 };
 
@@ -528,35 +534,14 @@ impl Interpreter {
             Value::TypedArray { buffer, offset, length, kind } => {
                 crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
             }
-            Value::Object(ref map) => {
-                let iter_key = crate::symbols::symbol_key(crate::stdlib::symbol::ITERATOR_ID);
-                let iter_method = map.borrow().get(&iter_key).cloned();
-                if let Some(method) = iter_method {
-                    let this = val.clone();
-                    let iterator_obj = match method {
-                        Value::Function { ref name, ref params, ref body, ref env, .. } => {
-                            self.call_method_with_this(Rc::clone(name), params, body, env, vec![], Some(this), span)?
-                        }
-                        other => self.call_function(other, vec![], span)?,
-                    };
+            Value::Object(_) => {
+                if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
                     let next_method_name = "следующий";
                     self.env.push_scope();
                     self.env.define(variable.name.clone(), Value::Undefined, false);
                     loop {
                         let next_fn = self.eval_member(iterator_obj.clone(), next_method_name, span)?;
-                        let result = match next_fn {
-                            Value::Function { ref name, ref params, ref body, ref env, .. } => self
-                                .call_method_with_this(
-                                    Rc::clone(name),
-                                    params,
-                                    body,
-                                    env,
-                                    vec![],
-                                    Some(iterator_obj.clone()),
-                                    span,
-                                )?,
-                            other => self.call_function(other, vec![], span)?,
-                        };
+                        let result = self.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
                         let done = match &result {
                             Value::Object(r) => r.borrow().get(crate::symbols::ITER_DONE).cloned(),
                             _ => None,
