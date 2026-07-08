@@ -769,6 +769,7 @@ impl Compiler {
                 self.destructure_pattern(inner, is_const, global, span)
             }
             Pattern::Array { elements, rest, .. } => {
+                self.emit(Op::NormalizeIterable, span);
                 let temp = self.push_temp(span);
                 for (i, elem) in elements.iter().enumerate() {
                     if let Some(pat) = elem {

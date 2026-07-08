@@ -621,12 +621,21 @@ impl Vm {
                     } else if let Value::Host(iv) = &src {
                         let iv = iv.clone();
                         crate::bridge::host_iterate(self, &iv, span)?
+                    } else if let Some(values) = self.user_iterator_values(&src, span)? {
+                        values
                     } else {
                         spread_into_values(&src, span)?
                     };
                     match self.peek(0) {
                         Value::Array(a) => a.borrow_mut().extend(items),
                         _ => return Err(VmError::new("AppendSpread ожидает массив", span)),
+                    }
+                }
+                Op::NormalizeIterable => {
+                    let src = self.pop();
+                    match self.user_iterator_values(&src, span)? {
+                        Some(values) => self.stack.push(Value::Array(Rc::new(RefCell::new(values)))),
+                        None => self.stack.push(src),
                     }
                 }
                 Op::ArrayRest(start) => {
@@ -1579,7 +1588,38 @@ impl Vm {
             let iv = iv.clone();
             return crate::bridge::host_iterate(self, &iv, span);
         }
+        if let Some(values) = self.user_iterator_values(src, span)? {
+            return Ok(values);
+        }
         for_of_values(src, span)
+    }
+
+    fn user_iterator_values(&mut self, src: &Value, span: Span) -> Result<Option<Vec<Value>>, VmError> {
+        let Value::Object(map) = src else {
+            return Ok(None);
+        };
+        let method = map.borrow().get(&well_known_iterator_key()).cloned();
+        let Some(method) = method else {
+            return Ok(None);
+        };
+        let iterator = self.call_value(method, Some(src.clone()), &[], span)?;
+        let mut values = Vec::new();
+        loop {
+            let next_fn = self.get_property(&iterator, "следующий", span)?;
+            let result = self.call_value(next_fn, Some(iterator.clone()), &[], span)?;
+            let (done, value) = match &result {
+                Value::Object(r) => {
+                    let r = r.borrow();
+                    (r.get("готово").cloned(), r.get("значение").cloned())
+                }
+                _ => (None, None),
+            };
+            if matches!(done, Some(Value::Bool(true))) {
+                break;
+            }
+            values.push(value.unwrap_or(Value::Undefined));
+        }
+        Ok(Some(values))
     }
 
     fn begin_delegate(&mut self, genrc: &Rc<RefCell<GenState>>, iterable: Value, span: Span) -> Result<(), VmError> {
@@ -2590,6 +2630,10 @@ fn for_of_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
         Value::Str(s) => Ok(s.chars().map(|c| Value::string(c.to_string())).collect()),
         other => Err(VmError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span)),
     }
+}
+
+fn well_known_iterator_key() -> String {
+    Value::Builtin(Rc::from("Симбол.итератор")).to_ecma_string()
 }
 
 fn spread_into_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {

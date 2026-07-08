@@ -167,6 +167,7 @@ pub enum Op {
     NewArray(u32),
     ArrPush,
     AppendSpread,
+    NormalizeIterable,
     ArrayRest(u32),
     ObjectRest(u32),
     NewObject(u32),
