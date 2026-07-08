@@ -12,6 +12,7 @@ pub const ITER_VALUE: &str = "значение";
 pub const ITER_DONE: &str = "готово";
 
 pub const DISPOSE_METHOD: &str = "расход";
+pub const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
 
 pub const DEC_KIND: &str = "вид";
 pub const DEC_NAME: &str = "имя";

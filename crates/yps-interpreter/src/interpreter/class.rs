@@ -571,13 +571,13 @@ impl Interpreter {
         None
     }
 
-    pub(super) fn has_dispose_method(value: &Value, env: &Environment) -> bool {
+    fn has_dispose_kind(value: &Value, env: &Environment, sym_id: u64, method_name: &str) -> bool {
         if let Value::Object(map) = value {
-            let dispose_sym = symbols::symbol_key(crate::stdlib::symbol::DISPOSE_ID);
+            let dispose_sym = symbols::symbol_key(sym_id);
             if let Some(Value::Function { .. }) = map.borrow().get(&dispose_sym) {
                 return true;
             }
-            if let Some(Value::Function { .. }) = map.borrow().get(symbols::DISPOSE_METHOD) {
+            if let Some(Value::Function { .. }) = map.borrow().get(method_name) {
                 return true;
             }
             let class_name = match map.borrow().get(symbols::CLASS_TAG) {
@@ -586,7 +586,7 @@ impl Interpreter {
             };
             if let Some(class_name) = class_name
                 && let Some(Value::Class(cls)) = env.get(&class_name)
-                && Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD).is_some()
+                && Self::find_method_in_class(&cls, method_name).is_some()
             {
                 return true;
             }
@@ -594,36 +594,61 @@ impl Interpreter {
         false
     }
 
-    pub(super) fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
-        if let Value::Object(map) = &resource {
-            let dispose_sym = symbols::symbol_key(crate::stdlib::symbol::DISPOSE_ID);
-            let dispose_fn = {
-                let borrowed = map.borrow();
-                borrowed.get(&dispose_sym).or_else(|| borrowed.get(symbols::DISPOSE_METHOD)).cloned()
-            };
-            if let Some(Value::Function { params, body, env, .. }) = dispose_fn {
-                self.call_method_with_this(
-                    Rc::from("<dispose>"),
-                    &params,
-                    &body,
-                    &env,
-                    vec![],
-                    Some(resource.clone()),
-                    span,
-                )?;
-                return Ok(());
-            }
+    pub(super) fn has_dispose_method(value: &Value, env: &Environment) -> bool {
+        Self::has_dispose_kind(value, env, crate::stdlib::symbol::DISPOSE_ID, symbols::DISPOSE_METHOD)
+    }
+
+    fn try_invoke_dispose_kind(
+        &mut self,
+        resource: &Value,
+        span: Span,
+        sym_id: u64,
+        method_name: &str,
+        label: &str,
+        await_result: bool,
+    ) -> Result<bool, RuntimeError> {
+        let Value::Object(map) = resource else {
+            return Ok(false);
+        };
+        let dispose_sym = symbols::symbol_key(sym_id);
+        let dispose_fn = {
+            let borrowed = map.borrow();
+            borrowed.get(&dispose_sym).or_else(|| borrowed.get(method_name)).cloned()
+        };
+        let callable = if let Some(Value::Function { params, body, env, .. }) = dispose_fn {
+            Some((params, body, env))
+        } else {
             let class_tag = map.borrow().get(symbols::CLASS_TAG).cloned();
             if let Some(Value::String(class_name)) = class_tag
                 && let Some(Value::Class(cls)) = self.env.get(&class_name)
-                && let Some(method) = Self::find_method_in_class(&cls, symbols::DISPOSE_METHOD)
+                && let Some(method) = Self::find_method_in_class(&cls, method_name)
             {
-                let params = method.params.clone();
-                let body = Rc::clone(&method.body);
-                let env = Rc::clone(&method.env);
-                self.call_method_with_this(Rc::from("<dispose>"), &params, &body, &env, vec![], Some(resource), span)?;
-                return Ok(());
+                Some((method.params.clone(), Rc::clone(&method.body), Rc::clone(&method.env)))
+            } else {
+                None
             }
+        };
+        let Some((params, body, env)) = callable else {
+            return Ok(false);
+        };
+        let result =
+            self.call_method_with_this(Rc::from(label), &params, &body, &env, vec![], Some(resource.clone()), span)?;
+        if await_result {
+            self.do_await(result, span)?;
+        }
+        Ok(true)
+    }
+
+    pub(super) fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
+        if self.try_invoke_dispose_kind(
+            &resource,
+            span,
+            crate::stdlib::symbol::DISPOSE_ID,
+            symbols::DISPOSE_METHOD,
+            "<dispose>",
+            false,
+        )? {
+            return Ok(());
         }
         Err(RuntimeError::new("Ресурс 'юзай' должен иметь метод 'расход'", span))
     }
@@ -631,11 +656,13 @@ impl Interpreter {
     pub(crate) fn dispose_current_scope(&mut self, span: Span) -> Result<(), RuntimeError> {
         let disposables = self.env.take_disposables();
         let mut first_err: Option<RuntimeError> = None;
-        for resource in disposables.into_iter().rev() {
+        for (resource, is_await) in disposables.into_iter().rev() {
             if matches!(resource, Value::Null | Value::Undefined) {
                 continue;
             }
-            if let Err(e) = self.invoke_dispose(resource, span)
+            let result =
+                if is_await { self.invoke_async_dispose(resource, span) } else { self.invoke_dispose(resource, span) };
+            if let Err(e) = result
                 && first_err.is_none()
             {
                 first_err = Some(e);
@@ -645,6 +672,24 @@ impl Interpreter {
             return Err(e);
         }
         Ok(())
+    }
+
+    pub(super) fn has_async_dispose_method(value: &Value, env: &Environment) -> bool {
+        Self::has_dispose_kind(value, env, crate::stdlib::symbol::ASYNC_DISPOSE_ID, symbols::ASYNC_DISPOSE_METHOD)
+    }
+
+    pub(super) fn invoke_async_dispose(&mut self, resource: Value, span: Span) -> Result<(), RuntimeError> {
+        if self.try_invoke_dispose_kind(
+            &resource,
+            span,
+            crate::stdlib::symbol::ASYNC_DISPOSE_ID,
+            symbols::ASYNC_DISPOSE_METHOD,
+            "<asyncDispose>",
+            true,
+        )? {
+            return Ok(());
+        }
+        self.invoke_dispose(resource, span)
     }
 
     pub(super) fn find_method_owner_parent(class_def: &Rc<ClassDef>, method_name: &str) -> Option<Rc<ClassDef>> {
