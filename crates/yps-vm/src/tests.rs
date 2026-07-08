@@ -1001,3 +1001,165 @@ fn bridge_identity_cache_threshold_grows_for_many_live_objects() {
         "порог не вырос при большом числе живых объектов: {prune_at}"
     );
 }
+
+const USER_ITER_OBJ: &str = r#"
+гыы об = { значения: [1, 2, 3] };
+об[Симбол.итератор] = йопта() {
+    гыы источник = об.значения;
+    гыы индекс = 0;
+    отвечаю {
+        следующий: йопта() {
+            вилкойвглаз (индекс < длина(источник)) {
+                гыы зн = источник[индекс];
+                индекс = индекс + 1;
+                отвечаю { значение: зн, готово: лож };
+            } иливжопураз {
+                отвечаю { значение: ноль, готово: правда };
+            }
+        }
+    };
+};
+"#;
+
+#[test]
+fn spread_array_literal_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nсказать([...об]);");
+    assert_eq!(run(&src), "[1, 2, 3]\n");
+}
+
+#[test]
+fn spread_array_literal_mixes_user_iterator_with_elements() {
+    let src = format!("{USER_ITER_OBJ}\nсказать([0, ...об, 99]);");
+    assert_eq!(run(&src), "[0, 1, 2, 3, 99]\n");
+}
+
+#[test]
+fn spread_call_args_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nйопта ф(а, б, в) {{ отвечаю [а, б, в]; }}\nсказать(ф(...об));");
+    assert_eq!(run(&src), "[1, 2, 3]\n");
+}
+
+#[test]
+fn for_of_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nгыы с = 0;\nго (гыы х сашаГрей об) {{ с = с + х; }}\nсказать(с);");
+    assert_eq!(run(&src), "6\n");
+}
+
+#[test]
+fn spread_user_iterator_immediately_done_yields_empty_array() {
+    let src = r#"
+        гыы об = {};
+        об[Симбол.итератор] = йопта() {
+            отвечаю { следующий: йопта() { отвечаю { значение: ноль, готово: правда }; } };
+        };
+        сказать([...об]);
+    "#;
+    assert_eq!(run(src), "[]\n");
+}
+
+#[test]
+fn spread_user_iterator_next_throws_is_catchable() {
+    let src = r#"
+        гыы об = {};
+        об[Симбол.итератор] = йопта() {
+            отвечаю { следующий: йопта() { кидай "бум"; } };
+        };
+        гыы поймали = ноль;
+        хапнуть {
+            гыы рез = [...об];
+        } гоп (е) {
+            поймали = е;
+        }
+        сказать(поймали);
+    "#;
+    assert_eq!(run(src), "бум\n");
+}
+
+#[test]
+fn spread_object_without_iterator_keeps_error() {
+    assert_eq!(run_err("гыы об = { а: 1 }; гыы рез = [...об];"), "Нельзя развернуть тип 'объект' в массив");
+}
+
+#[test]
+fn destructure_array_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nгыы [а, б] = об;\nсказать(а);\nсказать(б);");
+    assert_eq!(run(&src), "1\n2\n");
+}
+
+#[test]
+fn destructure_array_rest_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nгыы [а, ...ост] = об;\nсказать(а);\nсказать(ост);");
+    assert_eq!(run(&src), "1\n[2, 3]\n");
+}
+
+#[test]
+fn destructure_array_param_honors_user_symbol_iterator() {
+    let src = format!("{USER_ITER_OBJ}\nйопта ф([а, б]) {{ отвечаю а + б; }}\nсказать(ф(об));");
+    assert_eq!(run(&src), "3\n");
+}
+
+#[test]
+fn destructure_nested_array_honors_user_symbol_iterator() {
+    let src = r#"
+        гыы об = { значения: [1, 2, 3] };
+        об[Симбол.итератор] = йопта() {
+            гыы источник = об.значения;
+            гыы индекс = 0;
+            отвечаю {
+                следующий: йопта() {
+                    вилкойвглаз (индекс < длина(источник)) {
+                        гыы зн = источник[индекс];
+                        индекс = индекс + 1;
+                        отвечаю { значение: зн, готово: лож };
+                    } иливжопураз {
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                }
+            };
+        };
+        гыы внешний = { значения: [об, 99] };
+        внешний[Симбол.итератор] = йопта() {
+            гыы источник = внешний.значения;
+            гыы индекс = 0;
+            отвечаю {
+                следующий: йопта() {
+                    вилкойвглаз (индекс < длина(источник)) {
+                        гыы зн = источник[индекс];
+                        индекс = индекс + 1;
+                        отвечаю { значение: зн, готово: лож };
+                    } иливжопураз {
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                }
+            };
+        };
+        гыы [[х], у] = внешний;
+        сказать(х);
+        сказать(у);
+    "#;
+    assert_eq!(run(src), "1\n99\n");
+}
+
+#[test]
+fn destructure_array_rest_non_iterable_object_keeps_error() {
+    let src = "гыы об = { а: 1 }; гыы [а, ...ост] = об;";
+    assert_eq!(run_err(src), "Невозможно деструктурировать объект как массив");
+}
+
+#[test]
+fn destructure_array_user_iterator_next_throws_is_catchable() {
+    let src = r#"
+        гыы об = {};
+        об[Симбол.итератор] = йопта() {
+            отвечаю { следующий: йопта() { кидай "бум"; } };
+        };
+        гыы поймали = ноль;
+        хапнуть {
+            гыы [а, б] = об;
+        } гоп (е) {
+            поймали = е;
+        }
+        сказать(поймали);
+    "#;
+    assert_eq!(run(src), "бум\n");
+}
