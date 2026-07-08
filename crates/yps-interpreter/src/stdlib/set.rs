@@ -59,9 +59,13 @@ pub fn call(
             Ok(Value::Undefined)
         }
         "size" | "размер" => Ok(Value::Number(set.borrow().len() as f64)),
-        "values" | "значения" => {
+        "values" | "значения" | "keys" | "ключи" => {
             let vals: Vec<Value> = set.borrow().iter().map(|k| k.0.clone()).collect();
             Ok(Value::array(vals))
+        }
+        "entries" | "записи" => {
+            let pairs: Vec<Value> = set.borrow().iter().map(|k| Value::array(vec![k.0.clone(), k.0.clone()])).collect();
+            Ok(Value::array(pairs))
         }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
