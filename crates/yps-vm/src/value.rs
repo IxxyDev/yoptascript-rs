@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 
@@ -46,13 +46,31 @@ pub fn is_internal_key(k: &str) -> bool {
 pub type MethodDef = Rc<Closure>;
 
 #[derive(Debug, Default)]
+pub struct MethodTable {
+    entries: Vec<(String, MethodDef)>,
+    index: HashMap<String, usize>,
+}
+
+impl MethodTable {
+    pub fn push(&mut self, entry: (String, MethodDef)) {
+        let idx = self.entries.len();
+        self.index.entry(entry.0.clone()).or_insert(idx);
+        self.entries.push(entry);
+    }
+
+    fn lookup(&self, name: &str) -> Option<&MethodDef> {
+        self.index.get(name).map(|&i| &self.entries[i].1)
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct ClassMembers {
-    pub methods: Vec<(String, MethodDef)>,
-    pub getters: Vec<(String, MethodDef)>,
-    pub setters: Vec<(String, MethodDef)>,
-    pub static_methods: Vec<(String, MethodDef)>,
-    pub static_getters: Vec<(String, MethodDef)>,
-    pub static_setters: Vec<(String, MethodDef)>,
+    pub methods: MethodTable,
+    pub getters: MethodTable,
+    pub setters: MethodTable,
+    pub static_methods: MethodTable,
+    pub static_getters: MethodTable,
+    pub static_setters: MethodTable,
     pub field_inits: Vec<(String, Option<MethodDef>, Option<Value>)>,
 }
 
@@ -65,17 +83,11 @@ pub struct ClassDef {
     pub static_fields: RefCell<ObjMap>,
 }
 
-impl ClassMembers {
-    fn lookup<'a>(list: &'a [(String, MethodDef)], name: &str) -> Option<&'a MethodDef> {
-        list.iter().find(|(k, _)| k == name).map(|(_, v)| v)
-    }
-}
-
 impl ClassDef {
     pub fn find_method(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.methods, name) {
+            if let Some(m) = c.members.methods.lookup(name) {
                 return Some(Rc::clone(m));
             }
             cur = c.parent.as_ref();
@@ -86,7 +98,7 @@ impl ClassDef {
     pub fn find_method_owner(self: &Rc<Self>, name: &str) -> Option<Rc<ClassDef>> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if ClassMembers::lookup(&c.members.methods, name).is_some() {
+            if c.members.methods.lookup(name).is_some() {
                 return Some(Rc::clone(c));
             }
             cur = c.parent.as_ref();
@@ -97,7 +109,7 @@ impl ClassDef {
     pub fn find_getter(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.getters, name) {
+            if let Some(m) = c.members.getters.lookup(name) {
                 return Some((Rc::clone(m), Some(Rc::clone(c))));
             }
             cur = c.parent.as_ref();
@@ -108,7 +120,7 @@ impl ClassDef {
     pub fn find_setter(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.setters, name) {
+            if let Some(m) = c.members.setters.lookup(name) {
                 return Some((Rc::clone(m), Some(Rc::clone(c))));
             }
             cur = c.parent.as_ref();
@@ -119,7 +131,7 @@ impl ClassDef {
     pub fn find_static_method(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.static_methods, name) {
+            if let Some(m) = c.members.static_methods.lookup(name) {
                 return Some((Rc::clone(m), Some(Rc::clone(c))));
             }
             cur = c.parent.as_ref();
@@ -130,7 +142,7 @@ impl ClassDef {
     pub fn find_static_getter(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.static_getters, name) {
+            if let Some(m) = c.members.static_getters.lookup(name) {
                 return Some(Rc::clone(m));
             }
             cur = c.parent.as_ref();
@@ -141,7 +153,7 @@ impl ClassDef {
     pub fn find_static_setter(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {
-            if let Some(m) = ClassMembers::lookup(&c.members.static_setters, name) {
+            if let Some(m) = c.members.static_setters.lookup(name) {
                 return Some(Rc::clone(m));
             }
             cur = c.parent.as_ref();
