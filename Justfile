@@ -21,6 +21,9 @@
   check:
       cargo check --workspace --all-targets --all-features
 
+  bench:
+      cargo bench -p yps-bench
+
   cov:
       cargo llvm-cov --workspace --all-features --lcov --output-path target/lcov.info
 
