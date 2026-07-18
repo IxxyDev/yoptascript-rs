@@ -460,7 +460,7 @@ impl Interpreter {
             }
             (AccessSegment::Index(Value::String(key)), Value::Object(map)) => {
                 if is_last {
-                    if map.borrow().frozen {
+                    if !map.borrow().can_write_key(key) {
                         return Ok(());
                     }
                     map.try_borrow_mut()
@@ -478,7 +478,7 @@ impl Interpreter {
             }
             (AccessSegment::Member(prop), Value::Object(map)) => {
                 if is_last {
-                    if map.borrow().frozen {
+                    if !map.borrow().can_write_key(prop) {
                         return Ok(());
                     }
                     map.try_borrow_mut()
@@ -496,7 +496,7 @@ impl Interpreter {
             (AccessSegment::Index(Value::Symbol { id, .. }), Value::Object(map)) => {
                 let key = crate::symbols::symbol_key(*id);
                 if is_last {
-                    if map.borrow().frozen {
+                    if !map.borrow().can_write_key(&key) {
                         return Ok(());
                     }
                     map.try_borrow_mut()

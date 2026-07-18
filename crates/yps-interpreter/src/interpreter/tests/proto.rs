@@ -471,3 +471,162 @@ fn define_property_on_frozen_object_is_noop() {
     );
     assert_eq!(interp.get("v"), Some(Value::Number(1.0)));
 }
+
+#[test]
+fn object_is_same_value_semantics() {
+    let interp = run_code(
+        r#"
+        гыы a = Кент.есть(нихуя, нихуя);
+        гыы b = Кент.есть(0, -0);
+        гыы c = Кент.есть(1, 1);
+        гыы d = Кент.есть("x", "x");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("c"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("d"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn seal_blocks_add_and_delete_but_allows_modify() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1, b: 2 };
+        Кент.запечатать(o);
+        o.a = 100;
+        o.c = 3;
+        ёбнуть o.b;
+        гыы hasC = Кент.имеетСвоё(o, "c");
+        гыы hasB = Кент.имеетСвоё(o, "b");
+        гыы a = o.a;
+        гыы sealed = Кент.запечатан(o);
+        "#,
+    );
+    assert_eq!(interp.get("hasC"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("hasB"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("a"), Some(Value::Number(100.0)));
+    assert_eq!(interp.get("sealed"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn prevent_extensions_blocks_add_but_allows_modify_and_delete() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1, b: 2 };
+        Кент.запретитьРасширение(o);
+        o.a = 100;
+        o.c = 3;
+        ёбнуть o.b;
+        гыы hasC = Кент.имеетСвоё(o, "c");
+        гыы hasB = Кент.имеетСвоё(o, "b");
+        гыы a = o.a;
+        гыы extensible = Кент.расширяем(o);
+        "#,
+    );
+    assert_eq!(interp.get("hasC"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("hasB"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("a"), Some(Value::Number(100.0)));
+    assert_eq!(interp.get("extensible"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn freeze_implies_sealed_and_non_extensible() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1 };
+        Кент.заморозить(o);
+        гыы sealed = Кент.запечатан(o);
+        гыы extensible = Кент.расширяем(o);
+        "#,
+    );
+    assert_eq!(interp.get("sealed"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("extensible"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn is_sealed_and_is_extensible_on_primitives() {
+    let interp = run_code(
+        r#"
+        гыы sealed = Кент.запечатан(5);
+        гыы extensible = Кент.расширяем(5);
+        "#,
+    );
+    assert_eq!(interp.get("sealed"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("extensible"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn set_prototype_of_blocked_on_non_extensible_unless_unchanged() {
+    let interp = run_code(
+        r#"
+        гыы parentA = { x: "a" };
+        гыы parentB = { x: "b" };
+        гыы o = Кент.создать(parentA);
+        Кент.запретитьРасширение(o);
+        Кент.назначитьПрототип(o, parentB);
+        гыы after_diff = Кент.прототип(o).x;
+        Кент.назначитьПрототип(o, parentA);
+        гыы after_same = Кент.прототип(o).x;
+        "#,
+    );
+    assert_eq!(interp.get("after_diff"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("after_same"), Some(Value::String("a".to_string())));
+}
+
+#[test]
+fn assign_skips_new_keys_on_non_extensible_target() {
+    let interp = run_code(
+        r#"
+        гыы t = {};
+        Кент.запретитьРасширение(t);
+        Кент.назначить(t, { a: 1, b: 2 });
+        гыы hasA = Кент.имеетСвоё(t, "a");
+        "#,
+    );
+    assert_eq!(interp.get("hasA"), Some(Value::Boolean(false)));
+}
+
+#[test]
+fn define_property_new_key_blocked_on_non_extensible() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1 };
+        Кент.запретитьРасширение(o);
+        Кент.определитьСвойство(o, "b", { значение: 2 });
+        гыы hasB = Кент.имеетСвоё(o, "b");
+        Кент.определитьСвойство(o, "a", { значение: 99 });
+        гыы a = o.a;
+        "#,
+    );
+    assert_eq!(interp.get("hasB"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("a"), Some(Value::Number(99.0)));
+}
+
+#[test]
+fn define_properties_plural_sets_multiple() {
+    let interp = run_code(
+        r#"
+        гыы o = {};
+        Кент.определитьСвойства(o, { a: { значение: 1 }, b: { значение: 2 } });
+        гыы a = o.a;
+        гыы b = o.b;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn get_own_property_descriptors_plural_reports_all() {
+    let interp = run_code(
+        r#"
+        гыы o = { a: 1, b: 2 };
+        гыы d = Кент.описатьСвойства(o);
+        гыы a = d.a.значение;
+        гыы b = d.b.значение;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(2.0)));
+}

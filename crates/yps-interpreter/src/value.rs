@@ -312,15 +312,52 @@ pub struct ClassDef {
 #[derive(Clone, Default, Debug)]
 pub struct ArrayStore(pub Vec<Value>);
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct ObjectStore {
     pub map: IndexMap<String, Value>,
     pub frozen: bool,
+    pub sealed: bool,
+    pub extensible: bool,
+}
+
+impl Default for ObjectStore {
+    fn default() -> Self {
+        ObjectStore { map: IndexMap::new(), frozen: false, sealed: false, extensible: true }
+    }
 }
 
 impl ObjectStore {
     pub fn new(map: IndexMap<String, Value>) -> Self {
-        ObjectStore { map, frozen: false }
+        ObjectStore { map, frozen: false, sealed: false, extensible: true }
+    }
+
+    pub fn can_write_key(&self, key: &str) -> bool {
+        if self.frozen {
+            return false;
+        }
+        if !self.extensible && !self.map.contains_key(key) {
+            return false;
+        }
+        true
+    }
+
+    pub fn can_delete(&self) -> bool {
+        !self.frozen && !self.sealed
+    }
+
+    pub fn seal(&mut self) {
+        self.sealed = true;
+        self.extensible = false;
+    }
+
+    pub fn freeze(&mut self) {
+        self.frozen = true;
+        self.sealed = true;
+        self.extensible = false;
+    }
+
+    pub fn prevent_extensions(&mut self) {
+        self.extensible = false;
     }
 }
 
@@ -1026,6 +1063,21 @@ impl Value {
 pub fn same_value_zero(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x == y || (x.is_nan() && y.is_nan()),
+        _ => a == b,
+    }
+}
+
+pub fn same_value(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => {
+            if x.is_nan() && y.is_nan() {
+                true
+            } else if *x == 0.0 && *y == 0.0 {
+                x.is_sign_positive() == y.is_sign_positive()
+            } else {
+                x == y
+            }
+        }
         _ => a == b,
     }
 }

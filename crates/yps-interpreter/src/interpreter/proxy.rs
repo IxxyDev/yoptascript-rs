@@ -48,7 +48,7 @@ impl Interpreter {
         }
         match target {
             Value::Object(map) => {
-                if !map.borrow().frozen {
+                if map.borrow().can_write_key(key) {
                     map.borrow_mut().insert(key.to_string(), value);
                 }
                 Ok(())
@@ -103,7 +103,7 @@ impl Interpreter {
             return Ok(result.is_truthy());
         }
         if let Value::Object(map) = target
-            && !map.borrow().frozen
+            && map.borrow().can_delete()
         {
             map.borrow_mut().shift_remove(key);
         }
