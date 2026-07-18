@@ -1,9 +1,12 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{as_number, builtin, object_of, require_args};
-use crate::value::{ArrayStore, Value, same_value_zero};
+use crate::value::{ArrayStore, IteratorState, Value, same_value_zero};
 
 pub fn build_object() -> Value {
     object_of(&[
@@ -443,6 +446,66 @@ pub fn call(
             new_arr[real as usize] = args.into_iter().nth(1).unwrap();
             Ok(Value::array(new_arr))
         }
+        "fill" | "заполнить" => {
+            let len = rc.borrow().len() as isize;
+            let mut args = args.into_iter();
+            let value = args.next().unwrap_or(Value::Undefined);
+            let start = match args.next() {
+                Some(v) => clamp_index(as_number(&v, span, "fill")? as isize, len),
+                None => 0,
+            };
+            let end = match args.next() {
+                Some(v) => clamp_index(as_number(&v, span, "fill")? as isize, len),
+                None => len,
+            };
+            if start < end {
+                let mut guard = rc.borrow_mut();
+                for slot in &mut guard.0[start as usize..end as usize] {
+                    *slot = value.clone();
+                }
+            }
+            Ok(Value::Array(rc))
+        }
+        "copyWithin" | "копироватьВнутри" => {
+            require_args(&args, 1, span, "copyWithin")?;
+            let len = rc.borrow().len() as isize;
+            let mut args = args.into_iter();
+            let target = clamp_index(as_number(&args.next().unwrap(), span, "copyWithin")? as isize, len);
+            let start = match args.next() {
+                Some(v) => clamp_index(as_number(&v, span, "copyWithin")? as isize, len),
+                None => 0,
+            };
+            let end = match args.next() {
+                Some(v) => clamp_index(as_number(&v, span, "copyWithin")? as isize, len),
+                None => len,
+            };
+            let count = (end - start).max(0).min(len - target);
+            if count > 0 {
+                let snapshot = rc.borrow().0.clone();
+                let mut guard = rc.borrow_mut();
+                for i in 0..count as usize {
+                    guard.0[target as usize + i] = snapshot[start as usize + i].clone();
+                }
+            }
+            Ok(Value::Array(rc))
+        }
+        "entries" | "записи" => {
+            let entries: Vec<(Value, Value)> =
+                rc.borrow().0.iter().enumerate().map(|(i, v)| (Value::Number(i as f64), v.clone())).collect();
+            let state = IteratorState::MapEntries { entries, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
+        }
+        "keys" | "ключи" => {
+            let len = rc.borrow().len();
+            let values: Vec<Value> = (0..len).map(|i| Value::Number(i as f64)).collect();
+            let state = IteratorState::Array { values, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
+        }
+        "values" | "значения" => {
+            let values = rc.borrow().0.clone();
+            let state = IteratorState::Array { values, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
+        }
         _ => Err(RuntimeError::new(format!("У массива нет метода '{method}'"), span)),
     }
 }
@@ -513,6 +576,16 @@ pub fn method_exists(name: &str) -> bool {
             | "вырезанный"
             | "with"
             | "сЗаменой"
+            | "fill"
+            | "заполнить"
+            | "copyWithin"
+            | "копироватьВнутри"
+            | "entries"
+            | "записи"
+            | "keys"
+            | "ключи"
+            | "values"
+            | "значения"
     )
 }
 
@@ -550,6 +623,10 @@ fn sort_snapshot(
 
 fn normalize_index(idx: isize, len: isize) -> isize {
     if idx < 0 { (len + idx).max(0) } else { idx }
+}
+
+fn clamp_index(idx: isize, len: isize) -> isize {
+    normalize_index(idx, len).min(len)
 }
 
 fn splice_impl(arr: Vec<Value>, args: &[Value], span: Span) -> Result<(Vec<Value>, Vec<Value>), RuntimeError> {
@@ -634,5 +711,72 @@ mod tests {
     fn reduce_right_with_and_without_init() {
         assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+\"-\"+б);"), crate::value::Value::String("3-2-1".to_string()));
         assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+б, 10);"), crate::value::Value::Number(16.0));
+    }
+
+    #[test]
+    fn fill_full_range() {
+        assert_eq!(eval("[1,2,3,4,5].fill(0).join(\",\");"), crate::value::Value::String("0,0,0,0,0".to_string()));
+    }
+
+    #[test]
+    fn fill_start_end() {
+        assert_eq!(
+            eval("[1,2,3,4,5].fill(0, 1, 3).join(\",\");"),
+            crate::value::Value::String("1,0,0,4,5".to_string())
+        );
+    }
+
+    #[test]
+    fn fill_negative_indices() {
+        assert_eq!(eval("[1,2,3,4,5].fill(0, -3).join(\",\");"), crate::value::Value::String("1,2,0,0,0".to_string()));
+    }
+
+    #[test]
+    fn fill_russian_alias() {
+        assert_eq!(eval("[1,2,3,4,5].заполнить(9).join(\",\");"), crate::value::Value::String("9,9,9,9,9".to_string()));
+    }
+
+    #[test]
+    fn copy_within_forward() {
+        assert_eq!(
+            eval("[1,2,3,4,5].copyWithin(0, 3).join(\",\");"),
+            crate::value::Value::String("4,5,3,4,5".to_string())
+        );
+    }
+
+    #[test]
+    fn copy_within_with_target_offset() {
+        assert_eq!(
+            eval("[1,2,3,4,5].copyWithin(1, 3).join(\",\");"),
+            crate::value::Value::String("1,4,5,4,5".to_string())
+        );
+    }
+
+    #[test]
+    fn copy_within_russian_alias() {
+        assert_eq!(
+            eval("[1,2,3,4,5].копироватьВнутри(0, 3).join(\",\");"),
+            crate::value::Value::String("4,5,3,4,5".to_string())
+        );
+    }
+
+    #[test]
+    fn entries_keys_values_are_iterators() {
+        assert_eq!(eval("тип([\"a\",\"b\"].entries());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(
+            eval("[...[\"a\",\"b\",\"c\"].keys()].join(\",\");"),
+            crate::value::Value::String("0,1,2".to_string())
+        );
+        assert_eq!(eval("[...[\"a\",\"b\"].values()].join(\",\");"), crate::value::Value::String("a,b".to_string()));
+        assert_eq!(
+            eval("[...[\"a\",\"b\"].entries()][0].join(\",\");"),
+            crate::value::Value::String("0,a".to_string())
+        );
+    }
+
+    #[test]
+    fn keys_values_russian_aliases() {
+        assert_eq!(eval("[...[10,20].ключи()].join(\",\");"), crate::value::Value::String("0,1".to_string()));
+        assert_eq!(eval("[...[10,20].значения()].join(\",\");"), crate::value::Value::String("10,20".to_string()));
     }
 }
