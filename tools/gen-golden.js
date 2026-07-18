@@ -62,7 +62,7 @@ function simpleDiff(expected, actual) {
 // Collect all case names from cases/*.yopta (skip modules subdir entries)
 const caseNames = fs.readdirSync(CASES_DIR)
     .filter(f => f.endsWith('.yopta'))
-    .map(f => f.slice(0, -4))
+    .map(f => path.basename(f, '.yopta'))
     .sort();
 
 let ok = 0, mismatch = 0, documented = 0, skip = 0;
