@@ -506,3 +506,67 @@ fn string_namespace_raw() {
     );
     assert_eq!(interp.get("rez"), Some(Value::String("Привет, Мир!\\n".to_string())));
 }
+
+#[test]
+fn normalize_default_form_is_nfc() {
+    let interp = run_code(
+        r#"
+        гыы composed = "Й";
+        гыы decomposed = "Й";
+        гыы a = composed.normalize();
+        гыы b = decomposed.normalize();
+        гыы equal = a === b;
+        "#,
+    );
+    assert_eq!(interp.get("equal"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn normalize_cyrillic_composed_decomposed_round_trip() {
+    let interp = run_code(
+        r#"
+        гыы composed = "Й";
+        гыы decomposed = "Й";
+        гыы a = composed.normalize("NFD") === decomposed.normalize("NFD");
+        гыы b = composed.normalize("NFC") === decomposed.normalize("NFC");
+        гыы roundTrip = composed.normalize("NFD").normalize("NFC") === composed;
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("b"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("roundTrip"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn normalize_nfkc_and_nfkd_forms() {
+    let interp = run_code(
+        r#"
+        гыы a = "ﬁ".normalize("NFKC");
+        гыы b = "ﬁ".нормализовать("NFKD");
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("fi".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("fi".to_string())));
+}
+
+#[test]
+fn normalize_russian_alias() {
+    let interp = run_code(
+        r#"
+        гыы composed = "Й";
+        гыы decomposed = "Й";
+        гыы equal = composed.нормализовать("NFD") === decomposed.нормализовать("NFD");
+        "#,
+    );
+    assert_eq!(interp.get("equal"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn normalize_invalid_form_errors() {
+    let err = run_code_err(
+        r#"
+        "x".normalize("BOGUS");
+        "#,
+    );
+    assert!(err.message.contains("нормализации"), "got: {}", err.message);
+}

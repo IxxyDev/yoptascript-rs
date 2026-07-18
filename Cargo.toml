@@ -35,3 +35,4 @@ rustyline = "18.0.1"
 stacker = "0.1"
 tokio = { version = "1", features = ["full"] }
 tower-lsp = "0.20"
+unicode-normalization = "0.1.25"
