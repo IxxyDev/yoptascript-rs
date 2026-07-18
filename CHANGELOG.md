@@ -5,6 +5,52 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **CLI**: `--version`/`-V`, `--help`/`-h`, `-e`/`--eval "<код>"` for inline
+  snippets and `yps -` for reading a program from stdin. Unknown flags now
+  fail with an error instead of being silently ignored.
+- **Criterion benchmarks** (`crates/yps-bench`, `just bench`): five workloads
+  (fib, strings, objects, closures, arrays) run on both backends from the
+  same parsed AST.
+- **`Строка` namespace**: `raw`, `изСимволов`/`fromCharCode`,
+  `изКодовТочек`/`fromCodePoint`; string instance methods
+  `кодТочки`/`codePointAt` (surrogate-pair aware) and
+  `нормализовать`/`normalize` (NFC/NFD/NFKC/NFKD via the new
+  `unicode-normalization` dependency).
+- **Array methods**: `заполнить`/`fill`, `копироватьВнутри`/`copyWithin`
+  (Node clamp and overlap semantics) and iterator-returning
+  `записи`/`entries`, `ключи`/`keys`, `значения`/`values`.
+- **`Кент` statics**: `есть` (SameValue), `запечатать`, `запечатан`,
+  `запретитьРасширение`, `расширяем`, `определитьСвойства`,
+  `описатьСвойства`. `ObjectStore` tracks sealed/extensible alongside
+  frozen, enforced on every write, delete and prototype-change path
+  including the VM bridge; `заморозить` now implies sealed and
+  non-extensible.
+- **`Матан`**: 21 new functions (inverse trig, hyperbolic, `лог2`/`лог10`/
+  `лог1п`, `эксп`/`экспМ1`, `кубическийКорень`, `гипотенуза`, `дробь32`,
+  `нулиСлева32`, `умножить32`) and 6 constants (`ЛН2`, `ЛН10`, `ЛОГ2Е`,
+  `ЛОГ10Е`, `КОРЕНЬ2`, `КОРЕНЬ0_5`), reachable on both backends.
+
+### Fixed
+
+- **GC runs in plain script execution and between event-loop ticks.**
+  Pending micro- and macrotasks carry explicit GC roots, so the collector
+  no longer bails out while queues are non-empty; long scripts and
+  interval-driven programs finally reclaim cyclic garbage.
+- **VM: string coercion honors user `вСтроку`/`Симбол.вПримитив`** in
+  string concatenation, mirroring the interpreter's to-primitive protocol;
+  template literals compile to a dedicated op preserving Display semantics.
+- `tools/gen-golden.js` mangled `.yopta` case names and reported 100% SKIP;
+  the oracle now actually verifies the conformance battery against Node.
+
+### Changed
+
+- **VM: class member lookup is hash-indexed** instead of a per-call linear
+  scan, preserving insertion order and first-wins duplicate semantics.
+
 ## [1.5.0] - 2026-07-09
 
 ### Added
