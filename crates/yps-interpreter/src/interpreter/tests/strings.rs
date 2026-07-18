@@ -426,3 +426,83 @@ fn bound_string_unknown_property_is_undefined() {
     );
     assert_eq!(interp.get("м"), Some(Value::Undefined));
 }
+
+#[test]
+fn code_point_at_basic() {
+    let interp = run_code(
+        r#"
+        гыы a = "abc".codePointAt(0);
+        гыы b = "abc".кодТочки(1);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(97.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(98.0)));
+}
+
+#[test]
+fn code_point_at_surrogate_pair() {
+    let interp = run_code(
+        r#"
+        гыы a = "😀".codePointAt(0);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(128512.0)));
+}
+
+#[test]
+fn code_point_at_out_of_range_is_undefined() {
+    let interp = run_code(
+        r#"
+        гыы a = "x".codePointAt(5);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Undefined));
+}
+
+#[test]
+fn string_namespace_from_char_code() {
+    let interp = run_code(
+        r#"
+        гыы a = Строка.изСимволов(72, 105);
+        гыы b = Строка.fromCharCode(72, 105);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("Hi".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("Hi".to_string())));
+}
+
+#[test]
+fn string_namespace_from_code_point() {
+    let interp = run_code(
+        r#"
+        гыы a = Строка.изКодовТочек(128512);
+        гыы b = Строка.fromCodePoint(97, 98);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::String("😀".to_string())));
+    assert_eq!(interp.get("b"), Some(Value::String("ab".to_string())));
+}
+
+#[test]
+fn string_namespace_from_code_point_invalid_errors() {
+    let err = run_code_err(
+        r#"
+        Строка.изКодовТочек(-1);
+        "#,
+    );
+    assert!(err.message.contains("кодовая точка") || err.message.contains("Некорректная"));
+}
+
+#[test]
+fn string_namespace_raw() {
+    let interp = run_code(
+        r#"
+        йопта тег(строки, ...значения) {
+            отвечаю Строка.raw(строки, ...значения);
+        }
+        гыы имя = "Мир";
+        гыы rez = тег`Привет, ${имя}!\n`;
+        "#,
+    );
+    assert_eq!(interp.get("rez"), Some(Value::String("Привет, Мир!\\n".to_string())));
+}
