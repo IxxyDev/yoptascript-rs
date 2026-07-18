@@ -104,6 +104,7 @@ pub enum Op {
     Typeof,
 
     Add,
+    ConcatTemplate,
     Sub,
     Mul,
     Div,

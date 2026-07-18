@@ -277,8 +277,14 @@ impl Vm {
                     if !self.try_bigint_binop(BigOp::Add, span)? {
                         let b = self.pop();
                         let a = self.pop();
-                        self.stack.push(add_values(&a, &b));
+                        let result = self.add_values(&a, &b, span)?;
+                        self.stack.push(result);
                     }
+                }
+                Op::ConcatTemplate => {
+                    let b = self.pop();
+                    let a = self.pop();
+                    self.stack.push(Value::string(format!("{a}{b}")));
                 }
                 Op::Sub => {
                     if !self.try_bigint_binop(BigOp::Sub, span)? {
@@ -2474,6 +2480,83 @@ impl Vm {
         }
     }
 
+    fn add_values(&mut self, a: &Value, b: &Value, span: Span) -> Result<Value, VmError> {
+        let lp = self.coerce_primitive(a, span)?;
+        let rp = self.coerce_primitive(b, span)?;
+        if matches!(lp, Value::Str(_)) || matches!(rp, Value::Str(_)) {
+            let mut s = lp.to_ecma_string();
+            s.push_str(&rp.to_ecma_string());
+            Ok(Value::string(s))
+        } else {
+            Ok(Value::Number(lp.to_number() + rp.to_number()))
+        }
+    }
+
+    fn coerce_primitive(&mut self, value: &Value, span: Span) -> Result<Value, VmError> {
+        if !matches!(value, Value::Object(_)) {
+            return Ok(to_primitive_builtin(value));
+        }
+        self.object_to_primitive(value, span)
+    }
+
+    fn object_to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, VmError> {
+        let hint = [Value::string("умолчание")];
+        let sym_hook = well_known_symbol_key("вПримитив");
+        for hook in [sym_hook.as_str(), "вПримитив"] {
+            if let Some(res) = self.try_call_object_method(value, hook, &hint, span)? {
+                if is_primitive(&res) {
+                    return Ok(res);
+                }
+                return Err(VmError::new("'вПримитив' вернул не примитив", span));
+            }
+        }
+        let mut had_method = false;
+        for method in ["вЧисло", "вСтроку"] {
+            if let Some(res) = self.try_call_object_method(value, method, &[], span)? {
+                had_method = true;
+                if is_primitive(&res) {
+                    return Ok(res);
+                }
+            }
+        }
+        if had_method {
+            return Err(VmError::new("Не удалось привести объект к примитиву", span));
+        }
+        if let Some(tag) = self.string_tag(value) {
+            return Ok(Value::string(format!("[object {tag}]")));
+        }
+        Ok(to_primitive_builtin(value))
+    }
+
+    fn string_tag(&self, value: &Value) -> Option<String> {
+        let Value::Object(map) = value else {
+            return None;
+        };
+        let key = well_known_symbol_key("строковыйТег");
+        match map.borrow().get(&key) {
+            Some(Value::Str(tag)) => Some(tag.to_string()),
+            _ => None,
+        }
+    }
+
+    fn try_call_object_method(
+        &mut self,
+        receiver: &Value,
+        method: &str,
+        args: &[Value],
+        span: Span,
+    ) -> Result<Option<Value>, VmError> {
+        let Value::Object(map) = receiver else {
+            return Ok(None);
+        };
+        let func = map.borrow().get(method).cloned();
+        let Some(Value::Function(closure)) = func else {
+            return Ok(None);
+        };
+        let res = self.call_closure_sync(closure, Some(receiver.clone()), None, args, span)?;
+        Ok(Some(res))
+    }
+
     fn numeric_bin(&mut self, _span: Span, f: impl Fn(f64, f64) -> f64) -> Result<(), VmError> {
         let b = self.pop();
         let a = self.pop();
@@ -2632,8 +2715,23 @@ fn for_of_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
     }
 }
 
+fn well_known_symbol_key(name: &str) -> String {
+    Value::Builtin(Rc::from(format!("Симбол.{name}"))).to_ecma_string()
+}
+
 fn well_known_iterator_key() -> String {
-    Value::Builtin(Rc::from("Симбол.итератор")).to_ecma_string()
+    well_known_symbol_key("итератор")
+}
+
+fn is_primitive(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Number(_) | Value::BigInt(_) | Value::Str(_) | Value::Bool(_) | Value::Null | Value::Undefined
+    )
+}
+
+fn to_primitive_builtin(value: &Value) -> Value {
+    if is_primitive(value) { value.clone() } else { Value::string(value.to_ecma_string()) }
 }
 
 fn spread_into_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
@@ -2641,16 +2739,6 @@ fn spread_into_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
         Value::Array(a) => Ok(a.borrow().clone()),
         Value::Str(s) => Ok(s.chars().map(|c| Value::string(c.to_string())).collect()),
         other => Err(VmError::new(format!("Нельзя развернуть тип '{}' в массив", other.type_name()), span)),
-    }
-}
-
-fn add_values(a: &Value, b: &Value) -> Value {
-    if matches!(a, Value::Str(_)) || matches!(b, Value::Str(_)) {
-        let mut s = a.to_ecma_string();
-        s.push_str(&b.to_ecma_string());
-        Value::string(s)
-    } else {
-        Value::Number(a.to_number() + b.to_number())
     }
 }
 

@@ -1603,7 +1603,7 @@ impl Compiler {
                 }
                 TemplatePart::Expr(e) => self.compile_expr(e)?,
             }
-            self.emit(Op::Add, span);
+            self.emit(Op::ConcatTemplate, span);
         }
         Ok(())
     }
