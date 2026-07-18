@@ -9,16 +9,17 @@ use crate::value::{
 
 use super::Interpreter;
 
+pub(crate) enum GcRoot {
+    Value(Value),
+    Frame(Rc<RefCell<EnvFrame>>),
+}
+
 impl Interpreter {
     pub fn collect_cycles(&mut self) -> usize {
         self.collect_cycles_with_roots(&[])
     }
 
     pub(super) fn collect_cycles_with_roots(&mut self, extra_roots: &[Value]) -> usize {
-        if !self.microtasks.is_empty() || !self.macrotasks.is_empty() {
-            return 0;
-        }
-
         let mut marker = Marker::default();
         marker.work.push(Work::Frame(self.env.snapshot()));
         for value in &self.pending_initializers {
@@ -32,6 +33,14 @@ impl Interpreter {
         }
         for value in extra_roots {
             marker.push_value(value);
+        }
+        for task in &self.microtasks {
+            for root in &task.roots {
+                marker.push_root(root);
+            }
+        }
+        for root in self.macrotasks.roots() {
+            marker.push_root(root);
         }
         marker.run();
 
@@ -68,6 +77,13 @@ struct Marker {
 impl Marker {
     fn push_value(&mut self, value: &Value) {
         self.work.push(Work::Value(value.clone()));
+    }
+
+    fn push_root(&mut self, root: &GcRoot) {
+        match root {
+            GcRoot::Value(value) => self.push_value(value),
+            GcRoot::Frame(frame) => self.work.push(Work::Frame(Rc::clone(frame))),
+        }
     }
 
     fn run(&mut self) {
