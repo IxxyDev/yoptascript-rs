@@ -1,0 +1,11 @@
+гыы composed = "Й";
+гыы decomposed = "Й";
+сказать(composed === decomposed);
+сказать(composed.normalize("NFC") === decomposed.normalize("NFC"));
+сказать(composed.normalize("NFD") === decomposed.normalize("NFD"));
+сказать(composed.normalize() === decomposed.normalize());
+сказать(composed.нормализовать("NFD").normalize("NFC") === composed);
+сказать(composed.normalize("NFD").length);
+сказать(composed.normalize("NFC").length);
+сказать("ﬁ".normalize("NFKC"));
+сказать("ﬁ".нормализовать("NFKD"));

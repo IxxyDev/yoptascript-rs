@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use unicode_normalization::UnicodeNormalization;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
@@ -354,6 +355,23 @@ pub fn call(
                 Ok((Value::String(String::from_utf16_lossy(&units[real as usize..real as usize + 1])), None))
             }
         }
+        "normalize" | "нормализовать" => {
+            let form = if args.is_empty() || matches!(args[0], Value::Undefined) {
+                "NFC".to_string()
+            } else {
+                as_string(&args[0], span, "normalize")?.to_string()
+            };
+            let normalized = match form.as_str() {
+                "NFC" => s.nfc().collect::<String>(),
+                "NFD" => s.nfd().collect::<String>(),
+                "NFKC" => s.nfkc().collect::<String>(),
+                "NFKD" => s.nfkd().collect::<String>(),
+                _ => {
+                    return Err(RuntimeError::new(format!("Некорректная форма нормализации: '{form}'"), span));
+                }
+            };
+            Ok((Value::String(normalized), None))
+        }
         "codePointAt" | "кодТочки" => {
             let idx = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "codePointAt")? };
             let units = utf16_units(&s);
@@ -438,6 +456,8 @@ pub fn method_exists(name: &str) -> bool {
             | "присоединить"
             | "codePointAt"
             | "кодТочки"
+            | "normalize"
+            | "нормализовать"
     )
 }
 

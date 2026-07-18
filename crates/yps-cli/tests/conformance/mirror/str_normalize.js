@@ -1,0 +1,12 @@
+'use strict';
+const composed = 'Й';
+const decomposed = 'Й';
+console.log(composed === decomposed);
+console.log(composed.normalize('NFC') === decomposed.normalize('NFC'));
+console.log(composed.normalize('NFD') === decomposed.normalize('NFD'));
+console.log(composed.normalize() === decomposed.normalize());
+console.log(composed.normalize('NFD').normalize('NFC') === composed);
+console.log(composed.normalize('NFD').length);
+console.log(composed.normalize('NFC').length);
+console.log('ﬁ'.normalize('NFKC'));
+console.log('ﬁ'.normalize('NFKD'));
