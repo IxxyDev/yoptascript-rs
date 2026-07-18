@@ -65,6 +65,114 @@ fn test_stdlib_math_constants() {
 }
 
 #[test]
+fn test_stdlib_math_new_constants() {
+    let interp = run_code(
+        r#"
+        гыы ln2 = Матан.ЛН2;
+        гыы ln10 = Матан.ЛН10;
+        гыы log2e = Матан.ЛОГ2Е;
+        гыы log10e = Матан.ЛОГ10Е;
+        гыы sqrt2 = Матан.КОРЕНЬ2;
+        гыы sqrt1_2 = Матан.КОРЕНЬ0_5;
+        "#,
+    );
+    assert_eq!(interp.get("ln2"), Some(Value::Number(std::f64::consts::LN_2)));
+    assert_eq!(interp.get("ln10"), Some(Value::Number(std::f64::consts::LN_10)));
+    assert_eq!(interp.get("log2e"), Some(Value::Number(std::f64::consts::LOG2_E)));
+    assert_eq!(interp.get("log10e"), Some(Value::Number(std::f64::consts::LOG10_E)));
+    assert_eq!(interp.get("sqrt2"), Some(Value::Number(std::f64::consts::SQRT_2)));
+    assert_eq!(interp.get("sqrt1_2"), Some(Value::Number(std::f64::consts::FRAC_1_SQRT_2)));
+}
+
+#[test]
+fn test_stdlib_math_inverse_trig() {
+    let interp = run_code(
+        r#"
+        гыы a = Матан.арксинус(1);
+        гыы b = Матан.арккосинус(1);
+        гыы c = Матан.арктангенс(0);
+        гыы d = Матан.арктангенс2(0, 1);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(std::f64::consts::FRAC_PI_2)));
+    assert_eq!(interp.get("b"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn test_stdlib_math_cbrt_and_hypot() {
+    let interp = run_code(
+        r#"
+        гыы a = Матан.кубическийКорень(64);
+        гыы b = Матан.кубическийКорень(-8);
+        гыы c = Матан.гипотенуза(3, 4);
+        гыы d = Матан.гипотенуза();
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(-2.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(5.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn test_stdlib_math_logs_and_exp() {
+    let interp = run_code(
+        r#"
+        гыы a = Матан.лог2(1024);
+        гыы b = Матан.лог10(100);
+        гыы c = Матан.лог1п(0);
+        гыы d = Матан.эксп(0);
+        гыы e = Матан.экспМ1(0);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(10.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("e"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn test_stdlib_math_hyperbolic() {
+    let interp = run_code(
+        r#"
+        гыы a = Матан.гиперСинус(0);
+        гыы b = Матан.гиперКосинус(0);
+        гыы c = Матан.гиперТангенс(0);
+        гыы d = Матан.аркГиперСинус(0);
+        гыы e = Матан.аркГиперКосинус(1);
+        гыы f = Матан.аркГиперТангенс(0);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("b"), Some(Value::Number(1.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("e"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("f"), Some(Value::Number(0.0)));
+}
+
+#[test]
+fn test_stdlib_math_int32_helpers() {
+    let interp = run_code(
+        r#"
+        гыы a = Матан.дробь32(Матан.ПИ);
+        гыы b = Матан.нулиСлева32(1);
+        гыы c = Матан.нулиСлева32(0);
+        гыы d = Матан.умножить32(3, 4);
+        гыы e = Матан.умножить32(0xffffffff, 5);
+        "#,
+    );
+    assert_eq!(interp.get("a"), Some(Value::Number(std::f64::consts::PI as f32 as f64)));
+    assert_eq!(interp.get("b"), Some(Value::Number(31.0)));
+    assert_eq!(interp.get("c"), Some(Value::Number(32.0)));
+    assert_eq!(interp.get("d"), Some(Value::Number(12.0)));
+    assert_eq!(interp.get("e"), Some(Value::Number(-5.0)));
+}
+
+#[test]
 fn test_stdlib_array_push_pop() {
     let interp = run_code(
         r#"

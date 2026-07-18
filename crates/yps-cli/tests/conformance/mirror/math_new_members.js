@@ -1,0 +1,12 @@
+'use strict';
+console.log(Math.LN2, Math.LN10, Math.LOG2E, Math.LOG10E, Math.SQRT2, Math.SQRT1_2);
+console.log(Math.asin(1), Math.acos(1), Math.acos(0), Math.atan(0));
+console.log(Math.atan2(0, 1));
+console.log(Math.cbrt(64), Math.cbrt(-8), Math.cbrt(0));
+console.log(Math.hypot(3, 4), Math.hypot());
+console.log(Math.log2(1024), Math.log10(100), Math.log1p(0));
+console.log(Math.exp(0), Math.expm1(0));
+console.log(Math.sinh(0), Math.cosh(0), Math.tanh(0));
+console.log(Math.asinh(0), Math.acosh(1), Math.atanh(0));
+console.log(Math.fround(3.5), Math.fround(0), Math.clz32(1), Math.clz32(0));
+console.log(Math.imul(3, 4), Math.imul(0xffffffff, 5));
