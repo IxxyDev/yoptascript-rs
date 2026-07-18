@@ -354,6 +354,24 @@ pub fn call(
                 Ok((Value::String(String::from_utf16_lossy(&units[real as usize..real as usize + 1])), None))
             }
         }
+        "codePointAt" | "кодТочки" => {
+            let idx = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "codePointAt")? };
+            let units = utf16_units(&s);
+            if idx < 0.0 || !idx.is_finite() || idx as usize >= units.len() {
+                return Ok((Value::Undefined, None));
+            }
+            let pos = idx as usize;
+            let first = units[pos];
+            let is_leading_surrogate = (0xD800..=0xDBFF).contains(&first);
+            if is_leading_surrogate && pos + 1 < units.len() {
+                let second = units[pos + 1];
+                if (0xDC00..=0xDFFF).contains(&second) {
+                    let code = 0x10000 + ((first as u32 - 0xD800) << 10) + (second as u32 - 0xDC00);
+                    return Ok((Value::Number(code as f64), None));
+                }
+            }
+            Ok((Value::Number(first as f64), None))
+        }
         "concat" | "присоединить" => {
             let mut out = s;
             for a in args {
@@ -418,6 +436,8 @@ pub fn method_exists(name: &str) -> bool {
             | "поИндексу"
             | "concat"
             | "присоединить"
+            | "codePointAt"
+            | "кодТочки"
     )
 }
 

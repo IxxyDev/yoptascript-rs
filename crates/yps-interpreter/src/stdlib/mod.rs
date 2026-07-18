@@ -20,6 +20,7 @@ pub mod regexp;
 pub mod set;
 pub mod stdio;
 pub mod string;
+pub mod string_ns;
 pub mod symbol;
 pub mod typed_array;
 pub mod weak;
@@ -123,6 +124,9 @@ pub fn call_static_namespaced(
     if let Some(stripped) = namespaced.strip_prefix("Отражение.") {
         return Some(reflect::call_static(interp, stripped, args, span));
     }
+    if let Some(stripped) = namespaced.strip_prefix("Строка.") {
+        return Some(string_ns::call_static(interp, stripped, args, span));
+    }
     if let Some(stripped) = namespaced.strip_prefix("Косяк.") {
         return Some(error::call_static(interp, stripped, args, span));
     }
@@ -210,6 +214,7 @@ pub fn call_static_namespaced(
 pub fn build_globals() -> Vec<(String, Value)> {
     vec![
         ("Матан".to_string(), math::build_object()),
+        ("Строка".to_string(), string_ns::build_object()),
         ("Кент".to_string(), object::build_object()),
         ("Хуйня".to_string(), number::build_object()),
         ("Жсон".to_string(), json::build_object()),

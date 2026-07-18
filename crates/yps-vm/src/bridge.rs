@@ -10,7 +10,7 @@ use crate::error::VmError;
 use crate::value::{ObjMap, Value};
 use crate::vm::Vm;
 
-pub const NAMESPACES: &[&str] = &["Матан", "Кент", "Жсон", "Хуйня", "Помойка", "Отражение"];
+pub const NAMESPACES: &[&str] = &["Матан", "Кент", "Жсон", "Хуйня", "Помойка", "Отражение", "Строка"];
 
 pub const ERROR_CTOR: &str = "Косяк";
 
@@ -137,6 +137,7 @@ pub fn namespace_value(name: &str) -> Option<Value> {
         "Хуйня" => yps_interpreter::stdlib::number::build_object(),
         "Помойка" => yps_interpreter::stdlib::array::build_object(),
         "Отражение" => yps_interpreter::stdlib::reflect::build_object(),
+        "Строка" => yps_interpreter::stdlib::string_ns::build_object(),
         "Итератор" => yps_interpreter::stdlib::iterator::build_object(),
         "ФС" => yps_interpreter::stdlib::fs::build_object(),
         "Процесс" => yps_interpreter::stdlib::process::build_object(),
