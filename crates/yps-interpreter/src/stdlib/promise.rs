@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
-use crate::interpreter::Interpreter;
+use crate::interpreter::{GcRoot, Interpreter};
 use crate::stdlib::require_args;
 use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, Value};
 
@@ -165,15 +165,19 @@ fn run_aggregate(interp: &mut Interpreter, kind: AggregateKind, items: Vec<Value
     if n == 0 {
         match kind {
             AggregateKind::All | AggregateKind::AllSettled => {
-                interp.enqueue_microtask(Box::new(move |interp, sp| {
-                    interp.call_function(resolve_cap, vec![Value::array(Vec::new())], sp).map(|_| ())
-                }));
+                interp.enqueue_microtask(
+                    vec![GcRoot::Value(resolve_cap.clone())],
+                    Box::new(move |interp, sp| {
+                        interp.call_function(resolve_cap, vec![Value::array(Vec::new())], sp).map(|_| ())
+                    }),
+                );
             }
             AggregateKind::Any => {
                 let err = aggregate_error(Vec::new());
-                interp.enqueue_microtask(Box::new(move |interp, sp| {
-                    interp.call_function(reject_cap, vec![err], sp).map(|_| ())
-                }));
+                interp.enqueue_microtask(
+                    vec![GcRoot::Value(reject_cap.clone()), GcRoot::Value(err.clone())],
+                    Box::new(move |interp, sp| interp.call_function(reject_cap, vec![err], sp).map(|_| ())),
+                );
             }
             AggregateKind::Race => {}
         }
@@ -210,14 +214,16 @@ fn attach_aggregate(
             let snap = p_state.borrow().clone();
             match snap {
                 PromiseState::Fulfilled(v) => {
-                    interp.enqueue_microtask(Box::new(move |interp, sp| {
-                        interp.call_function(fulfill, vec![v], sp).map(|_| ())
-                    }));
+                    interp.enqueue_microtask(
+                        vec![GcRoot::Value(fulfill.clone()), GcRoot::Value(v.clone())],
+                        Box::new(move |interp, sp| interp.call_function(fulfill, vec![v], sp).map(|_| ())),
+                    );
                 }
                 PromiseState::Rejected(v) => {
-                    interp.enqueue_microtask(Box::new(move |interp, sp| {
-                        interp.call_function(reject, vec![v], sp).map(|_| ())
-                    }));
+                    interp.enqueue_microtask(
+                        vec![GcRoot::Value(reject.clone()), GcRoot::Value(v.clone())],
+                        Box::new(move |interp, sp| interp.call_function(reject, vec![v], sp).map(|_| ())),
+                    );
                 }
                 PromiseState::Pending { .. } => {
                     if let PromiseState::Pending { on_resolve, on_reject } = &mut *p_state.borrow_mut() {
@@ -228,9 +234,10 @@ fn attach_aggregate(
             }
         }
         other => {
-            interp.enqueue_microtask(Box::new(move |interp, sp| {
-                interp.call_function(fulfill, vec![other], sp).map(|_| ())
-            }));
+            interp.enqueue_microtask(
+                vec![GcRoot::Value(fulfill.clone()), GcRoot::Value(other.clone())],
+                Box::new(move |interp, sp| interp.call_function(fulfill, vec![other], sp).map(|_| ())),
+            );
         }
     }
 }
@@ -345,14 +352,30 @@ fn chain_promise(
     let snap = state.borrow().clone();
     match snap {
         PromiseState::Fulfilled(v) => {
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                invoke_handler(interp, on_fulfill, v, resolve_cap, reject_cap, true, span)
-            }));
+            interp.enqueue_microtask(
+                vec![
+                    GcRoot::Value(on_fulfill.clone()),
+                    GcRoot::Value(v.clone()),
+                    GcRoot::Value(resolve_cap.clone()),
+                    GcRoot::Value(reject_cap.clone()),
+                ],
+                Box::new(move |interp, span| {
+                    invoke_handler(interp, on_fulfill, v, resolve_cap, reject_cap, true, span)
+                }),
+            );
         }
         PromiseState::Rejected(v) => {
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                invoke_handler(interp, on_reject, v, resolve_cap, reject_cap, false, span)
-            }));
+            interp.enqueue_microtask(
+                vec![
+                    GcRoot::Value(on_reject.clone()),
+                    GcRoot::Value(v.clone()),
+                    GcRoot::Value(resolve_cap.clone()),
+                    GcRoot::Value(reject_cap.clone()),
+                ],
+                Box::new(move |interp, span| {
+                    invoke_handler(interp, on_reject, v, resolve_cap, reject_cap, false, span)
+                }),
+            );
         }
         PromiseState::Pending { .. } => {
             let resolve_cb = Value::PromiseThenHandler {
@@ -386,18 +409,24 @@ fn finally_promise(
     let snap = state.borrow().clone();
     match snap {
         PromiseState::Fulfilled(v) => {
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                interp.call_function(cb, vec![], span)?;
-                interp.call_function(resolve_cap, vec![v], span)?;
-                Ok(())
-            }));
+            interp.enqueue_microtask(
+                vec![GcRoot::Value(cb.clone()), GcRoot::Value(resolve_cap.clone()), GcRoot::Value(v.clone())],
+                Box::new(move |interp, span| {
+                    interp.call_function(cb, vec![], span)?;
+                    interp.call_function(resolve_cap, vec![v], span)?;
+                    Ok(())
+                }),
+            );
         }
         PromiseState::Rejected(v) => {
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                interp.call_function(cb, vec![], span)?;
-                interp.call_function(reject_cap, vec![v], span)?;
-                Ok(())
-            }));
+            interp.enqueue_microtask(
+                vec![GcRoot::Value(cb.clone()), GcRoot::Value(reject_cap.clone()), GcRoot::Value(v.clone())],
+                Box::new(move |interp, span| {
+                    interp.call_function(cb, vec![], span)?;
+                    interp.call_function(reject_cap, vec![v], span)?;
+                    Ok(())
+                }),
+            );
         }
         PromiseState::Pending { .. } => {
             let resolve_cb = Value::PromiseFinallyHandler { cb: Box::new(cb.clone()), cap: Box::new(resolve_cap) };

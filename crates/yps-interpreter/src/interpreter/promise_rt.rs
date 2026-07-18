@@ -7,18 +7,22 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::value::{CapKind, PromiseState, Value};
 
-use super::{Interpreter, Microtask};
+use super::{GcRoot, Interpreter, Microtask, MicrotaskFn};
 
 impl Interpreter {
     pub(crate) fn drain_microtasks(&mut self, span: Span) -> Result<(), RuntimeError> {
         while let Some(task) = self.microtasks.pop_front() {
-            task(self, span)?;
+            (task.run)(self, span)?;
         }
         Ok(())
     }
 
-    pub(crate) fn enqueue_microtask(&mut self, task: Microtask) {
-        self.microtasks.push_back(task);
+    pub(crate) fn enqueue_microtask(&mut self, roots: Vec<GcRoot>, run: MicrotaskFn) {
+        self.microtasks.push_back(Microtask { roots, run });
+    }
+
+    pub(crate) fn enqueue_microtask_front(&mut self, roots: Vec<GcRoot>, run: MicrotaskFn) {
+        self.microtasks.push_front(Microtask { roots, run });
     }
 
     pub(crate) fn make_fulfilled_promise(value: Value) -> Value {
@@ -95,9 +99,10 @@ impl Interpreter {
         *state.borrow_mut() = PromiseState::Fulfilled(value.clone());
         for cb in callbacks {
             let val_cloned = value.clone();
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                interp.call_function(cb, vec![val_cloned], span).map(|_| ())
-            }));
+            interp.enqueue_microtask(
+                vec![GcRoot::Value(cb.clone()), GcRoot::Value(val_cloned.clone())],
+                Box::new(move |interp, span| interp.call_function(cb, vec![val_cloned], span).map(|_| ())),
+            );
         }
     }
 
@@ -109,9 +114,10 @@ impl Interpreter {
         *state.borrow_mut() = PromiseState::Rejected(value.clone());
         for cb in callbacks {
             let val_cloned = value.clone();
-            interp.enqueue_microtask(Box::new(move |interp, span| {
-                interp.call_function(cb, vec![val_cloned], span).map(|_| ())
-            }));
+            interp.enqueue_microtask(
+                vec![GcRoot::Value(cb.clone()), GcRoot::Value(val_cloned.clone())],
+                Box::new(move |interp, span| interp.call_function(cb, vec![val_cloned], span).map(|_| ())),
+            );
         }
     }
 
@@ -128,12 +134,15 @@ impl Interpreter {
         {
             let reason = state.borrow().reason.clone();
             let reject_for_task = reject_cap.clone();
-            self.enqueue_microtask(Box::new(move |interp, sp| {
-                if let Value::PromiseCapability { state, kind: CapKind::Reject } = reject_for_task {
-                    let _ = Interpreter::settle_promise(&state, CapKind::Reject, reason, interp, sp);
-                }
-                Ok(())
-            }));
+            self.enqueue_microtask(
+                vec![GcRoot::Value(reject_for_task.clone()), GcRoot::Value(reason.clone())],
+                Box::new(move |interp, sp| {
+                    if let Value::PromiseCapability { state, kind: CapKind::Reject } = reject_for_task {
+                        let _ = Interpreter::settle_promise(&state, CapKind::Reject, reason, interp, sp);
+                    }
+                    Ok(())
+                }),
+            );
             return promise;
         }
 
@@ -142,6 +151,7 @@ impl Interpreter {
         self.macrotasks.schedule_with_id(
             id,
             Duration::from_millis(delay_ms),
+            vec![GcRoot::Value(resolve_for_task.clone())],
             Box::new(move |interp, sp| {
                 if let Value::PromiseCapability { state, kind: CapKind::Resolve } = resolve_for_task {
                     let _ = Interpreter::settle_promise(&state, CapKind::Resolve, Value::Undefined, interp, sp);

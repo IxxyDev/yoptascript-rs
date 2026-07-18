@@ -10,7 +10,7 @@ use std::rc::Rc;
 use crate::error::RuntimeError;
 use crate::value::{AbortState, FinRegState, Value};
 
-use super::Interpreter;
+use super::{GcRoot, Interpreter, LOOP_GC_INTERVAL};
 
 pub(crate) type Macrotask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
@@ -18,6 +18,7 @@ pub(crate) struct ScheduledTask {
     pub deadline: Instant,
     pub seq: u64,
     pub id: u64,
+    pub roots: Vec<GcRoot>,
     pub task: Macrotask,
 }
 
@@ -50,19 +51,23 @@ impl MacrotaskQueue {
         Self { heap: BinaryHeap::new(), cancelled: HashSet::new(), next_id: 1, next_seq: 0 }
     }
 
-    pub fn schedule(&mut self, delay: Duration, task: Macrotask) -> u64 {
+    pub fn schedule(&mut self, delay: Duration, roots: Vec<GcRoot>, task: Macrotask) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
         let seq = self.next_seq;
         self.next_seq = self.next_seq.wrapping_add(1);
-        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, task });
+        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, roots, task });
         id
     }
 
-    pub fn schedule_with_id(&mut self, id: u64, delay: Duration, task: Macrotask) {
+    pub fn schedule_with_id(&mut self, id: u64, delay: Duration, roots: Vec<GcRoot>, task: Macrotask) {
         let seq = self.next_seq;
         self.next_seq = self.next_seq.wrapping_add(1);
-        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, task });
+        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, roots, task });
+    }
+
+    pub fn roots(&self) -> impl Iterator<Item = &GcRoot> {
+        self.heap.iter().flat_map(|t| t.roots.iter())
     }
 
     pub fn cancel(&mut self, id: u64) {
@@ -176,12 +181,12 @@ fn take_signal_from_opts(
 }
 
 impl Interpreter {
-    pub(crate) fn schedule_macrotask(&mut self, delay: Duration, task: Macrotask) -> u64 {
-        self.macrotasks.schedule(delay, task)
+    pub(crate) fn schedule_macrotask(&mut self, delay: Duration, roots: Vec<GcRoot>, task: Macrotask) -> u64 {
+        self.macrotasks.schedule(delay, roots, task)
     }
 
-    pub(crate) fn schedule_macrotask_with_id(&mut self, id: u64, delay: Duration, task: Macrotask) {
-        self.macrotasks.schedule_with_id(id, delay, task);
+    pub(crate) fn schedule_macrotask_with_id(&mut self, id: u64, delay: Duration, roots: Vec<GcRoot>, task: Macrotask) {
+        self.macrotasks.schedule_with_id(id, delay, roots, task);
     }
 
     pub(crate) fn cancel_macrotask(&mut self, id: u64) {
@@ -240,12 +245,15 @@ impl Interpreter {
 
     fn builtin_queue_microtask_promise(&mut self, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
         let cb = take_callback(args.into_iter().next(), "сОчередить", span)?;
-        self.enqueue_microtask(Box::new(move |interp, sp| {
-            if let Err(e) = interp.call_function(cb, vec![], sp) {
-                report_async_error("сОчередить", &e);
-            }
-            Ok(())
-        }));
+        self.enqueue_microtask(
+            vec![GcRoot::Value(cb.clone())],
+            Box::new(move |interp, sp| {
+                if let Err(e) = interp.call_function(cb, vec![], sp) {
+                    report_async_error("сОчередить", &e);
+                }
+                Ok(())
+            }),
+        );
         Ok(Value::Undefined)
     }
 
@@ -261,6 +269,7 @@ impl Interpreter {
         }
         let id = self.schedule_macrotask(
             Duration::from_millis(ms),
+            vec![GcRoot::Value(cb.clone())],
             Box::new(move |interp, sp| {
                 if let Err(e) = interp.call_function(cb, vec![], sp) {
                     report_async_error("чутка", &e);
@@ -312,6 +321,7 @@ impl Interpreter {
         self.schedule_macrotask_with_id(
             id,
             Duration::from_millis(ms),
+            vec![GcRoot::Value(cb.clone())],
             Box::new(move |interp, sp| {
                 if let Err(e) = interp.call_function(cb_clone, vec![], sp) {
                     report_async_error("интервал", &e);
@@ -327,16 +337,19 @@ impl Interpreter {
     fn builtin_queue_microtask(&mut self, args: Vec<Value>, span: Span, front: bool) -> Result<Value, RuntimeError> {
         let name = if front { "наСледующемТике" } else { "сразу" };
         let cb = take_callback(args.into_iter().next(), name, span)?;
-        let task = Box::new(move |interp: &mut Interpreter, sp: Span| interp.call_function(cb, vec![], sp).map(|_| ()));
+        let roots = vec![GcRoot::Value(cb.clone())];
+        let task: super::MicrotaskFn =
+            Box::new(move |interp: &mut Interpreter, sp: Span| interp.call_function(cb, vec![], sp).map(|_| ()));
         if front {
-            self.microtasks.push_front(task);
+            self.enqueue_microtask_front(roots, task);
         } else {
-            self.microtasks.push_back(task);
+            self.enqueue_microtask(roots, task);
         }
         Ok(Value::Undefined)
     }
 
     pub(crate) fn drive_event_loop(&mut self, span: Span) -> Result<(), RuntimeError> {
+        let mut since_gc = 0usize;
         loop {
             self.drain_microtasks(span)?;
             if self.sweep_finalization_registries() {
@@ -349,6 +362,11 @@ impl Interpreter {
                 return Ok(());
             };
             (task.task)(self, span)?;
+            since_gc += 1;
+            if since_gc >= LOOP_GC_INTERVAL {
+                since_gc = 0;
+                self.maybe_collect_garbage();
+            }
         }
     }
 
@@ -373,8 +391,11 @@ impl Interpreter {
             }
             for (callback, held) in dead {
                 fired = true;
-                self.microtasks
-                    .push_back(Box::new(move |interp, sp| interp.call_function(callback, vec![held], sp).map(|_| ())));
+                let roots = vec![GcRoot::Value(callback.clone()), GcRoot::Value(held.clone())];
+                self.enqueue_microtask(
+                    roots,
+                    Box::new(move |interp, sp| interp.call_function(callback, vec![held], sp).map(|_| ())),
+                );
             }
         }
         fired
@@ -395,6 +416,7 @@ mod tests {
         let log_b = Rc::clone(&log);
         q.schedule(
             Duration::from_millis(30),
+            Vec::new(),
             Box::new(move |_, _| {
                 log_a.borrow_mut().push("A");
                 Ok(())
@@ -402,6 +424,7 @@ mod tests {
         );
         q.schedule(
             Duration::from_millis(5),
+            Vec::new(),
             Box::new(move |_, _| {
                 log_b.borrow_mut().push("B");
                 Ok(())
@@ -423,6 +446,7 @@ mod tests {
         let fired_c = Rc::clone(&fired);
         let id = q.schedule(
             Duration::from_millis(1),
+            Vec::new(),
             Box::new(move |_, _| {
                 *fired_c.borrow_mut() = true;
                 Ok(())

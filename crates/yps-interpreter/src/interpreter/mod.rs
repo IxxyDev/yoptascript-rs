@@ -11,7 +11,12 @@ use crate::environment::Environment;
 use crate::error::{Frame, MAX_STACK_DEPTH, RuntimeError};
 use crate::value::{FinRegState, Value};
 
-pub(crate) type Microtask = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
+pub(crate) type MicrotaskFn = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
+
+pub(crate) struct Microtask {
+    pub(crate) roots: Vec<GcRoot>,
+    pub(crate) run: MicrotaskFn,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RunMode {
@@ -39,6 +44,7 @@ mod user_iter;
 
 use event_loop::MacrotaskQueue;
 
+pub(crate) use gc::GcRoot;
 pub(super) use types::{AccessSegment, ControlFlow, LoopOp};
 
 pub struct Interpreter {
@@ -62,6 +68,8 @@ pub(super) const MAX_AWAIT_DEPTH: usize = 16;
 pub(super) const MAX_COERCION_DEPTH: usize = 100;
 pub(super) const MAX_CALL_DEPTH: usize = 1000;
 pub(super) const GC_THRESHOLD: usize = 256;
+pub(super) const SCRIPT_GC_INTERVAL: usize = 128;
+pub(super) const LOOP_GC_INTERVAL: usize = 64;
 pub(super) const STACK_RED_ZONE: usize = 256 * 1024;
 pub(super) const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
@@ -144,6 +152,12 @@ impl Interpreter {
         self.env.registry().prune_and_count()
     }
 
+    pub(super) fn maybe_collect_garbage(&mut self) {
+        if self.live_frames() > GC_THRESHOLD {
+            self.collect_cycles_with_roots(&[]);
+        }
+    }
+
     fn clear_pending_tasks(&mut self) {
         self.microtasks.clear();
         self.macrotasks.clear();
@@ -153,6 +167,7 @@ impl Interpreter {
         self.call_stack.clear();
         self.hoist_functions(&program.items);
         let mut last: Option<Value> = None;
+        let mut since_gc = 0usize;
         for stmt in &program.items {
             if mode == RunMode::Repl {
                 if let yps_parser::ast::Stmt::Expr { expr, .. } = stmt {
@@ -190,6 +205,13 @@ impl Interpreter {
                     ControlFlow::Throw(val) => {
                         return Err(RuntimeError::thrown(val, Span { start: 0, end: 0 }));
                     }
+                }
+            }
+            if mode == RunMode::Script {
+                since_gc += 1;
+                if since_gc >= SCRIPT_GC_INTERVAL {
+                    since_gc = 0;
+                    self.maybe_collect_garbage();
                 }
             }
         }

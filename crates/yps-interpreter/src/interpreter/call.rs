@@ -10,7 +10,7 @@ use crate::error::{Frame, RuntimeError};
 use crate::symbols;
 use crate::value::Value;
 
-use super::{ControlFlow, Interpreter, coercion};
+use super::{ControlFlow, GcRoot, Interpreter, coercion};
 
 #[derive(Clone, Copy)]
 pub(super) enum RelOp {
@@ -132,47 +132,51 @@ impl Interpreter {
                     };
                     let body_for_task = Rc::clone(&body);
                     let name_for_async = Rc::clone(&name);
-                    self.enqueue_microtask(Box::new(move |interp, sp| {
-                        let caller_env = interp.env.clone();
-                        let saved_stack = std::mem::take(&mut interp.call_stack);
-                        interp.env = Environment::from_snapshot(async_env, interp.env.registry());
-                        interp.push_frame(name_for_async, sp);
-                        let mut result = interp.exec_block_stmts(&body_for_task.stmts);
-                        if let Err(e) = &mut result {
-                            e.attach_stack(interp.snapshot_stack());
-                        }
-                        interp.pop_frame();
-                        interp.call_stack = saved_stack;
-                        interp.env = caller_env;
-                        let (kind, value) = match result {
-                            Ok(Some(ControlFlow::Return(val))) => (crate::value::CapKind::Resolve, val),
-                            Ok(None) => (crate::value::CapKind::Resolve, Value::Undefined),
-                            Ok(Some(ControlFlow::Throw(val))) => (crate::value::CapKind::Reject, val),
-                            Ok(Some(ControlFlow::Break(label))) => {
-                                return Err(RuntimeError::new(
-                                    label.map_or_else(
-                                        || "'харэ' вне цикла".to_string(),
-                                        |l| format!("Метка '{l}' не найдена"),
-                                    ),
-                                    sp,
-                                ));
+                    let roots = vec![GcRoot::Frame(Rc::clone(&async_env)), GcRoot::Value(outer.clone())];
+                    self.enqueue_microtask(
+                        roots,
+                        Box::new(move |interp, sp| {
+                            let caller_env = interp.env.clone();
+                            let saved_stack = std::mem::take(&mut interp.call_stack);
+                            interp.env = Environment::from_snapshot(async_env, interp.env.registry());
+                            interp.push_frame(name_for_async, sp);
+                            let mut result = interp.exec_block_stmts(&body_for_task.stmts);
+                            if let Err(e) = &mut result {
+                                e.attach_stack(interp.snapshot_stack());
                             }
-                            Ok(Some(ControlFlow::Continue(label))) => {
-                                return Err(RuntimeError::new(
-                                    label.map_or_else(
-                                        || "'двигай' вне цикла".to_string(),
-                                        |l| format!("Метка '{l}' не найдена"),
-                                    ),
-                                    sp,
-                                ));
-                            }
-                            Err(e) => match e.thrown {
-                                Some(val) => (crate::value::CapKind::Reject, *val),
-                                None => return Err(e),
-                            },
-                        };
-                        Interpreter::settle_promise(&outer_state, kind, value, interp, sp)
-                    }));
+                            interp.pop_frame();
+                            interp.call_stack = saved_stack;
+                            interp.env = caller_env;
+                            let (kind, value) = match result {
+                                Ok(Some(ControlFlow::Return(val))) => (crate::value::CapKind::Resolve, val),
+                                Ok(None) => (crate::value::CapKind::Resolve, Value::Undefined),
+                                Ok(Some(ControlFlow::Throw(val))) => (crate::value::CapKind::Reject, val),
+                                Ok(Some(ControlFlow::Break(label))) => {
+                                    return Err(RuntimeError::new(
+                                        label.map_or_else(
+                                            || "'харэ' вне цикла".to_string(),
+                                            |l| format!("Метка '{l}' не найдена"),
+                                        ),
+                                        sp,
+                                    ));
+                                }
+                                Ok(Some(ControlFlow::Continue(label))) => {
+                                    return Err(RuntimeError::new(
+                                        label.map_or_else(
+                                            || "'двигай' вне цикла".to_string(),
+                                            |l| format!("Метка '{l}' не найдена"),
+                                        ),
+                                        sp,
+                                    ));
+                                }
+                                Err(e) => match e.thrown {
+                                    Some(val) => (crate::value::CapKind::Reject, *val),
+                                    None => return Err(e),
+                                },
+                            };
+                            Interpreter::settle_promise(&outer_state, kind, value, interp, sp)
+                        }),
+                    );
                     Ok(outer)
                 } else {
                     self.push_frame(name, span);

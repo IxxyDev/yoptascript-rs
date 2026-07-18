@@ -5,7 +5,7 @@ use std::rc::Rc;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
-use crate::interpreter::Interpreter;
+use crate::interpreter::{GcRoot, Interpreter};
 use crate::value::{AbortState, CapKind, Value};
 
 pub fn make_controller() -> Value {
@@ -162,6 +162,7 @@ pub fn make_timeout_signal(interp: &mut Interpreter, ms: u64) -> Value {
     let state_for_task = Rc::clone(&state);
     interp.schedule_macrotask(
         std::time::Duration::from_millis(ms),
+        vec![GcRoot::Value(Value::AbortSignal { state: Rc::clone(&state_for_task) })],
         Box::new(move |interp, sp| {
             let reason = make_abort_error("Тайм-аут");
             if let Err(e) = abort_state(&state_for_task, reason, interp, sp) {
@@ -214,9 +215,10 @@ pub fn call(
                     let already_aborted = state.borrow().aborted;
                     if already_aborted {
                         let cb_clone = cb.clone();
-                        interp.enqueue_microtask(Box::new(move |interp, sp| {
-                            interp.call_function(cb_clone, vec![], sp).map(|_| ())
-                        }));
+                        interp.enqueue_microtask(
+                            vec![GcRoot::Value(cb_clone.clone())],
+                            Box::new(move |interp, sp| interp.call_function(cb_clone, vec![], sp).map(|_| ())),
+                        );
                         let noop = Value::AbortUnsubscribe { state: Rc::clone(&state), token: u64::MAX };
                         return Ok((noop, None));
                     }

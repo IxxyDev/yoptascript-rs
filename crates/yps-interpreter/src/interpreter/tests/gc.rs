@@ -131,12 +131,42 @@ fn proxy_trap_env_survives_cycle_collection() {
 }
 
 #[test]
-fn collect_cycles_noop_with_pending_tasks() {
+fn collect_cycles_runs_with_pending_tasks() {
     let mut i = run_code(LEAKY_SRC);
-    i.microtasks.push_back(Box::new(|_, _| Ok(())));
-    assert_eq!(i.collect_cycles(), 0, "сборка при непустых очередях должна быть no-op");
-    i.microtasks.clear();
-    assert!(i.collect_cycles() >= 300, "после опустошения очередей сборка должна сработать");
+    i.enqueue_microtask(Vec::new(), Box::new(|_, _| Ok(())));
+    assert!(i.collect_cycles() >= 300, "сборка мусора должна работать даже при непустой очереди");
+}
+
+#[test]
+fn script_path_collects_between_top_level_statements() {
+    let mut src = String::from("йопта внешняя() { йопта внутренняя(н) { отвечаю н; } отвечаю внутренняя(1); }\n");
+    for _ in 0..600 {
+        src.push_str("внешняя();\n");
+    }
+    let i = run_code(&src);
+    let live = i.live_frames();
+    assert!(live < 350, "скриптовый путь не собрал циклы между операторами: live_frames = {live}");
+}
+
+#[test]
+fn interval_collects_cyclic_garbage_across_ticks() {
+    let i = run_code(
+        r#"
+        гыы счёт = 0;
+        гыы ид = ноль;
+        ид = интервал(() => {
+            йопта а() { отвечаю б; }
+            йопта б() { отвечаю а; }
+            а();
+            б();
+            счёт = счёт + 1;
+            вилкойвглаз (счёт >= 400) { отменаИнтервала(ид); }
+        }, 0);
+        "#,
+    );
+    assert_eq!(i.get("счёт"), Some(Value::Number(400.0)));
+    let live = i.live_frames();
+    assert!(live < 350, "циклы из колбэков интервала не собирались между тиками: live_frames = {live}");
 }
 
 #[test]
