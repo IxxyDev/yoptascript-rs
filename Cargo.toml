@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/yps-bench",
     "crates/yps-cli",
     "crates/yps-fmt",
     "crates/yps-interpreter",
@@ -18,6 +19,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+yps-bench = { path = "crates/yps-bench" }
 yps-cli = { path = "crates/yps-cli" }
 yps-fmt = { path = "crates/yps-fmt" }
 yps-interpreter = { path = "crates/yps-interpreter" }
@@ -25,6 +27,7 @@ yps-lexer = { path = "crates/yps-lexer" }
 yps-lsp = { path = "crates/yps-lsp" }
 yps-parser = { path = "crates/yps-parser" }
 yps-vm = { path = "crates/yps-vm" }
+criterion = "0.8.2"
 fancy-regex = "0.18.0"
 indexmap = "2"
 regex = "1"
