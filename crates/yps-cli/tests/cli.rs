@@ -48,6 +48,94 @@ fn reports_an_uncaught_exception_and_exits_with_1() {
 }
 
 #[test]
+fn version_flag_prints_the_version_and_exits_0() {
+    let out = run(&["--version"], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.starts_with("yps "), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn short_version_flag_prints_the_version_and_exits_0() {
+    let out = run(&["-V"], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.starts_with("yps "), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn help_flag_prints_usage_and_exits_0() {
+    let out = run(&["--help"], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("Использование"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("fmt"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn short_help_flag_prints_usage_and_exits_0() {
+    let out = run(&["-h"], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("Использование"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn eval_runs_an_inline_snippet() {
+    let out = run(&["-e", "сказать(\"привет\", 1 + 2);"], "");
+
+    assert_eq!(out.stdout, "привет 3\n");
+    assert_eq!(out.code, 0);
+}
+
+#[test]
+fn eval_long_flag_works_with_the_vm_backend() {
+    let out = run(&["--eval", "сказать(\"привет\", 1 + 2);", "--vm"], "");
+
+    assert_eq!(out.stdout, "привет 3\n");
+    assert_eq!(out.code, 0);
+}
+
+#[test]
+fn eval_reports_a_runtime_error_and_exits_with_1() {
+    let out = run(&["-e", "кидай \"бум\";"], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("<eval>"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains("бум"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn stdin_dash_runs_the_program_read_from_stdin() {
+    let out = run(&["-"], "сказать(\"привет\", 1 + 2);\n");
+
+    assert_eq!(out.stdout, "привет 3\n");
+    assert_eq!(out.code, 0);
+}
+
+#[test]
+fn unknown_top_level_flag_is_rejected() {
+    let ws = Workspace::new("unknown_flag");
+    let prog = ws.write("p.yopta", "сказать(1);\n");
+
+    let out = run(&["--nonsense", prog.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Неизвестный флаг"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn fmt_unknown_flag_is_rejected() {
+    let ws = Workspace::new("fmt_unknown_flag");
+    let prog = ws.write("p.yopta", "гыы x = 1;\n");
+
+    let out = run(&["fmt", prog.to_str().unwrap(), "--nonsense"], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Неизвестный флаг"), "stderr: {}", out.stderr);
+}
+
+#[test]
 fn requires_a_file_when_only_flags_are_given() {
     let out = run(&["--vm"], "");
 
