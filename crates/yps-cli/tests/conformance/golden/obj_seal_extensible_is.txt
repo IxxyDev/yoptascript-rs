@@ -1,0 +1,10 @@
+100 false true true false
+42 false false false false
+true true false
+true false true
+true false true true
+a
+a
+false false
+false 99
+1 2

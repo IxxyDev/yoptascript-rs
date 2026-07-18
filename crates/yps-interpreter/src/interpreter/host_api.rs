@@ -34,7 +34,7 @@ impl Interpreter {
                 self.proxy_set(&target, &handler, property, value, obj.clone(), span)
             }
             Value::Object(map) => {
-                if !map.borrow().frozen {
+                if map.borrow().can_write_key(property) {
                     map.borrow_mut().insert(property.to_string(), value);
                 }
                 Ok(())
@@ -54,8 +54,9 @@ impl Interpreter {
                 self.proxy_set(&target, &handler, &index.to_string(), value, obj.clone(), span)
             }
             Value::Object(map) => {
-                if !map.borrow().frozen {
-                    map.borrow_mut().insert(index.to_string(), value);
+                let key = index.to_string();
+                if map.borrow().can_write_key(&key) {
+                    map.borrow_mut().insert(key, value);
                 }
                 Ok(())
             }
