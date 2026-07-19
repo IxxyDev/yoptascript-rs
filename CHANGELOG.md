@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-07-19
+
+### Fixed
+
+- **Nested delete works.** `ёбнуть массив[0][1]` and nested object paths
+  were silently ignored by the tree-walking interpreter (only root-level
+  deletes applied); both backends now mutate the addressed container,
+  honoring sealed/frozen on the innermost object.
+- **VM enforces `заморозить`/`запечатать`/`запретитьРасширение`.** The
+  freeze-family statics used to set flags on a throwaway bridge copy, so
+  VM-native writes mutated frozen objects; flags now live on the shared
+  native object and every set/index-set/delete path honors them.
+- **VM no longer leaks well-known-symbol keys** (`[встроенная Симбол.…]`)
+  when printing objects, matching the interpreter's Display.
+
 ## [1.6.0] - 2026-07-19
 
 ### Added
