@@ -195,9 +195,18 @@ impl ClassDef {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ObjMap {
     entries: IndexMap<String, Value>,
+    pub frozen: bool,
+    pub sealed: bool,
+    pub extensible: bool,
+}
+
+impl Default for ObjMap {
+    fn default() -> Self {
+        ObjMap { entries: IndexMap::new(), frozen: false, sealed: false, extensible: true }
+    }
 }
 
 impl ObjMap {
@@ -223,6 +232,35 @@ impl ObjMap {
 
     pub fn contains_key(&self, key: &str) -> bool {
         self.entries.contains_key(key)
+    }
+
+    pub fn can_write_key(&self, key: &str) -> bool {
+        if self.frozen {
+            return false;
+        }
+        if !self.extensible && !self.entries.contains_key(key) {
+            return false;
+        }
+        true
+    }
+
+    pub fn can_delete(&self) -> bool {
+        !self.frozen && !self.sealed
+    }
+
+    pub fn seal(&mut self) {
+        self.sealed = true;
+        self.extensible = false;
+    }
+
+    pub fn freeze(&mut self) {
+        self.frozen = true;
+        self.sealed = true;
+        self.extensible = false;
+    }
+
+    pub fn prevent_extensions(&mut self) {
+        self.extensible = false;
     }
 }
 

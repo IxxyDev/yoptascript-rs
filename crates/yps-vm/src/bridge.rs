@@ -164,6 +164,9 @@ pub fn is_bridged_call(name: &str) -> bool {
 }
 
 pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Result<Value, VmError> {
+    if let Some(res) = try_object_state_op(name, &args) {
+        return res;
+    }
     with_interp(vm, |interp| {
         let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
         let value = match yps_interpreter::stdlib::call_static_namespaced(interp, name, interp_args.clone(), span) {
@@ -172,6 +175,30 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
         };
         interp_to_vm(&value).map_err(|m| VmError::new(m, span))
     })
+}
+
+fn try_object_state_op(name: &str, args: &[Value]) -> Option<Result<Value, VmError>> {
+    let Some(Value::Object(map)) = args.first() else {
+        return None;
+    };
+    match name {
+        "Кент.заморозить" => {
+            map.borrow_mut().freeze();
+            Some(Ok(Value::Object(Rc::clone(map))))
+        }
+        "Кент.запечатать" => {
+            map.borrow_mut().seal();
+            Some(Ok(Value::Object(Rc::clone(map))))
+        }
+        "Кент.запретитьРасширение" => {
+            map.borrow_mut().prevent_extensions();
+            Some(Ok(Value::Object(Rc::clone(map))))
+        }
+        "Кент.заморожен" => Some(Ok(Value::Bool(map.borrow().frozen))),
+        "Кент.запечатан" => Some(Ok(Value::Bool(map.borrow().sealed))),
+        "Кент.расширяем" => Some(Ok(Value::Bool(map.borrow().extensible))),
+        _ => None,
+    }
 }
 
 pub fn call_host_method(
