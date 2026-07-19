@@ -43,6 +43,13 @@ pub fn is_internal_key(k: &str) -> bool {
     k == CLASS_TAG || k == PROTO_KEY || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
 }
 
+pub const WELL_KNOWN_SYMBOL_KEY_PREFIX: &str = "[встроенная Симбол.";
+
+#[must_use]
+pub fn is_symbol_key(k: &str) -> bool {
+    k.starts_with(WELL_KNOWN_SYMBOL_KEY_PREFIX)
+}
+
 pub type MethodDef = Rc<Closure>;
 
 #[derive(Debug, Default)]
@@ -504,7 +511,7 @@ impl Value {
                 write!(f, "{{")?;
                 let mut first = true;
                 for (k, v) in snapshot.iter() {
-                    if is_internal_key(k) {
+                    if is_internal_key(k) || is_symbol_key(k) {
                         continue;
                     }
                     if !first {
