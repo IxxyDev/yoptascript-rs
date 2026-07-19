@@ -15,15 +15,7 @@ impl Interpreter {
                     let removed = self.proxy_delete(&target, &handler, &property.name, span)?;
                     return Ok(Value::Boolean(removed));
                 }
-                let mut path = Vec::new();
-                let root_name = self.collect_access_path(
-                    &Expr::Member { object: object.clone(), property: property.clone(), span },
-                    &mut path,
-                    span,
-                )?;
-                path.reverse();
-                if path.len() == 1
-                    && let Some(Value::Object(map)) = self.env.get(&root_name)
+                if let Value::Object(map) = &obj
                     && map.borrow().can_delete()
                 {
                     map.borrow_mut().shift_remove(&property.name);
@@ -38,35 +30,30 @@ impl Interpreter {
                     let removed = self.proxy_delete(&target, &handler, &key, span)?;
                     return Ok(Value::Boolean(removed));
                 }
-                let mut path = Vec::new();
-                let root_name = self.collect_access_path(object, &mut path, span)?;
-                path.reverse();
-                if path.is_empty() {
-                    match self.env.get(&root_name) {
-                        Some(Value::Object(map)) => {
-                            if map.borrow().can_delete() {
-                                let key = idx.to_string();
-                                map.borrow_mut().shift_remove(&key);
-                            }
+                match &obj {
+                    Value::Object(map) => {
+                        if map.borrow().can_delete() {
+                            let key = idx.to_string();
+                            map.borrow_mut().shift_remove(&key);
                         }
-                        Some(Value::Array(arr)) => {
-                            if let Value::Number(n) = idx
-                                && n.is_finite()
-                                && n >= 0.0
-                                && n.fract() == 0.0
-                            {
-                                let i = n as usize;
-                                let mut guard = arr.borrow_mut();
-                                if i < guard.len() {
-                                    guard[i] = Value::Undefined;
-                                }
-                            }
-                        }
-                        Some(Value::String(_)) => {
-                            return Err(RuntimeError::new("Нельзя 'ёбнуть' символ строки — строки неизменяемы", span));
-                        }
-                        _ => {}
                     }
+                    Value::Array(arr) => {
+                        if let Value::Number(n) = idx
+                            && n.is_finite()
+                            && n >= 0.0
+                            && n.fract() == 0.0
+                        {
+                            let i = n as usize;
+                            let mut guard = arr.borrow_mut();
+                            if i < guard.len() {
+                                guard[i] = Value::Undefined;
+                            }
+                        }
+                    }
+                    Value::String(_) => {
+                        return Err(RuntimeError::new("Нельзя 'ёбнуть' символ строки — строки неизменяемы", span));
+                    }
+                    _ => {}
                 }
                 Ok(Value::Boolean(true))
             }
