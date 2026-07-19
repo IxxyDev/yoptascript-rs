@@ -229,6 +229,76 @@ fn object_delete_preserves_remaining_order() {
 }
 
 #[test]
+fn nested_delete_array_element_writes_undefined() {
+    let i = run_code(
+        r#"
+        гыы двойной = [[1, 2], [3, 4]];
+        ёбнуть двойной[0][1];
+        гыы а = двойной[0][0];
+        гыы б = двойной[0][1];
+        гыы в = длина(двойной[0]);
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("б"), Some(Value::Undefined));
+    assert_eq!(i.get("в"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn nested_delete_object_property() {
+    let i = run_code(
+        r#"
+        гыы о = { вложенный: { а: 1, б: 2 } };
+        ёбнуть о.вложенный.а;
+        гыы ключи = Кент.ключи(о.вложенный).склеить(",");
+        гыы б = о.вложенный.б;
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("б".to_string())));
+    assert_eq!(i.get("б"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn nested_delete_object_index_property() {
+    let i = run_code(
+        r#"
+        гыы о = { вложенный: { а: 1, б: 2 } };
+        гыы ключ = "а";
+        ёбнуть о.вложенный[ключ];
+        гыы ключи = Кент.ключи(о.вложенный).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("б".to_string())));
+}
+
+#[test]
+fn nested_delete_sealed_object_property_is_noop() {
+    let i = run_code(
+        r#"
+        гыы о = { вложенный: { а: 1, б: 2 } };
+        Кент.запечатать(о.вложенный);
+        ёбнуть о.вложенный.а;
+        гыы ключи = Кент.ключи(о.вложенный).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+}
+
+#[test]
+fn nested_delete_frozen_object_index_is_noop() {
+    let i = run_code(
+        r#"
+        гыы о = { вложенный: { а: 1, б: 2 } };
+        Кент.заморозить(о.вложенный);
+        гыы ключ = "а";
+        ёбнуть о.вложенный[ключ];
+        гыы ключи = Кент.ключи(о.вложенный).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+}
+
+#[test]
 fn numeric_literal_hex_octal_binary() {
     let i = run_code(
         r#"
