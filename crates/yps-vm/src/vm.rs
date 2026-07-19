@@ -785,7 +785,9 @@ impl Vm {
                 Op::DeleteProp(idx) => {
                     let name = self.const_str(chunk, idx);
                     let obj = self.pop();
-                    if let Value::Object(map) = &obj {
+                    if let Value::Object(map) = &obj
+                        && map.borrow().can_delete()
+                    {
                         map.borrow_mut().remove(&name);
                     }
                     self.stack.push(Value::Bool(true));
@@ -795,7 +797,9 @@ impl Vm {
                     let obj = self.pop();
                     match &obj {
                         Value::Object(map) => {
-                            map.borrow_mut().remove(&index.to_ecma_string());
+                            if map.borrow().can_delete() {
+                                map.borrow_mut().remove(&index.to_ecma_string());
+                            }
                         }
                         Value::Array(a) => {
                             let n = index.to_number();
@@ -2405,6 +2409,10 @@ impl Vm {
                     self.stack.push(value);
                     return Ok(());
                 }
+                if !map.borrow().can_write_key(name) {
+                    self.stack.push(value);
+                    return Ok(());
+                }
                 map.borrow_mut().insert(name.to_string(), value.clone());
                 self.stack.push(value);
                 Ok(())
@@ -2835,7 +2843,10 @@ fn set_index(obj: &Value, index: &Value, value: Value, span: Span) -> Result<(),
             }
         }
         Value::Object(map) => {
-            map.borrow_mut().insert(index.to_ecma_string(), value);
+            let key = index.to_ecma_string();
+            if map.borrow().can_write_key(&key) {
+                map.borrow_mut().insert(key, value);
+            }
             Ok(())
         }
         other => Err(VmError::new(format!("нельзя индексировать тип '{}'", other.type_name()), span)),
