@@ -779,6 +779,85 @@ fn using_requires_dispose_method() {
 }
 
 #[test]
+fn async_using_disposes_on_scope_exit() {
+    let src = r#"
+        гыы лог = "";
+        {
+            юзай сидетьНахуй р = { асинхРасход: () => { лог = лог + "р"; } };
+        }
+        сказать(лог);
+    "#;
+    assert_eq!(run(src), "р\n");
+}
+
+#[test]
+fn async_using_lifo_mixed_with_sync() {
+    let src = r#"
+        гыы лог = "";
+        {
+            юзай а = { расход: () => { лог = лог + "а"; } };
+            юзай сидетьНахуй б = { асинхРасход: () => { лог = лог + "б"; } };
+            юзай в = { расход: () => { лог = лог + "в"; } };
+        }
+        сказать(лог);
+    "#;
+    assert_eq!(run(src), "вба\n");
+}
+
+#[test]
+fn async_using_falls_back_to_sync_dispose() {
+    let src = r#"
+        гыы лог = "";
+        {
+            юзай сидетьНахуй р = { расход: () => { лог = лог + "sync"; } };
+        }
+        сказать(лог);
+    "#;
+    assert_eq!(run(src), "sync\n");
+}
+
+#[test]
+fn async_using_awaits_promise_before_scope_exit() {
+    let src = r#"
+        гыы лог = "";
+        {
+            юзай сидетьНахуй р = {
+                асинхРасход: ассо йопта() {
+                    лог = лог + "начало;";
+                    сидетьНахуй СловоПацана.решить(0);
+                    лог = лог + "конец;";
+                }
+            };
+            лог = лог + "тело;";
+        }
+        лог = лог + "после;";
+        сказать(лог);
+    "#;
+    assert_eq!(run(src), "тело;начало;конец;после;\n");
+}
+
+#[test]
+fn async_using_rejection_is_catchable() {
+    let src = r#"
+        гыы пойман = "";
+        хапнуть {
+            юзай сидетьНахуй р = { асинхРасход: ассо йопта() { кидай "бабах"; } };
+        } гоп (е) {
+            пойман = е;
+        }
+        сказать(пойман);
+    "#;
+    assert_eq!(run(src), "бабах\n");
+}
+
+#[test]
+fn async_using_requires_dispose_method() {
+    let err = run_err("{ юзай сидетьНахуй р = { данные: 1 }; }");
+    assert!(err.contains("асинхРасход"), "ошибка: {err}");
+    assert!(err.contains("расход"), "ошибка: {err}");
+}
+
+#[test]
 fn async_function_returns_promise_and_await_unwraps() {
     let src = r#"
 ассо йопта получить() { отвечаю 42; }

@@ -739,11 +739,12 @@ impl Compiler {
         is_await: bool,
         span: Span,
     ) -> Result<(), CompileError> {
-        if is_await {
-            return Err(CompileError::new("'юзай сидетьНахуй' пока не поддерживается в этом движке", span));
-        }
         self.compile_expr(init)?;
-        self.emit(Op::RegisterDisposable, span);
+        if is_await {
+            self.emit(Op::RegisterAsyncDisposable, span);
+        } else {
+            self.emit(Op::RegisterDisposable, span);
+        }
         if self.is_global_scope() {
             let idx = self.str_const(&name.name);
             self.emit(Op::DefineGlobal(idx, true), span);
