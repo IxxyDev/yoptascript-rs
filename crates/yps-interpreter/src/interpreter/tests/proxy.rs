@@ -235,3 +235,168 @@ fn proxy_array_default_set_out_of_bounds_errors() {
     );
     assert!(err.message.contains("вне диапазона"), "ожидалась ошибка о границах массива, получено: {}", err.message);
 }
+
+#[test]
+fn proxy_own_keys_trap_drives_object_keys() {
+    let i = run_code(
+        r#"
+        гыы вызвано = 0;
+        ясенХуй п = захуярить Посредник({ а: 1, б: 2 }, {
+            собственныеКлючи: (ц) => { вызвано = вызвано + 1; отвечаю ["x", "y", "z"]; }
+        });
+        гыы ключи = Кент.ключи(п).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("x,y,z".to_string())));
+    assert_eq!(i.get("вызвано"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn proxy_own_keys_absent_falls_back_to_target() {
+    let i = run_code(
+        r#"
+        ясенХуй п = захуярить Посредник({ а: 1, б: 2 }, {});
+        гыы ключи = Кент.ключи(п).склеить(",");
+        "#,
+    );
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+}
+
+#[test]
+fn proxy_own_keys_drives_for_in_and_spread() {
+    let i = run_code(
+        r#"
+        ясенХуй п = захуярить Посредник({ а: 1 }, {
+            собственныеКлючи: (ц) => ["k1", "k2"],
+            получить: (ц, к) => "V:" + к
+        });
+        гыы собрано = "";
+        го (ясенХуй к из п) { собрано = собрано + к; }
+        ясенХуй об = { ...п };
+        гыы значK1 = об.k1;
+        "#,
+    );
+    assert_eq!(i.get("собрано"), Some(Value::String("k1k2".to_string())));
+    assert_eq!(i.get("значK1"), Some(Value::String("V:k1".to_string())));
+}
+
+#[test]
+fn proxy_get_prototype_of_trap_drives_object_prototype() {
+    let i = run_code(
+        r#"
+        ясенХуй прото = { помечен: правда };
+        ясенХуй п = захуярить Посредник({}, { прототипОт: (ц) => прото });
+        гыы результат = Кент.прототип(п).помечен;
+        "#,
+    );
+    assert_eq!(i.get("результат"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn proxy_get_prototype_of_drives_instanceof() {
+    let i = run_code(
+        r#"
+        клёво Зверь {}
+        ясенХуй экз = захуярить Зверь();
+        ясенХуй п = захуярить Посредник({}, { прототипОт: (ц) => экз });
+        гыы с_ловушкой = п шкура Зверь;
+        ясенХуй пд = захуярить Посредник(экз, {});
+        гыы без_ловушки = пд шкура Зверь;
+        "#,
+    );
+    assert_eq!(i.get("с_ловушкой"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("без_ловушки"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn proxy_set_prototype_of_trap_fires() {
+    let i = run_code(
+        r#"
+        гыы захвачено = ноль;
+        ясенХуй прото = { тег: "новый" };
+        ясенХуй п = захуярить Посредник({}, {
+            назначитьПрототип: (ц, прт) => { захвачено = прт.тег; отвечаю правда; }
+        });
+        Кент.назначитьПрототип(п, прото);
+        "#,
+    );
+    assert_eq!(i.get("захвачено"), Some(Value::String("новый".to_string())));
+}
+
+#[test]
+fn proxy_set_prototype_of_absent_falls_back_to_target() {
+    let i = run_code(
+        r#"
+        ясенХуй цель = {};
+        ясенХуй прото = { тег: "цельный" };
+        ясенХуй п = захуярить Посредник(цель, {});
+        Кент.назначитьПрототип(п, прото);
+        гыы результат = Кент.прототип(цель).тег;
+        "#,
+    );
+    assert_eq!(i.get("результат"), Some(Value::String("цельный".to_string())));
+}
+
+#[test]
+fn proxy_define_property_trap_and_descriptor_trap() {
+    let i = run_code(
+        r#"
+        гыы определено = "";
+        ясенХуй п = захуярить Посредник({}, {
+            определитьСвойство: (ц, к, деск) => { определено = к; отвечаю правда; },
+            описатьСвойство: (ц, к) => ({ значение: "из-ловушки" })
+        });
+        Кент.определитьСвойство(п, "поле", { значение: 1 });
+        гыы деск = Кент.описатьСвойство(п, "поле").значение;
+        "#,
+    );
+    assert_eq!(i.get("определено"), Some(Value::String("поле".to_string())));
+    assert_eq!(i.get("деск"), Some(Value::String("из-ловушки".to_string())));
+}
+
+#[test]
+fn proxy_define_property_absent_falls_back_to_target() {
+    let i = run_code(
+        r#"
+        ясенХуй цель = {};
+        ясенХуй п = захуярить Посредник(цель, {});
+        Кент.определитьСвойство(п, "поле", { значение: 7 });
+        гыы прямо = цель.поле;
+        гыы деск = Кент.описатьСвойство(п, "поле").значение;
+        "#,
+    );
+    assert_eq!(i.get("прямо"), Some(Value::Number(7.0)));
+    assert_eq!(i.get("деск"), Some(Value::Number(7.0)));
+}
+
+#[test]
+fn proxy_is_extensible_and_prevent_extensions_traps() {
+    let i = run_code(
+        r#"
+        гыы запрещено = 0;
+        ясенХуй п = захуярить Посредник({}, {
+            расширяем: (ц) => лож,
+            запретитьРасширение: (ц) => { запрещено = запрещено + 1; отвечаю правда; }
+        });
+        гыы расш = Кент.расширяем(п);
+        Кент.запретитьРасширение(п);
+        "#,
+    );
+    assert_eq!(i.get("расш"), Some(Value::Boolean(false)));
+    assert_eq!(i.get("запрещено"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn proxy_extensibility_absent_falls_back_to_target() {
+    let i = run_code(
+        r#"
+        ясенХуй цель = {};
+        ясенХуй п = захуярить Посредник(цель, {});
+        гыы до = Кент.расширяем(п);
+        Кент.запретитьРасширение(п);
+        гыы после = Кент.расширяем(цель);
+        "#,
+    );
+    assert_eq!(i.get("до"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("после"), Some(Value::Boolean(false)));
+}

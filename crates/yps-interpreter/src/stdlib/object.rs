@@ -44,6 +44,10 @@ pub fn call_static(
     match method {
         "ключи" => {
             require_args(&args, 1, span, "Кент.ключи")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                return Ok(Value::array(interp.proxy_own_keys(&t, &h, span)?));
+            }
             match &args[0] {
                 Value::Object(map) => {
                     let keys: Vec<Value> = map
@@ -59,6 +63,17 @@ pub fn call_static(
         }
         "значения" => {
             require_args(&args, 1, span, "Кент.значения")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                let proxy = args[0].clone();
+                let keys = interp.proxy_own_keys(&t, &h, span)?;
+                let mut vals = Vec::with_capacity(keys.len());
+                for k in keys {
+                    let ks = k.to_string();
+                    vals.push(interp.proxy_get(&t, &h, &ks, proxy.clone(), span)?);
+                }
+                return Ok(Value::array(vals));
+            }
             match &args[0] {
                 Value::Object(map) => {
                     let vals: Vec<Value> = map
@@ -74,6 +89,18 @@ pub fn call_static(
         }
         "записи" => {
             require_args(&args, 1, span, "Кент.записи")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                let proxy = args[0].clone();
+                let keys = interp.proxy_own_keys(&t, &h, span)?;
+                let mut entries = Vec::with_capacity(keys.len());
+                for k in keys {
+                    let ks = k.to_string();
+                    let v = interp.proxy_get(&t, &h, &ks, proxy.clone(), span)?;
+                    entries.push(Value::array(vec![k, v]));
+                }
+                return Ok(Value::array(entries));
+            }
             match &args[0] {
                 Value::Object(map) => {
                     let entries: Vec<Value> = map
@@ -221,6 +248,10 @@ pub fn call_static(
         }
         "прототип" => {
             require_args(&args, 1, span, "Кент.прототип")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                return interp.proxy_get_prototype_of(&t, &h, span);
+            }
             match &args[0] {
                 Value::Object(map) => {
                     let proto = map.borrow().get(symbols::PROTO).cloned();
@@ -239,6 +270,12 @@ pub fn call_static(
         }
         "назначитьПрототип" => {
             require_args(&args, 2, span, "Кент.назначитьПрототип")?;
+            if let Value::Proxy { target: pt, handler } = &args[0] {
+                let (t, h) = ((**pt).clone(), (**handler).clone());
+                let proto = args[1].clone();
+                interp.proxy_set_prototype_of(&t, &h, proto, span)?;
+                return Ok(args.into_iter().next().unwrap());
+            }
             let mut iter = args.into_iter();
             let target = iter.next().unwrap();
             let proto = iter.next().unwrap();
@@ -295,6 +332,11 @@ pub fn call_static(
         }
         "запретитьРасширение" => {
             require_args(&args, 1, span, "Кент.запретитьРасширение")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                interp.proxy_prevent_extensions(&t, &h, span)?;
+                return Ok(args.into_iter().next().unwrap());
+            }
             let target = args.into_iter().next().unwrap();
             if let Value::Object(map) = &target {
                 map.borrow_mut().prevent_extensions();
@@ -303,6 +345,10 @@ pub fn call_static(
         }
         "расширяем" => {
             require_args(&args, 1, span, "Кент.расширяем")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                return Ok(Value::Boolean(interp.proxy_is_extensible(&t, &h, span)?));
+            }
             match &args[0] {
                 Value::Object(map) => Ok(Value::Boolean(map.borrow().extensible)),
                 _ => Ok(Value::Boolean(false)),
@@ -314,6 +360,13 @@ pub fn call_static(
         }
         "определитьСвойство" => {
             require_args(&args, 3, span, "Кент.определитьСвойство")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                let key = args[1].to_string();
+                let descriptor = args[2].clone();
+                interp.proxy_define_property(&t, &h, &key, descriptor, span)?;
+                return Ok(args.into_iter().next().unwrap());
+            }
             let mut iter = args.into_iter();
             let target = iter.next().unwrap();
             let key = iter.next().unwrap().to_string();
@@ -327,14 +380,7 @@ pub fn call_static(
         }
         "определитьСвойства" => {
             require_args(&args, 2, span, "Кент.определитьСвойства")?;
-            let mut iter = args.into_iter();
-            let target = iter.next().unwrap();
-            let props = iter.next().unwrap();
-            let target_rc = match &target {
-                Value::Object(m) => m.clone(),
-                _ => return Err(RuntimeError::new("Кент.определитьСвойства ожидает объект", span)),
-            };
-            let props_map = match &props {
+            let props_map = match &args[1] {
                 Value::Object(m) => m.clone(),
                 _ => return Err(RuntimeError::new("Кент.определитьСвойства: свойства должны быть объектом", span)),
             };
@@ -344,6 +390,19 @@ pub fn call_static(
                 .filter(|(k, _)| !symbols::is_internal_key(k))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                for (key, descriptor) in entries {
+                    interp.proxy_define_property(&t, &h, &key, descriptor, span)?;
+                }
+                return Ok(args.into_iter().next().unwrap());
+            }
+            let mut iter = args.into_iter();
+            let target = iter.next().unwrap();
+            let target_rc = match &target {
+                Value::Object(m) => m.clone(),
+                _ => return Err(RuntimeError::new("Кент.определитьСвойства ожидает объект", span)),
+            };
             for (key, descriptor) in entries {
                 define_property_impl(&target_rc, &key, &descriptor, "Кент.определитьСвойства", span)?;
             }
@@ -352,6 +411,10 @@ pub fn call_static(
         "описатьСвойство" => {
             require_args(&args, 2, span, "Кент.описатьСвойство")?;
             let key = args[1].to_string();
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                return interp.proxy_get_own_property_descriptor(&t, &h, &key, span);
+            }
             match &args[0] {
                 Value::Object(map) if !symbols::is_internal_key(&key) => {
                     Ok(describe_property_impl(&map.borrow(), &key).unwrap_or(Value::Undefined))
@@ -362,6 +425,19 @@ pub fn call_static(
         }
         "описатьСвойства" => {
             require_args(&args, 1, span, "Кент.описатьСвойства")?;
+            if let Value::Proxy { target, handler } = &args[0] {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                let keys = interp.proxy_own_keys(&t, &h, span)?;
+                let mut result = IndexMap::new();
+                for k in keys {
+                    let ks = k.to_string();
+                    let desc = interp.proxy_get_own_property_descriptor(&t, &h, &ks, span)?;
+                    if !matches!(desc, Value::Undefined) {
+                        result.insert(ks, desc);
+                    }
+                }
+                return Ok(Value::object(result));
+            }
             match &args[0] {
                 Value::Object(map) => {
                     let guard = map.borrow();
@@ -380,7 +456,7 @@ pub fn call_static(
     }
 }
 
-fn define_property_impl(
+pub(crate) fn define_property_impl(
     target_rc: &std::rc::Rc<std::cell::RefCell<crate::value::ObjectStore>>,
     key: &str,
     descriptor: &Value,
@@ -439,7 +515,7 @@ fn define_property_impl(
     Ok(())
 }
 
-fn describe_property_impl(guard: &crate::value::ObjectStore, key: &str) -> Option<Value> {
+pub(crate) fn describe_property_impl(guard: &crate::value::ObjectStore, key: &str) -> Option<Value> {
     let getter = guard.get(&symbols::getter_key(key)).cloned();
     let setter = guard.get(&symbols::setter_key(key)).cloned();
     if getter.is_some() || setter.is_some() {

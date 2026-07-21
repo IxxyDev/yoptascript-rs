@@ -1,0 +1,11 @@
+а,б
+3
+true
+false
+а,б,в
+ownKeys|define:в|descr:в|prevent|ownKeys
+10 зеркальный
+true
+счёт,имя
+false зеркальный
+прототип

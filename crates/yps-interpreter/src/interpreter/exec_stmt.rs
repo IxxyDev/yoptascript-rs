@@ -130,6 +130,7 @@ impl Interpreter {
                     Value::TypedArray { buffer, offset, length, kind } => {
                         crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
                     }
+                    Value::Proxy { target, handler } => self.proxy_own_keys(&target, &handler, *span)?,
                     Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone())).collect(),
                     other => {
                         return Err(RuntimeError::new(

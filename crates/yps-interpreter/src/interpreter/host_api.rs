@@ -135,6 +135,10 @@ impl Interpreter {
             Value::TypedArray { buffer, offset, length, kind } => {
                 Ok(crate::stdlib::typed_array::ta_elements(buffer, *offset, *length, *kind))
             }
+            Value::Proxy { target, handler } => {
+                let (t, h) = ((**target).clone(), (**handler).clone());
+                self.proxy_own_keys(&t, &h, span)
+            }
             Value::Object(map) => Ok(map.borrow().keys().map(|k| Value::String(k.clone())).collect()),
             other => Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span)),
         }

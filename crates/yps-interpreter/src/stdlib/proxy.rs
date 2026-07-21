@@ -11,6 +11,13 @@ pub const HAS: &[&str] = &["есть", "has"];
 pub const DELETE: &[&str] = &["удалить", "deleteProperty"];
 pub const APPLY: &[&str] = &["применить", "apply"];
 pub const CONSTRUCT: &[&str] = &["построить", "construct"];
+pub const OWN_KEYS: &[&str] = &["собственныеКлючи", "ownKeys"];
+pub const GET_PROTOTYPE_OF: &[&str] = &["прототипОт", "getPrototypeOf"];
+pub const SET_PROTOTYPE_OF: &[&str] = &["назначитьПрототип", "setPrototypeOf"];
+pub const DEFINE_PROPERTY: &[&str] = &["определитьСвойство", "defineProperty"];
+pub const GET_OWN_PROPERTY_DESCRIPTOR: &[&str] = &["описатьСвойство", "getOwnPropertyDescriptor"];
+pub const IS_EXTENSIBLE: &[&str] = &["расширяем", "isExtensible"];
+pub const PREVENT_EXTENSIONS: &[&str] = &["запретитьРасширение", "preventExtensions"];
 
 pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     let target = args.first().cloned().unwrap_or(Value::Undefined);
