@@ -527,7 +527,7 @@ impl Compiler {
 
     fn compile_for_in(
         &mut self,
-        variable: &Identifier,
+        variable: &Pattern,
         iterable: &Expr,
         body: &Stmt,
         span: Span,
@@ -546,8 +546,47 @@ impl Compiler {
         self.emit(Op::Constant(zero), span);
         let counter = self.push_temp(span);
 
-        self.emit(Op::Undefined, span);
-        self.add_local(&variable.name, false);
+        if let Pattern::Identifier(id) = variable {
+            self.emit(Op::Undefined, span);
+            self.add_local(&id.name, false);
+
+            let cond_start = self.cur().chunk.code.len();
+            self.emit(Op::GetLocal(counter), span);
+            self.emit(Op::GetLocal(len), span);
+            self.emit(Op::Lt, span);
+            let exit_jump = self.emit(Op::JumpIfFalse(0), span);
+
+            let var_slot = Self::resolve_local(&self.funcs, self.funcs.len() - 1, &id.name)
+                .map(|(s, _)| s)
+                .expect("loop var slot");
+            self.emit(Op::GetLocal(items), span);
+            self.emit(Op::GetLocal(counter), span);
+            self.emit(Op::GetIndex, span);
+            self.emit(Op::SetLocal(var_slot), span);
+            self.emit(Op::Pop, span);
+
+            let locals_count = self.cur().locals.len();
+            self.push_loop(locals_count, label);
+            self.compile_stmt(body)?;
+
+            let continue_target = self.cur().chunk.code.len();
+            if self.cur_ref().locals[var_slot as usize].is_captured {
+                self.emit(Op::CloseUpvalueTo(var_slot), span);
+            }
+            self.emit(Op::GetLocal(counter), span);
+            let one = self.cur().chunk.add_constant(Constant::Number(1.0));
+            self.emit(Op::Constant(one), span);
+            self.emit(Op::Add, span);
+            self.emit(Op::SetLocal(counter), span);
+            self.emit(Op::Pop, span);
+            self.emit(Op::Jump(cond_start), span);
+
+            let exit = self.cur().chunk.code.len();
+            self.cur().chunk.patch_jump(exit_jump, exit);
+            self.finish_loop(exit, continue_target);
+            self.end_scope(span);
+            return Ok(());
+        }
 
         let cond_start = self.cur().chunk.code.len();
         self.emit(Op::GetLocal(counter), span);
@@ -555,23 +594,18 @@ impl Compiler {
         self.emit(Op::Lt, span);
         let exit_jump = self.emit(Op::JumpIfFalse(0), span);
 
-        let var_slot = Self::resolve_local(&self.funcs, self.funcs.len() - 1, &variable.name)
-            .map(|(s, _)| s)
-            .expect("loop var slot");
         self.emit(Op::GetLocal(items), span);
         self.emit(Op::GetLocal(counter), span);
         self.emit(Op::GetIndex, span);
-        self.emit(Op::SetLocal(var_slot), span);
-        self.emit(Op::Pop, span);
 
+        self.begin_scope();
         let locals_count = self.cur().locals.len();
         self.push_loop(locals_count, label);
+        self.destructure_pattern(variable, false, false, span)?;
         self.compile_stmt(body)?;
+        self.end_scope(span);
 
         let continue_target = self.cur().chunk.code.len();
-        if self.cur_ref().locals[var_slot as usize].is_captured {
-            self.emit(Op::CloseUpvalueTo(var_slot), span);
-        }
         self.emit(Op::GetLocal(counter), span);
         let one = self.cur().chunk.add_constant(Constant::Number(1.0));
         self.emit(Op::Constant(one), span);
@@ -589,7 +623,7 @@ impl Compiler {
 
     fn compile_for_of(
         &mut self,
-        variable: &Identifier,
+        variable: &Pattern,
         iterable: &Expr,
         body: &Stmt,
         is_await: bool,
@@ -604,11 +638,41 @@ impl Compiler {
         self.emit(Op::ForIterInit, span);
         let handle = self.push_temp(span);
 
-        self.emit(Op::Undefined, span);
-        self.add_local(&variable.name, false);
-        let var_slot = Self::resolve_local(&self.funcs, self.funcs.len() - 1, &variable.name)
-            .map(|(s, _)| s)
-            .expect("loop var slot");
+        if let Pattern::Identifier(id) = variable {
+            self.emit(Op::Undefined, span);
+            self.add_local(&id.name, false);
+            let var_slot = Self::resolve_local(&self.funcs, self.funcs.len() - 1, &id.name)
+                .map(|(s, _)| s)
+                .expect("loop var slot");
+
+            let loop_start = self.cur().chunk.code.len();
+            self.emit(Op::GetLocal(handle), span);
+            let next = self.emit(Op::ForIterNext(0), span);
+            if is_await {
+                self.emit(Op::Await, span);
+            }
+            self.emit(Op::SetLocal(var_slot), span);
+            self.emit(Op::Pop, span);
+
+            let locals_count = self.cur().locals.len();
+            self.push_loop(locals_count, label);
+            self.compile_stmt(body)?;
+
+            let continue_target = self.cur().chunk.code.len();
+            if self.cur_ref().locals[var_slot as usize].is_captured {
+                self.emit(Op::CloseUpvalueTo(var_slot), span);
+            }
+            self.emit(Op::Jump(loop_start), span);
+
+            let exit = self.cur().chunk.code.len();
+            self.cur().chunk.patch_jump(next, exit);
+            self.finish_loop(exit, continue_target);
+
+            self.emit(Op::GetLocal(handle), span);
+            self.emit(Op::ForIterClose, span);
+            self.end_scope(span);
+            return Ok(());
+        }
 
         let loop_start = self.cur().chunk.code.len();
         self.emit(Op::GetLocal(handle), span);
@@ -616,17 +680,15 @@ impl Compiler {
         if is_await {
             self.emit(Op::Await, span);
         }
-        self.emit(Op::SetLocal(var_slot), span);
-        self.emit(Op::Pop, span);
 
+        self.begin_scope();
         let locals_count = self.cur().locals.len();
         self.push_loop(locals_count, label);
+        self.destructure_pattern(variable, false, false, span)?;
         self.compile_stmt(body)?;
+        self.end_scope(span);
 
         let continue_target = self.cur().chunk.code.len();
-        if self.cur_ref().locals[var_slot as usize].is_captured {
-            self.emit(Op::CloseUpvalueTo(var_slot), span);
-        }
         self.emit(Op::Jump(loop_start), span);
 
         let exit = self.cur().chunk.code.len();

@@ -141,10 +141,12 @@ impl Interpreter {
                 };
                 let label = incoming_label;
                 self.env.push_scope();
-                self.env.define(variable.name.clone(), Value::Undefined, false);
                 for item in items {
                     self.env.fork_current();
-                    self.env.set(&variable.name, item);
+                    if let Err(e) = self.destructure_pattern(variable, item, false, *span) {
+                        self.env.pop_scope();
+                        return Err(e);
+                    }
                     if let Some(cf) = self.exec_stmt(body)? {
                         match cf.for_loop(label.as_deref()) {
                             LoopOp::Break => break,
@@ -478,7 +480,7 @@ impl Interpreter {
 
     fn exec_for_of_loop(
         &mut self,
-        variable: &Identifier,
+        variable: &Pattern,
         iterable: &Expr,
         body: &Stmt,
         span: Span,
@@ -489,7 +491,6 @@ impl Interpreter {
         let val = if is_await { self.do_await(val, span)? } else { val };
         if let Value::Iterator(rc) = val {
             self.env.push_scope();
-            self.env.define(variable.name.clone(), Value::Undefined, false);
             loop {
                 let next_val = {
                     let mut state = rc.borrow_mut();
@@ -501,7 +502,12 @@ impl Interpreter {
                 };
                 let item = if is_await { self.do_await(item, span)? } else { item };
                 self.env.fork_current();
-                self.env.set(&variable.name, item);
+                if let Err(e) = self.destructure_pattern(variable, item, false, span) {
+                    let mut state = rc.borrow_mut();
+                    let _ = crate::stdlib::iterator::close(self, &mut state, span);
+                    self.env.pop_scope();
+                    return Err(e);
+                }
                 let body_result = self.exec_stmt(body);
                 let cf = match body_result {
                     Ok(cf) => cf,
@@ -548,7 +554,6 @@ impl Interpreter {
                 if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
                     let next_method_name = "следующий";
                     self.env.push_scope();
-                    self.env.define(variable.name.clone(), Value::Undefined, false);
                     loop {
                         let next_fn = self.eval_member(iterator_obj.clone(), next_method_name, span)?;
                         let result = self.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
@@ -566,7 +571,10 @@ impl Interpreter {
                             _ => Value::Undefined,
                         };
                         let item = if is_await { self.do_await(item, span)? } else { item };
-                        self.env.set(&variable.name, item);
+                        if let Err(e) = self.destructure_pattern(variable, item, false, span) {
+                            self.env.pop_scope();
+                            return Err(e);
+                        }
                         let body_result = self.exec_stmt(body);
                         match body_result {
                             Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
@@ -597,11 +605,13 @@ impl Interpreter {
             }
         };
         self.env.push_scope();
-        self.env.define(variable.name.clone(), Value::Undefined, false);
         for item in items {
             let item = if is_await { self.do_await(item, span)? } else { item };
             self.env.fork_current();
-            self.env.set(&variable.name, item);
+            if let Err(e) = self.destructure_pattern(variable, item, false, span) {
+                self.env.pop_scope();
+                return Err(e);
+            }
             if let Some(cf) = self.exec_stmt(body)? {
                 match cf.for_loop(label.as_deref()) {
                     LoopOp::Break => break,

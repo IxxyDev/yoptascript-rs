@@ -301,7 +301,7 @@ impl Printer<'_> {
             }
             Stmt::ForIn { variable, iterable, body, .. } => {
                 self.write("го (гыы ");
-                self.write(&variable.name);
+                self.print_pattern(variable);
                 self.write(" из ");
                 self.print_expr(iterable, 0);
                 self.write(") ");
@@ -309,7 +309,7 @@ impl Printer<'_> {
             }
             Stmt::ForOf { variable, iterable, body, .. } => {
                 self.write("го (гыы ");
-                self.write(&variable.name);
+                self.print_pattern(variable);
                 self.write(" сашаГрей ");
                 self.print_expr(iterable, 0);
                 self.write(") ");
@@ -317,7 +317,7 @@ impl Printer<'_> {
             }
             Stmt::ForAwaitOf { variable, iterable, body, .. } => {
                 self.write("го сидетьНахуй (гыы ");
-                self.write(&variable.name);
+                self.print_pattern(variable);
                 self.write(" сашаГрей ");
                 self.print_expr(iterable, 0);
                 self.write(") ");
