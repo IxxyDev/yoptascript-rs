@@ -169,10 +169,7 @@ impl Environment {
                 }
                 frame.parent.clone()
             };
-            match parent {
-                Some(p) => frame_rc = p,
-                None => return None,
-            }
+            frame_rc = parent?;
         }
     }
 
