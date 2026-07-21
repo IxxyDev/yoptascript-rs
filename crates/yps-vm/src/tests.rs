@@ -1163,3 +1163,126 @@ fn destructure_array_user_iterator_next_throws_is_catchable() {
     "#;
     assert_eq!(run(src), "бум\n");
 }
+
+#[test]
+fn string_instance_methods_dispatch() {
+    assert_eq!(run(r#"сказать("привет".символВ(0));"#), "п\n");
+    assert_eq!(run(r#"сказать("Hello".вВерхнийРегистр());"#), "HELLO\n");
+    assert_eq!(run(r#"сказать("a,b,c".разбить(",").склеить("|"));"#), "a|b|c\n");
+    assert_eq!(run(r#"сказать("  край  ".обрезать());"#), "край\n");
+    assert_eq!(run(r#"сказать("ха".повторить(3));"#), "хахаха\n");
+}
+
+#[test]
+fn string_length_property_is_utf16() {
+    assert_eq!(run(r#"сказать("привет".длина);"#), "6\n");
+    assert_eq!(run(r#"сказать("привет".length);"#), "6\n");
+    assert_eq!(run(r#"сказать("👍".длина);"#), "2\n");
+}
+
+#[test]
+fn array_length_property() {
+    assert_eq!(run("сказать([1,2,3].длина);"), "3\n");
+    assert_eq!(run("сказать([1,2,3].length);"), "3\n");
+}
+
+#[test]
+fn array_callback_methods_dispatch() {
+    assert_eq!(run("сказать([1,2,3].преобразовать(х => х * 2).склеить(\",\"));"), "2,4,6\n");
+    assert_eq!(run("сказать([1,2,3,4].отфильтровать(х => х % 2 === 0).склеить(\",\"));"), "2,4\n");
+    assert_eq!(run("сказать([1,2,3].свернуть((а, б) => а + б, 0));"), "6\n");
+}
+
+#[test]
+fn array_mutation_shares_native_backing() {
+    let src = r#"
+        гыы а = [1, 2, 3];
+        гыы б = а;
+        б.втолкнуть(4);
+        сказать(а.склеить(","));
+    "#;
+    assert_eq!(run(src), "1,2,3,4\n");
+}
+
+#[test]
+fn array_sort_in_place_mutates_original() {
+    let src = r#"
+        гыы а = [3, 1, 2];
+        а.сортировать((x, y) => x - y);
+        сказать(а.склеить(","));
+    "#;
+    assert_eq!(run(src), "1,2,3\n");
+}
+
+#[test]
+fn splice_returns_removed_and_mutates() {
+    let src = r#"
+        гыы а = [1, 2, 3, 4, 5];
+        сказать(а.вырезать(1, 2).склеить(","));
+        сказать(а.склеить(","));
+    "#;
+    assert_eq!(run(src), "2,3\n1,4,5\n");
+}
+
+#[test]
+fn string_bound_method_extraction_is_callable() {
+    let src = r#"
+        гыы ф = "abc".вВерхнийРегистр;
+        сказать(тип(ф));
+        сказать(ф());
+    "#;
+    assert_eq!(run(src), "функция\nABC\n");
+}
+
+#[test]
+fn array_bound_method_extraction_is_callable() {
+    let src = r#"
+        гыы ф = [1, 2, 3].склеить;
+        сказать(ф("-"));
+    "#;
+    assert_eq!(run(src), "1-2-3\n");
+}
+
+#[test]
+fn array_iterator_manual_next() {
+    let src = r#"
+        гыы ит = [7, 8].значения();
+        сказать(ит.следующий().значение);
+        сказать(ит.следующий().значение);
+        сказать(ит.следующий().готово);
+    "#;
+    assert_eq!(run(src), "7\n8\ntrue\n");
+}
+
+#[test]
+fn array_iterator_spread_and_type() {
+    assert_eq!(run("сказать([...[10, 20].ключи()].склеить(\",\"));"), "0,1\n");
+    assert_eq!(run("сказать(тип([1, 2].записи()));"), "итератор\n");
+    assert_eq!(run("сказать([...[\"a\", \"b\"].записи()][1].склеить(\",\"));"), "1,b\n");
+}
+
+#[test]
+fn string_regex_methods_with_literal() {
+    assert_eq!(run(r#"сказать("hello".заменить(/l/g, "L"));"#), "heLLo\n");
+    assert_eq!(run(r#"сказать("a1b2".заменить(/\d/g, ц => "[" + ц + "]"));"#), "a[1]b[2]\n");
+    assert_eq!(run(r#"сказать("a1b2c3".совпадает(/\d/g).склеить(","));"#), "1,2,3\n");
+    assert_eq!(run(r#"сказать("a,b;c".разбить(/[,;]/).склеить("|"));"#), "a|b|c\n");
+}
+
+#[test]
+fn string_method_argument_error_is_catchable() {
+    let src = r#"
+        хапнуть { "x".символВ(); } гоп (е) { сказать(е.message); }
+    "#;
+    assert_eq!(run(src), "'charAt' ожидает минимум 1 аргумент(ов), получено 0\n");
+}
+
+#[test]
+fn unknown_string_property_is_undefined() {
+    assert_eq!(run(r#"сказать("abc".нетуТакого);"#), "undefined\n");
+}
+
+#[test]
+fn unknown_array_property_is_undefined() {
+    assert_eq!(run("сказать([1,2].нетуТакого);"), "undefined\n");
+}

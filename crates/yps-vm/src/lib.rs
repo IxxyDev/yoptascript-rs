@@ -9,6 +9,7 @@ mod builtins;
 pub mod chunk;
 pub mod compiler;
 pub mod error;
+mod methods;
 mod promise;
 pub mod regexp;
 pub mod value;

@@ -624,6 +624,8 @@ impl Vm {
                     let src = self.pop();
                     let items = if let Value::Generator(genrc) = &src {
                         self.drain_generator(&Rc::clone(genrc), span)?
+                    } else if let Value::ForIter(rc) = &src {
+                        self.drain_for_iter(&Rc::clone(rc), span)?
                     } else if let Value::Host(iv) = &src {
                         let iv = iv.clone();
                         crate::bridge::host_iterate(self, &iv, span)?
@@ -1073,6 +1075,27 @@ impl Vm {
                 self.stack.push(result);
                 Ok(())
             }
+            Value::BoundMethod { receiver, method } => {
+                let args: Vec<Value> = self.pop_args(argc);
+                self.pop();
+                let result = self.call_bound_method(*receiver, &method, args, span)?;
+                self.stack.push(result);
+                Ok(())
+            }
+            other => Err(VmError::new(format!("значение типа '{}' не является функцией", other.type_name()), span)),
+        }
+    }
+
+    fn call_bound_method(
+        &mut self,
+        receiver: Value,
+        method: &str,
+        args: Vec<Value>,
+        span: Span,
+    ) -> Result<Value, VmError> {
+        match receiver {
+            Value::Str(s) => crate::methods::call_string(self, s, method, args, span),
+            Value::Array(rc) => crate::methods::call_array(self, rc, method, args, span),
             other => Err(VmError::new(format!("значение типа '{}' не является функцией", other.type_name()), span)),
         }
     }
@@ -1335,6 +1358,30 @@ impl Vm {
             }
             _ => Ok(None),
         }
+    }
+
+    fn for_iter_invoke(
+        &mut self,
+        rc: &Rc<RefCell<crate::value::ForIter>>,
+        name: &str,
+        span: Span,
+    ) -> Result<Value, VmError> {
+        match name {
+            "следующий" | "next" => match self.for_iter_next(rc, span)? {
+                Some(v) => Ok(iter_result_pair(v, false)),
+                None => Ok(iter_result_pair(Value::Undefined, true)),
+            },
+            other if other == well_known_iterator_key() => Ok(Value::ForIter(Rc::clone(rc))),
+            other => Err(VmError::new(format!("у итератора нет метода '{other}'"), span)),
+        }
+    }
+
+    fn drain_for_iter(&mut self, rc: &Rc<RefCell<crate::value::ForIter>>, span: Span) -> Result<Vec<Value>, VmError> {
+        let mut out = Vec::new();
+        while let Some(v) = self.for_iter_next(rc, span)? {
+            out.push(v);
+        }
+        Ok(out)
     }
 
     fn drain_generator(&mut self, genrc: &Rc<RefCell<GenState>>, span: Span) -> Result<Vec<Value>, VmError> {
@@ -1938,6 +1985,7 @@ impl Vm {
                 Ok(Value::Undefined)
             }
             Value::Host(iv) => crate::bridge::host_call(self, &iv, args, span),
+            Value::BoundMethod { receiver, method } => self.call_bound_method(*receiver, &method, args.to_vec(), span),
             other => Err(VmError::new(format!("значение типа '{}' не является функцией", other.type_name()), span)),
         }
     }
@@ -2303,18 +2351,33 @@ impl Vm {
         }
 
         if let Value::Array(arr) = &receiver
-            && matches!(name, "push" | "добавить" | "втолкнуть")
+            && crate::methods::array_method_exists(name)
         {
+            let arr = Rc::clone(arr);
             let args: Vec<Value> = self.pop_args(argc);
             self.pop();
-            let len = {
-                let mut guard = arr.borrow_mut();
-                for a in args {
-                    guard.push(a);
-                }
-                guard.len() as f64
-            };
-            self.stack.push(Value::Number(len));
+            let result = crate::methods::call_array(self, arr, name, args, span)?;
+            self.stack.push(result);
+            return Ok(());
+        }
+
+        if let Value::Str(s) = &receiver
+            && crate::methods::string_method_exists(name)
+        {
+            let s = Rc::clone(s);
+            let args: Vec<Value> = self.pop_args(argc);
+            self.pop();
+            let result = crate::methods::call_string(self, s, name, args, span)?;
+            self.stack.push(result);
+            return Ok(());
+        }
+
+        if let Value::ForIter(rc) = &receiver {
+            let rc = Rc::clone(rc);
+            self.pop_args(argc);
+            self.pop();
+            let result = self.for_iter_invoke(&rc, name, span)?;
+            self.stack.push(result);
             return Ok(());
         }
 
@@ -2643,6 +2706,13 @@ fn uncaught_message(value: &Value) -> String {
     format!("Необработанное исключение: {value}")
 }
 
+fn iter_result_pair(value: Value, done: bool) -> Value {
+    let mut map = ObjMap::new();
+    map.insert("значение".to_string(), value);
+    map.insert("готово".to_string(), Value::Bool(done));
+    Value::Object(Rc::new(RefCell::new(map)))
+}
+
 fn report_async_error(source: &str, err: &VmError) {
     eprintln!("необработанное исключение в '{source}': {}", err.message);
 }
@@ -2858,6 +2928,24 @@ fn get_prop(obj: &Value, name: &str, span: Span) -> Result<Value, VmError> {
         Value::Builtin(base) => Ok(Value::Builtin(Rc::from(format!("{base}.{name}").as_str()))),
         Value::Object(map) => Ok(map.borrow().get(name).cloned().unwrap_or(Value::Undefined)),
         Value::RegExp { .. } => Ok(crate::regexp::member(obj, name).unwrap_or(Value::Undefined)),
+        Value::Str(s) => {
+            if name == "длина" || name == "length" {
+                return Ok(Value::Number(crate::methods::string_length(s)));
+            }
+            if crate::methods::string_method_exists(name) {
+                return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: Rc::from(name) });
+            }
+            Ok(Value::Undefined)
+        }
+        Value::Array(a) => {
+            if name == "длина" || name == "length" {
+                return Ok(Value::Number(a.borrow().len() as f64));
+            }
+            if crate::methods::array_method_exists(name) {
+                return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: Rc::from(name) });
+            }
+            Ok(Value::Undefined)
+        }
         other => Err(VmError::new(format!("нельзя читать свойство '{name}' у типа '{}'", other.type_name()), span)),
     }
 }
