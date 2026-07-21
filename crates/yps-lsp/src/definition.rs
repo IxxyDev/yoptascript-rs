@@ -118,6 +118,9 @@ fn collect_members(members: &[ClassMember], out: &mut Vec<Declaration>) {
                     collect_expr(d, out);
                 }
             }
+            ClassMember::StaticBlock { body, .. } => {
+                collect_block(body, out);
+            }
         }
     }
 }

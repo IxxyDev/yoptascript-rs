@@ -44,6 +44,10 @@ pub enum ClassMember {
         decorators: Vec<Expr>,
         span: Span,
     },
+    StaticBlock {
+        body: Rc<Block>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]

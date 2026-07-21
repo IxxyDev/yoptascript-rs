@@ -578,6 +578,12 @@ impl Printer<'_> {
                 self.print_block(body);
                 self.newline();
             }
+            ClassMember::StaticBlock { body, .. } => {
+                self.indent();
+                self.write("попонятия ");
+                self.print_block(body);
+                self.newline();
+            }
         }
     }
 

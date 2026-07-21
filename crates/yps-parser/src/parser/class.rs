@@ -52,6 +52,17 @@ impl<'a> Parser<'a> {
             false
         };
 
+        if is_static && matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
+            if !decorators.is_empty() {
+                let span = self.current().span;
+                self.push_error(span, "Декораторы нельзя применять к статическому блоку");
+                return Err(());
+            }
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            return Ok(ClassMember::StaticBlock { body: Rc::new(body), span: Span { start, end } });
+        }
+
         let modifier_private = self.parse_visibility_modifier();
 
         if matches!(self.current().kind, TokenKind::Identifier)

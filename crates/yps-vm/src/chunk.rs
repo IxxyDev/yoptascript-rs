@@ -47,6 +47,7 @@ pub enum MemberKind {
     StaticSetter,
     Field,
     StaticField,
+    StaticBlock,
 }
 
 #[derive(Debug, Clone)]

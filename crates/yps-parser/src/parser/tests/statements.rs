@@ -671,3 +671,34 @@ fn test_parse_for_classic_plain_still_for() {
     assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
     assert!(matches!(program.items[0], Stmt::For { .. }), "Expected classic For, got {:?}", program.items[0]);
 }
+
+#[test]
+fn test_parse_class_static_block() {
+    let (program, diags) = parse_program_from_source(
+        "клёво К { попонятия а = 1; попонятия { тырыпыры.б = 2; } попонятия метод() { отвечаю 3; } }",
+    );
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ClassDecl { members, .. } => {
+            assert_eq!(members.len(), 3);
+            assert!(matches!(members[0], ClassMember::Field { is_static: true, .. }));
+            match &members[1] {
+                ClassMember::StaticBlock { body, .. } => assert_eq!(body.stmts.len(), 1),
+                other => panic!("Expected StaticBlock, got {other:?}"),
+            }
+            assert!(matches!(members[2], ClassMember::Method { is_static: true, .. }));
+        }
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_class_static_block_decorator_rejected() {
+    let (_program, diags) = parse_program_from_source("клёво К { @дек попонятия { тырыпыры.а = 1; } }");
+    assert!(!diags.is_empty(), "Expected diagnostic for decorated static block");
+    assert!(
+        diags.iter().any(|d| d.message.contains("статическому блоку")),
+        "Expected static-block decorator diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
