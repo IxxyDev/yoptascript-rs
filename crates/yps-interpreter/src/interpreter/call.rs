@@ -118,7 +118,7 @@ impl Interpreter {
 
                 if is_generator {
                     let gen_env = std::mem::replace(&mut self.env, saved_env);
-                    let gen_state = super::generator::build_generator(name, gen_env, &body);
+                    let gen_state = super::generator::build_generator(name, gen_env, &body, is_async);
                     Ok(Value::Iterator(Rc::new(RefCell::new(crate::value::IteratorState::Generator(Box::new(
                         gen_state,
                     ))))))

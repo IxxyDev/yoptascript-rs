@@ -843,11 +843,11 @@ impl Printer<'_> {
                     self.write(")");
                 }
             }
-            Expr::FunctionExpr { name, params, body, is_async, .. } => {
+            Expr::FunctionExpr { name, params, body, is_generator, is_async, .. } => {
                 if *is_async {
                     self.write("ассо ");
                 }
-                self.write("йопта");
+                self.write(if *is_generator { "пиздюли" } else { "йопта" });
                 if let Some(name) = name {
                     self.write(" ");
                     self.write(&name.name);

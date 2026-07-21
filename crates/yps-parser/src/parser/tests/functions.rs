@@ -224,3 +224,45 @@ fn function_decl_top_level_still_works() {
     assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
     assert!(matches!(prog.items[0], crate::ast::Stmt::FunctionDecl { .. }));
 }
+
+#[test]
+fn test_parse_async_generator_decl() {
+    let (program, diags) = parse_program_from_source("ассо пиздюли ген() { поебалу 1; }");
+    assert!(diags.is_empty(), "Parse errors: {diags:?}");
+    match &program.items[0] {
+        Stmt::FunctionDecl { name, is_async, is_generator, .. } => {
+            assert_eq!(name.name, "ген");
+            assert!(*is_async);
+            assert!(*is_generator);
+        }
+        other => panic!("Expected async generator FunctionDecl, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_async_generator_expr() {
+    let (prog, diags) = parse_program_from_source("гыы г = ассо пиздюли() { поебалу 1; };");
+    assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+    let Stmt::VarDecl { init, .. } = &prog.items[0] else {
+        panic!("Ожидался Stmt::VarDecl, получено {:?}", prog.items[0]);
+    };
+    let Expr::FunctionExpr { is_generator, is_async, .. } = init else {
+        panic!("Ожидался FunctionExpr, получено {init:?}");
+    };
+    assert!(*is_generator);
+    assert!(*is_async);
+}
+
+#[test]
+fn test_parse_generator_expr() {
+    let (prog, diags) = parse_program_from_source("гыы г = пиздюли() { поебалу 1; };");
+    assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
+    let Stmt::VarDecl { init, .. } = &prog.items[0] else {
+        panic!("Ожидался Stmt::VarDecl, получено {:?}", prog.items[0]);
+    };
+    let Expr::FunctionExpr { is_generator, is_async, .. } = init else {
+        panic!("Ожидался FunctionExpr, получено {init:?}");
+    };
+    assert!(*is_generator);
+    assert!(!*is_async);
+}

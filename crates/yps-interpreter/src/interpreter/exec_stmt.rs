@@ -489,6 +489,9 @@ impl Interpreter {
     ) -> Result<Option<ControlFlow>, RuntimeError> {
         let val = self.eval_expr(iterable)?;
         let val = if is_await { self.do_await(val, span)? } else { val };
+        if is_await && let Some(aiter) = self.get_async_iterator(&val, span)? {
+            return self.exec_for_await_loop(&aiter, variable, body, span, label);
+        }
         if let Value::Iterator(rc) = val {
             self.env.push_scope();
             loop {
@@ -620,6 +623,57 @@ impl Interpreter {
                         self.env.pop_scope();
                         return Ok(Some(cf));
                     }
+                }
+            }
+        }
+        self.env.pop_scope();
+        Ok(None)
+    }
+
+    fn exec_for_await_loop(
+        &mut self,
+        aiter: &Value,
+        variable: &Pattern,
+        body: &Stmt,
+        span: Span,
+        label: Option<String>,
+    ) -> Result<Option<ControlFlow>, RuntimeError> {
+        self.env.push_scope();
+        loop {
+            let (done, item) = match self.async_iter_next(aiter, span) {
+                Ok(pair) => pair,
+                Err(e) => {
+                    self.env.pop_scope();
+                    return Err(e);
+                }
+            };
+            if done {
+                break;
+            }
+            self.env.fork_current();
+            if let Err(e) = self.destructure_pattern(variable, item, false, span) {
+                let _ = self.async_iter_close(aiter, span);
+                self.env.pop_scope();
+                return Err(e);
+            }
+            match self.exec_stmt(body) {
+                Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
+                    LoopOp::Break => {
+                        self.async_iter_close(aiter, span)?;
+                        break;
+                    }
+                    LoopOp::Continue => continue,
+                    LoopOp::Exit(cf) => {
+                        self.async_iter_close(aiter, span)?;
+                        self.env.pop_scope();
+                        return Ok(Some(cf));
+                    }
+                },
+                Ok(None) => {}
+                Err(e) => {
+                    let _ = self.async_iter_close(aiter, span);
+                    self.env.pop_scope();
+                    return Err(e);
                 }
             }
         }

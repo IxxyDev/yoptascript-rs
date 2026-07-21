@@ -520,8 +520,29 @@ impl Vm {
                 Op::ForIterInit => {
                     let src = self.pop();
                     let handle = match src {
-                        Value::Generator(genrc) => crate::value::ForIter::Generator(genrc),
+                        Value::Generator(genrc) => {
+                            if genrc.borrow().closure.proto.is_async {
+                                return Err(VmError::new(
+                                    "Асинхронный генератор нельзя итерировать синхронно (используй 'го жди')",
+                                    span,
+                                ));
+                            }
+                            crate::value::ForIter::Generator(genrc)
+                        }
                         other => crate::value::ForIter::Values { values: self.iterate_values(&other, span)?, index: 0 },
+                    };
+                    self.stack.push(Value::ForIter(Rc::new(RefCell::new(handle))));
+                }
+                Op::AsyncForIterInit => {
+                    let src = self.pop();
+                    let handle = match src {
+                        Value::Generator(genrc) => crate::value::ForIter::Generator(genrc),
+                        other => match self.async_iterator_values(&other, span)? {
+                            Some(values) => crate::value::ForIter::Values { values, index: 0 },
+                            None => {
+                                crate::value::ForIter::Values { values: self.iterate_values(&other, span)?, index: 0 }
+                            }
+                        },
                     };
                     self.stack.push(Value::ForIter(Rc::new(RefCell::new(handle))));
                 }
@@ -1399,6 +1420,9 @@ impl Vm {
     }
 
     fn drain_generator(&mut self, genrc: &Rc<RefCell<GenState>>, span: Span) -> Result<Vec<Value>, VmError> {
+        if genrc.borrow().closure.proto.is_async {
+            return Err(VmError::new("Асинхронный генератор нельзя итерировать синхронно (используй 'го жди')", span));
+        }
         let mut out = Vec::new();
         loop {
             if genrc.borrow().completed {
@@ -1419,6 +1443,16 @@ impl Vm {
         map.insert("готово".to_string(), Value::Bool(done));
         map.insert("done".to_string(), Value::Bool(done));
         Value::Object(Rc::new(RefCell::new(map)))
+    }
+
+    fn async_gen_promise(&mut self, outcome: Result<Value, VmError>) -> Result<Value, VmError> {
+        match outcome {
+            Ok(v) => Ok(crate::promise::make_fulfilled_promise(v)),
+            Err(e) => match e.thrown {
+                Some(val) => Ok(crate::promise::make_rejected_promise(*val)),
+                None => Err(e),
+            },
+        }
     }
 
     fn gen_next(&mut self, genrc: &Rc<RefCell<GenState>>, sent: Value, span: Span) -> Result<Value, VmError> {
@@ -1684,6 +1718,35 @@ impl Vm {
                     (r.get("готово").cloned(), r.get("значение").cloned())
                 }
                 _ => (None, None),
+            };
+            if matches!(done, Some(Value::Bool(true))) {
+                break;
+            }
+            values.push(value.unwrap_or(Value::Undefined));
+        }
+        Ok(Some(values))
+    }
+
+    fn async_iterator_values(&mut self, src: &Value, span: Span) -> Result<Option<Vec<Value>>, VmError> {
+        let Value::Object(map) = src else {
+            return Ok(None);
+        };
+        let method = map.borrow().get(&well_known_async_iterator_key()).cloned();
+        let Some(method) = method else {
+            return Ok(None);
+        };
+        let iterator = self.call_value(method, Some(src.clone()), &[], span)?;
+        let mut values = Vec::new();
+        loop {
+            let next_fn = self.get_property(&iterator, "следующий", span)?;
+            let result = self.call_value(next_fn, Some(iterator.clone()), &[], span)?;
+            let result = self.do_await(result, span)?;
+            let (done, value) = match &result {
+                Value::Object(r) => {
+                    let r = r.borrow();
+                    (r.get("готово").cloned(), r.get("значение").cloned())
+                }
+                _ => (Some(Value::Bool(true)), None),
             };
             if matches!(done, Some(Value::Bool(true))) {
                 break;
@@ -2390,17 +2453,19 @@ impl Vm {
 
         if let Value::Generator(genrc) = &receiver {
             let genrc = Rc::clone(genrc);
+            let is_async = genrc.borrow().closure.proto.is_async;
             let args: Vec<Value> = self.pop_args(argc);
             self.pop();
             let arg = args.into_iter().next().unwrap_or(Value::Undefined);
-            let result = match name {
-                "следующий" | "next" => self.gen_next(&genrc, arg, span)?,
-                "вернуть" | "return" => self.gen_return(&genrc, arg, span)?,
-                "кинуть" | "throw" => self.gen_throw(&genrc, arg, span)?,
+            let outcome = match name {
+                "следующий" | "next" => self.gen_next(&genrc, arg, span),
+                "вернуть" | "return" => self.gen_return(&genrc, arg, span),
+                "кинуть" | "throw" => self.gen_throw(&genrc, arg, span),
                 other => {
                     return Err(VmError::new(format!("у генератора нет метода '{other}'"), span));
                 }
             };
+            let result = if is_async { self.async_gen_promise(outcome)? } else { outcome? };
             self.stack.push(result);
             return Ok(());
         }
@@ -2901,6 +2966,10 @@ fn well_known_symbol_key(name: &str) -> String {
 
 fn well_known_iterator_key() -> String {
     well_known_symbol_key("итератор")
+}
+
+fn well_known_async_iterator_key() -> String {
+    well_known_symbol_key("асинхИтератор")
 }
 
 fn is_primitive(value: &Value) -> bool {

@@ -21,51 +21,141 @@ pub enum Expr {
     Identifier(Identifier),
     Literal(Literal),
 
-    Unary { op: UnaryOp, expr: Box<Expr>, span: Span },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
 
-    Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
 
-    Assignment { target: Identifier, value: Box<Expr>, span: Span },
+    Assignment {
+        target: Identifier,
+        value: Box<Expr>,
+        span: Span,
+    },
 
-    Postfix { op: PostfixOp, expr: Box<Expr>, span: Span },
+    Postfix {
+        op: PostfixOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
 
-    Grouping { expr: Box<Expr>, span: Span },
+    Grouping {
+        expr: Box<Expr>,
+        span: Span,
+    },
 
-    Call { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
 
-    Index { object: Box<Expr>, index: Box<Expr>, span: Span },
+    Index {
+        object: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
 
-    Member { object: Box<Expr>, property: Identifier, span: Span },
+    Member {
+        object: Box<Expr>,
+        property: Identifier,
+        span: Span,
+    },
 
-    OptionalMember { object: Box<Expr>, property: Identifier, span: Span },
+    OptionalMember {
+        object: Box<Expr>,
+        property: Identifier,
+        span: Span,
+    },
 
-    OptionalIndex { object: Box<Expr>, index: Box<Expr>, span: Span },
+    OptionalIndex {
+        object: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
 
-    OptionalCall { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+    OptionalCall {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
 
-    Conditional { condition: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr>, span: Span },
+    Conditional {
+        condition: Box<Expr>,
+        then_expr: Box<Expr>,
+        else_expr: Box<Expr>,
+        span: Span,
+    },
 
-    ArrowFunction { params: Rc<[Param]>, body: Rc<Block>, is_async: bool, span: Span },
+    ArrowFunction {
+        params: Rc<[Param]>,
+        body: Rc<Block>,
+        is_async: bool,
+        span: Span,
+    },
 
-    FunctionExpr { name: Option<Identifier>, params: Rc<[Param]>, body: Rc<Block>, is_async: bool, span: Span },
+    FunctionExpr {
+        name: Option<Identifier>,
+        params: Rc<[Param]>,
+        body: Rc<Block>,
+        is_generator: bool,
+        is_async: bool,
+        span: Span,
+    },
 
-    TemplateLiteral { parts: Vec<TemplatePart>, span: Span },
+    TemplateLiteral {
+        parts: Vec<TemplatePart>,
+        span: Span,
+    },
 
-    TaggedTemplate { tag: Box<Expr>, quasis: Vec<TemplateQuasi>, expressions: Vec<Expr>, span: Span },
+    TaggedTemplate {
+        tag: Box<Expr>,
+        quasis: Vec<TemplateQuasi>,
+        expressions: Vec<Expr>,
+        span: Span,
+    },
 
-    Spread { expr: Box<Expr>, span: Span },
+    Spread {
+        expr: Box<Expr>,
+        span: Span,
+    },
 
-    This { span: Span },
+    This {
+        span: Span,
+    },
 
-    New { callee: Box<Expr>, args: Vec<Expr>, span: Span },
+    New {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
 
-    Super { span: Span },
+    Super {
+        span: Span,
+    },
 
-    Yield { argument: Option<Box<Expr>>, delegate: bool, span: Span },
+    Yield {
+        argument: Option<Box<Expr>>,
+        delegate: bool,
+        span: Span,
+    },
 
-    Await { argument: Box<Expr>, span: Span },
+    Await {
+        argument: Box<Expr>,
+        span: Span,
+    },
 
-    DynamicImport { source: Box<Expr>, span: Span },
+    DynamicImport {
+        source: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {

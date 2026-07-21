@@ -34,13 +34,14 @@ enum Unwind {
     Return(Value),
 }
 
-pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>) -> GenState {
+pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>, is_async: bool) -> GenState {
     let stmts: Rc<[Stmt]> = Rc::from(body.stmts.as_slice());
     GenState {
         name,
         env,
         frames: vec![GenFrame::Block { stmts, idx: 0, owns_scope: false }],
         completed: false,
+        is_async,
         pending_bind: None,
         pending_send: None,
     }

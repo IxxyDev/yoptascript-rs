@@ -271,10 +271,20 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_function_expr(&mut self) -> Result<Expr, ()> {
         let start = self.current().span.start;
-        self.parse_function_expr_inner(start, false)
+        self.parse_function_expr_inner(start, false, false)
     }
 
-    pub(super) fn parse_function_expr_inner(&mut self, start: usize, is_async: bool) -> Result<Expr, ()> {
+    pub(super) fn parse_generator_expr(&mut self) -> Result<Expr, ()> {
+        let start = self.current().span.start;
+        self.parse_function_expr_inner(start, true, false)
+    }
+
+    pub(super) fn parse_function_expr_inner(
+        &mut self,
+        start: usize,
+        is_generator: bool,
+        is_async: bool,
+    ) -> Result<Expr, ()> {
         self.advance();
 
         let name =
@@ -282,24 +292,36 @@ impl<'a> Parser<'a> {
         let (params, body) = self.parse_function_params_and_body()?;
         let end = body.span.end;
 
-        Ok(Expr::FunctionExpr { name, params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
+        Ok(Expr::FunctionExpr {
+            name,
+            params: params.into(),
+            body: Rc::new(body),
+            is_generator,
+            is_async,
+            span: Span { start, end },
+        })
     }
 
     pub(super) fn parse_async_stmt(&mut self) -> Result<Stmt, ()> {
         let async_span = self.current().span;
         self.advance();
-        if !matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Yopta)) {
-            self.push_error(async_span, "После 'ассо' ожидалась 'йопта' для объявления функции");
-            return Err(());
+        match self.current().kind {
+            TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_decl_inner(false, true),
+            TokenKind::Keyword(KeywordKind::GeneratorFn) => self.parse_function_decl_inner(true, true),
+            _ => {
+                self.push_error(async_span, "После 'ассо' ожидалась 'йопта' или 'пиздюли' для объявления функции");
+                Err(())
+            }
         }
-        self.parse_function_decl_inner(false, true)
     }
 
     pub(super) fn parse_async_expr(&mut self) -> Result<Expr, ()> {
         let start = self.current().span.start;
         self.advance();
         if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::Yopta)) {
-            self.parse_function_expr_inner(start, true)
+            self.parse_function_expr_inner(start, false, true)
+        } else if matches!(self.current().kind, TokenKind::Keyword(KeywordKind::GeneratorFn)) {
+            self.parse_function_expr_inner(start, true, true)
         } else if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LParen)) {
             let saved_pos = self.position;
             let saved_diag_len = self.diagnostics.len();
@@ -375,7 +397,7 @@ impl<'a> Parser<'a> {
             self.advance();
             self.parse_arrow_body_with_async(vec![param], start, true)
         } else {
-            self.push_error(self.current().span, "После 'ассо' ожидалась 'йопта' или стрелочная функция");
+            self.push_error(self.current().span, "После 'ассо' ожидалась 'йопта', 'пиздюли' или стрелочная функция");
             Err(())
         }
     }

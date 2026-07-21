@@ -131,6 +131,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Keyword(KeywordKind::Async) => self.parse_async_expr()?,
             TokenKind::Keyword(KeywordKind::Yopta) => self.parse_function_expr()?,
+            TokenKind::Keyword(KeywordKind::GeneratorFn) => self.parse_generator_expr()?,
             TokenKind::Keyword(KeywordKind::New) => self.parse_new_expr()?,
             TokenKind::Keyword(KeywordKind::Import)
                 if matches!(self.peek(1).kind, TokenKind::Punctuation(PunctuationKind::LParen)) =>
