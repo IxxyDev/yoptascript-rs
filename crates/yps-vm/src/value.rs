@@ -283,6 +283,7 @@ pub enum Value {
     Object(Rc<RefCell<ObjMap>>),
     Function(Rc<Closure>),
     Builtin(Rc<str>),
+    BoundMethod { receiver: Box<Value>, method: Rc<str> },
     Class(Rc<ClassDef>),
     RegExp { pattern: Rc<str>, flags: Rc<str>, compiled: Rc<crate::regexp::YopRegex>, last_index: Rc<RefCell<usize>> },
     Generator(Rc<RefCell<GenState>>),
@@ -380,7 +381,7 @@ impl Value {
             Value::Bool(_) => "булево",
             Value::Array(_) => "массив",
             Value::Object(_) => "объект",
-            Value::Function(_) | Value::Builtin(_) => "функция",
+            Value::Function(_) | Value::Builtin(_) | Value::BoundMethod { .. } => "функция",
             Value::Class(_) => "класс",
             Value::RegExp { .. } => "регэксп",
             Value::Generator(_) | Value::ForIter(_) => "итератор",
@@ -403,7 +404,7 @@ impl Value {
             Value::Bool(_) => "булево",
             Value::Undefined => "неопределено",
             Value::Null => "объект",
-            Value::Function(_) | Value::Builtin(_) | Value::Class(_) => "функция",
+            Value::Function(_) | Value::Builtin(_) | Value::BoundMethod { .. } | Value::Class(_) => "функция",
             Value::PromiseCapability { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
@@ -467,7 +468,7 @@ impl Value {
                     .collect();
                 parts.join(",")
             }
-            Value::Function(_) | Value::Builtin(_) | Value::Class(_) => self.to_string(),
+            Value::Function(_) | Value::Builtin(_) | Value::BoundMethod { .. } | Value::Class(_) => self.to_string(),
             Value::Host(iv) => iv.to_string(),
         }
     }
@@ -527,6 +528,7 @@ impl Value {
             Value::Function(c) if c.proto.name.is_empty() => write!(f, "[анонимная функция]"),
             Value::Function(c) => write!(f, "[функция {}]", c.proto.name),
             Value::Builtin(name) => write!(f, "[встроенная {name}]"),
+            Value::BoundMethod { method, .. } => write!(f, "[метод {method}]"),
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
             Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
             Value::Generator(_) | Value::ForIter(_) => write!(f, "[итератор]"),
@@ -572,6 +574,9 @@ pub fn strict_eq(a: &Value, b: &Value) -> bool {
         (Value::Object(x), Value::Object(y)) => Rc::ptr_eq(x, y),
         (Value::Function(x), Value::Function(y)) => Rc::ptr_eq(x, y),
         (Value::Builtin(x), Value::Builtin(y)) => x == y,
+        (Value::BoundMethod { receiver: ra, method: ma }, Value::BoundMethod { receiver: rb, method: mb }) => {
+            ma == mb && strict_eq(ra, rb)
+        }
         (Value::Class(x), Value::Class(y)) => Rc::ptr_eq(x, y),
         (Value::RegExp { pattern: pa, flags: fa, .. }, Value::RegExp { pattern: pb, flags: fb, .. }) => {
             pa == pb && fa == fb

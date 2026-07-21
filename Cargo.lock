@@ -1520,6 +1520,7 @@ version = "1.6.1"
 dependencies = [
  "indexmap",
  "stacker",
+ "unicode-normalization",
  "yps-interpreter",
  "yps-lexer",
  "yps-parser",

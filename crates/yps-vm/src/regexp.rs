@@ -182,6 +182,136 @@ pub fn call(receiver: &Value, method: &str, args: &[Value], span: Span) -> Resul
     Ok(result)
 }
 
+fn next_byte(s: &str, pos: usize) -> usize {
+    if pos >= s.len() {
+        return pos + 1;
+    }
+    match s[pos..].chars().next() {
+        Some(ch) => pos + ch.len_utf8(),
+        None => pos + 1,
+    }
+}
+
+pub fn match_first(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Value, VmError> {
+    match re.captures(s, span).map_err(to_vm)? {
+        Some(md) => Ok(build_match_object(&md, s, false)),
+        None => Ok(Value::Null),
+    }
+}
+
+pub fn match_global_strings(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>, VmError> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while pos <= s.len() {
+        match re.captures_from_pos(s, pos, span).map_err(to_vm)? {
+            Some(md) => {
+                let whole = match_whole(&md);
+                out.push(Value::string(whole.text.as_str()));
+                pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
+            }
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+pub fn match_all_objects(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>, VmError> {
+    let mut out = Vec::new();
+    let mut byte_pos = 0usize;
+    while byte_pos <= s.len() {
+        match re.captures_from_pos(s, byte_pos, span).map_err(to_vm)? {
+            Some(md) => {
+                let (start, end) = {
+                    let whole = match_whole(&md);
+                    (whole.start, whole.end)
+                };
+                out.push(build_match_object(&md, s, false));
+                byte_pos = if end == start { end + 1 } else { end };
+            }
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>, VmError> {
+    if s.is_empty() {
+        return match re.captures_from_pos(s, 0, span).map_err(to_vm)? {
+            Some(_) => Ok(Vec::new()),
+            None => Ok(vec![Value::string("")]),
+        };
+    }
+    let mut out: Vec<Value> = Vec::new();
+    let mut last = 0usize;
+    let mut pos = 0usize;
+    while pos < s.len() {
+        match re.captures_from_pos(s, pos, span).map_err(to_vm)? {
+            Some(md) => {
+                let whole = match_whole(&md);
+                if whole.end == last {
+                    pos = next_byte(s, pos);
+                    continue;
+                }
+                out.push(Value::string(&s[last..whole.start]));
+                for slot in md.groups.iter().skip(1) {
+                    match slot {
+                        Some(g) => out.push(Value::string(g.text.as_str())),
+                        None => out.push(Value::Null),
+                    }
+                }
+                last = whole.end;
+                pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
+            }
+            None => break,
+        }
+    }
+    out.push(Value::string(&s[last..]));
+    Ok(out)
+}
+
+pub fn replace_with_fn(
+    vm: &mut crate::vm::Vm,
+    re: &Rc<YopRegex>,
+    s: &str,
+    fn_val: Value,
+    global: bool,
+    span: Span,
+) -> Result<String, VmError> {
+    let mut out = String::new();
+    let mut last_end = 0usize;
+    let mut pos = 0usize;
+    while pos <= s.len() {
+        let md = match re.captures_from_pos(s, pos, span).map_err(to_vm)? {
+            Some(md) => md,
+            None => break,
+        };
+        let (start, end, whole_text) = {
+            let whole = match_whole(&md);
+            (whole.start, whole.end, whole.text.clone())
+        };
+        out.push_str(&s[last_end..start]);
+        let mut call_args: Vec<Value> = Vec::with_capacity(md.groups.len() + 2);
+        call_args.push(Value::string(whole_text.as_str()));
+        for slot in md.groups.iter().skip(1) {
+            match slot {
+                Some(g) => call_args.push(Value::string(g.text.as_str())),
+                None => call_args.push(Value::Null),
+            }
+        }
+        call_args.push(Value::Number(char_index_at(s, start) as f64));
+        call_args.push(Value::string(s));
+        let returned = vm.call_value(fn_val.clone(), None, &call_args, span)?;
+        out.push_str(&returned.to_string());
+        last_end = end;
+        pos = if end == start { next_byte(s, end) } else { end };
+        if !global {
+            break;
+        }
+    }
+    out.push_str(&s[last_end..]);
+    Ok(out)
+}
+
 fn require_str(args: &[Value], span: Span, who: &str) -> Result<String, VmError> {
     let Some(first) = args.first() else {
         return Err(VmError::new(format!("'{who}' ожидает минимум 1 аргумент(ов), получено {}", args.len()), span));
