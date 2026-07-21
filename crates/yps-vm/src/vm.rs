@@ -19,6 +19,7 @@ const STACK_RED_ZONE: usize = 256 * 1024;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 const ERROR_NAME: &str = "Косяк";
 const DISPOSE_METHOD: &str = "расход";
+const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
 
 type ModuleExports = std::collections::HashMap<String, Value>;
 type ModuleCache = Rc<RefCell<std::collections::HashMap<std::path::PathBuf, Rc<ModuleExports>>>>;
@@ -87,7 +88,7 @@ pub struct Vm {
     handlers: Vec<Handler>,
     region_floor: usize,
     gen_yield: Option<Value>,
-    disposables: Vec<Value>,
+    disposables: Vec<(Value, bool)>,
     base_path: Option<std::path::PathBuf>,
     module_cache: ModuleCache,
     module_loading: ModuleLoading,
@@ -826,7 +827,20 @@ impl Vm {
                     if !matches!(value, Value::Null | Value::Undefined) && !self.has_dispose_method(&value) {
                         return Err(VmError::new("Ресурс 'юзай' должен иметь метод 'расход'", span));
                     }
-                    self.disposables.push(value);
+                    self.disposables.push((value, false));
+                }
+                Op::RegisterAsyncDisposable => {
+                    let value = self.peek(0).clone();
+                    if !matches!(value, Value::Null | Value::Undefined)
+                        && !self.has_async_dispose_method(&value)
+                        && !self.has_dispose_method(&value)
+                    {
+                        return Err(VmError::new(
+                            "Ресурс 'юзай сидетьНахуй' должен иметь метод 'асинхРасход' или 'расход'",
+                            span,
+                        ));
+                    }
+                    self.disposables.push((value, true));
                 }
                 Op::DisposeScope(count) => {
                     self.dispose_scope(count as usize, span)?;
@@ -2227,13 +2241,18 @@ impl Vm {
         self.globals.insert(name, (value, true));
     }
 
-    fn has_dispose_method(&self, value: &Value) -> bool {
+    fn has_dispose_kind(&self, value: &Value, sym_key: &str, method_name: &str) -> bool {
         if let Value::Object(map) = value {
-            if matches!(map.borrow().get(DISPOSE_METHOD), Some(Value::Function(_))) {
-                return true;
+            {
+                let borrowed = map.borrow();
+                if matches!(borrowed.get(sym_key), Some(Value::Function(_)))
+                    || matches!(borrowed.get(method_name), Some(Value::Function(_)))
+                {
+                    return true;
+                }
             }
             if let Some(cls) = Self::resolve_class(map)
-                && cls.find_method(DISPOSE_METHOD).is_some()
+                && cls.find_method(method_name).is_some()
             {
                 return true;
             }
@@ -2241,16 +2260,26 @@ impl Vm {
         false
     }
 
+    fn has_dispose_method(&self, value: &Value) -> bool {
+        self.has_dispose_kind(value, &well_known_symbol_key(DISPOSE_METHOD), DISPOSE_METHOD)
+    }
+
+    fn has_async_dispose_method(&self, value: &Value) -> bool {
+        self.has_dispose_kind(value, &well_known_symbol_key(ASYNC_DISPOSE_METHOD), ASYNC_DISPOSE_METHOD)
+    }
+
     fn dispose_scope(&mut self, count: usize, span: Span) -> Result<(), VmError> {
         let mut first_err: Option<VmError> = None;
         for _ in 0..count {
-            let Some(resource) = self.disposables.pop() else {
+            let Some((resource, is_await)) = self.disposables.pop() else {
                 break;
             };
             if matches!(resource, Value::Null | Value::Undefined) {
                 continue;
             }
-            if let Err(e) = self.invoke_dispose(resource, span)
+            let result =
+                if is_await { self.invoke_async_dispose(resource, span) } else { self.invoke_dispose(resource, span) };
+            if let Err(e) = result
                 && first_err.is_none()
             {
                 first_err = Some(e);
@@ -2262,22 +2291,62 @@ impl Vm {
         }
     }
 
+    fn try_invoke_dispose_kind(
+        &mut self,
+        resource: &Value,
+        sym_key: &str,
+        method_name: &str,
+        await_result: bool,
+        span: Span,
+    ) -> Result<bool, VmError> {
+        let Value::Object(map) = resource else {
+            return Ok(false);
+        };
+        let direct = {
+            let borrowed = map.borrow();
+            borrowed.get(sym_key).or_else(|| borrowed.get(method_name)).cloned()
+        };
+        let result = if let Some(Value::Function(closure)) = direct {
+            self.call_closure_sync(closure, Some(resource.clone()), None, &[], span)?
+        } else if let Some(cls) = Self::resolve_class(map) {
+            let Some(method) = cls.find_method(method_name) else {
+                return Ok(false);
+            };
+            let owner = cls.find_method_owner(method_name);
+            self.call_closure_sync(method, Some(resource.clone()), owner, &[], span)?
+        } else {
+            return Ok(false);
+        };
+        if await_result {
+            self.do_await(result, span)?;
+        }
+        Ok(true)
+    }
+
     fn invoke_dispose(&mut self, resource: Value, span: Span) -> Result<(), VmError> {
-        if let Value::Object(map) = &resource {
-            let direct = map.borrow().get(DISPOSE_METHOD).cloned();
-            if let Some(Value::Function(closure)) = direct {
-                self.call_closure_sync(closure, Some(resource.clone()), None, &[], span)?;
-                return Ok(());
-            }
-            if let Some(cls) = Self::resolve_class(map)
-                && let Some(method) = cls.find_method(DISPOSE_METHOD)
-            {
-                let owner = cls.find_method_owner(DISPOSE_METHOD);
-                self.call_closure_sync(method, Some(resource.clone()), owner, &[], span)?;
-                return Ok(());
-            }
+        if self.try_invoke_dispose_kind(
+            &resource,
+            &well_known_symbol_key(DISPOSE_METHOD),
+            DISPOSE_METHOD,
+            false,
+            span,
+        )? {
+            return Ok(());
         }
         Err(VmError::new("Ресурс 'юзай' должен иметь метод 'расход'", span))
+    }
+
+    fn invoke_async_dispose(&mut self, resource: Value, span: Span) -> Result<(), VmError> {
+        if self.try_invoke_dispose_kind(
+            &resource,
+            &well_known_symbol_key(ASYNC_DISPOSE_METHOD),
+            ASYNC_DISPOSE_METHOD,
+            true,
+            span,
+        )? {
+            return Ok(());
+        }
+        self.invoke_dispose(resource, span)
     }
 
     fn do_invoke(&mut self, name: &str, argc: usize, span: Span) -> Result<(), VmError> {

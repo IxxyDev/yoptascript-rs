@@ -184,6 +184,7 @@ pub enum Op {
     DeleteIndex,
 
     RegisterDisposable,
+    RegisterAsyncDisposable,
     DisposeScope(u32),
 
     Import(ConstIdx),
