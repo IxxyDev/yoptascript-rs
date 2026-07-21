@@ -6,9 +6,18 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
+use crate::stdlib::{as_number, require_args};
 use crate::value::Value;
 
 const MAX_TIME: f64 = 8.64e15;
+
+const FIELD_YEAR: usize = 0;
+const FIELD_MONTH: usize = 1;
+const FIELD_DAY: usize = 2;
+const FIELD_HOURS: usize = 3;
+const FIELD_MINUTES: usize = 4;
+const FIELD_SECONDS: usize = 5;
+const FIELD_MILLIS: usize = 6;
 
 pub fn now_ms() -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -105,6 +114,7 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
     let day = read_uint(bytes, &mut pos, 2)?;
 
     let (mut hour, mut minute, mut second, mut millis) = (0u64, 0u64, 0u64, 0u64);
+    let mut offset_minutes = 0i64;
     if pos < bytes.len() {
         if bytes[pos] != b'T' {
             return None;
@@ -126,7 +136,23 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
                 millis = frac;
             }
         }
-        expect(bytes, &mut pos, b'Z')?;
+        if pos < bytes.len() {
+            match bytes[pos] {
+                b'Z' => pos += 1,
+                b'+' | b'-' => {
+                    let sign = if bytes[pos] == b'-' { -1 } else { 1 };
+                    pos += 1;
+                    let oh = read_uint(bytes, &mut pos, 2)?;
+                    expect(bytes, &mut pos, b':')?;
+                    let om = read_uint(bytes, &mut pos, 2)?;
+                    if oh > 23 || om > 59 {
+                        return None;
+                    }
+                    offset_minutes = sign * (oh as i64 * 60 + om as i64);
+                }
+                _ => {}
+            }
+        }
     }
     if pos != bytes.len() {
         return None;
@@ -143,7 +169,8 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
         + hour as f64 * 3_600_000.0
         + minute as f64 * 60_000.0
         + second as f64 * 1000.0
-        + millis as f64;
+        + millis as f64
+        - offset_minutes as f64 * 60_000.0;
     if !ms.is_finite() || ms.abs() > MAX_TIME {
         return None;
     }
@@ -178,6 +205,79 @@ fn clamp_time(ms: f64) -> f64 {
     if !ms.is_finite() || ms.abs() > MAX_TIME { f64::NAN } else { ms }
 }
 
+fn days_from_civil_128(y: i128, m: i128, d: i128) -> i128 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+fn month_day_to_epoch_days(year: i64, month0: i64, day: i64) -> i128 {
+    let total = year as i128 * 12 + month0 as i128;
+    let y = total.div_euclid(12);
+    let m = total.rem_euclid(12) + 1;
+    days_from_civil_128(y, m, day as i128)
+}
+
+fn to_int(v: f64) -> Option<i64> {
+    if v.is_finite() { Some(v.trunc() as i64) } else { None }
+}
+
+fn apply_set(cell: &Cell<f64>, args: &[Value], span: Span, method: &str, start: usize) -> Result<f64, RuntimeError> {
+    require_args(args, 1, span, method)?;
+    let comp = ms_to_components(cell.get());
+    let mut fields: [i64; 7] = match &comp {
+        Some(c) => [
+            c.year,
+            c.month as i64 - 1,
+            c.day as i64,
+            c.hours as i64,
+            c.minutes as i64,
+            c.seconds as i64,
+            c.millis as i64,
+        ],
+        None if start == FIELD_YEAR => [1970, 0, 1, 0, 0, 0, 0],
+        None => {
+            cell.set(f64::NAN);
+            return Ok(f64::NAN);
+        }
+    };
+    for (i, arg) in args.iter().enumerate() {
+        let idx = start + i;
+        if idx > FIELD_MILLIS {
+            break;
+        }
+        let n = as_number(arg, span, method)?;
+        match to_int(n) {
+            Some(v) => fields[idx] = v,
+            None => {
+                cell.set(f64::NAN);
+                return Ok(f64::NAN);
+            }
+        }
+    }
+    let days = month_day_to_epoch_days(fields[FIELD_YEAR], fields[FIELD_MONTH], fields[FIELD_DAY]);
+    let new_ms = days as f64 * 86_400_000.0
+        + fields[FIELD_HOURS] as f64 * 3_600_000.0
+        + fields[FIELD_MINUTES] as f64 * 60_000.0
+        + fields[FIELD_SECONDS] as f64 * 1000.0
+        + fields[FIELD_MILLIS] as f64;
+    let clamped = clamp_time(new_ms);
+    cell.set(clamped);
+    Ok(clamped)
+}
+
+fn apply_set_time(cell: &Cell<f64>, args: &[Value], span: Span, method: &str) -> Result<f64, RuntimeError> {
+    require_args(args, 1, span, method)?;
+    let n = as_number(&args[0], span, method)?;
+    let clamped = clamp_time(n);
+    cell.set(clamped);
+    Ok(clamped)
+}
+
 pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
     let ms = match args.into_iter().next() {
         None => now_ms(),
@@ -193,11 +293,21 @@ pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
 pub fn call_static(
     _interp: &mut Interpreter,
     method: &str,
-    _args: Vec<Value>,
+    args: Vec<Value>,
     span: Span,
 ) -> Result<Value, RuntimeError> {
     match method {
         "сейчас" => Ok(Value::Number(now_ms())),
+        "разобрать" => {
+            require_args(&args, 1, span, "Дата.разобрать")?;
+            let ms = match &args[0] {
+                Value::String(s) => parse_iso(s),
+                Value::Number(n) => clamp_time(*n),
+                Value::Date(cell) => cell.get(),
+                _ => f64::NAN,
+            };
+            Ok(Value::Number(ms))
+        }
         _ => Err(RuntimeError::new(format!("Неизвестный статический метод 'Дата.{method}'"), span)),
     }
 }
@@ -206,7 +316,7 @@ pub fn call_instance(
     _interp: &mut Interpreter,
     receiver: Value,
     method: &str,
-    _args: Vec<Value>,
+    args: Vec<Value>,
     span: Span,
 ) -> Result<(Value, Option<Value>), RuntimeError> {
     let Value::Date(cell) = &receiver else {
@@ -217,18 +327,45 @@ pub fn call_instance(
 
     let result = match method {
         "времяМс" | "вЧисло" => Value::Number(ms),
-        "год" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.year as f64)),
-        "месяц" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| (c.month - 1) as f64)),
-        "день" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.day as f64)),
-        "деньНедели" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.weekday as f64)),
-        "часы" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.hours as f64)),
-        "минуты" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.minutes as f64)),
-        "секунды" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.seconds as f64)),
-        "миллисекунды" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.millis as f64)),
+        "год" | "годUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.year as f64)),
+        "месяц" | "месяцUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| (c.month - 1) as f64)),
+        "день" | "деньUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.day as f64)),
+        "деньНедели" | "деньНеделиUTC" => {
+            Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.weekday as f64))
+        }
+        "часы" | "часыUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.hours as f64)),
+        "минуты" | "минутыUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.minutes as f64)),
+        "секунды" | "секундыUTC" => Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.seconds as f64)),
+        "миллисекунды" | "миллисекундыUTC" => {
+            Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.millis as f64))
+        }
+        "смещениеЧасовогоПояса" => Value::Number(comp.as_ref().map_or(f64::NAN, |_| 0.0)),
         "вИСО" | "вСтроку" => Value::String(match &comp {
             Some(c) => format_components(c),
             None => "Invalid Date".to_string(),
         }),
+        "поставитьВремя" => Value::Number(apply_set_time(cell, &args, span, "поставитьВремя")?),
+        "поставитьГод" | "поставитьГодUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_YEAR)?)
+        }
+        "поставитьМесяц" | "поставитьМесяцUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_MONTH)?)
+        }
+        "поставитьДень" | "поставитьДеньUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_DAY)?)
+        }
+        "поставитьЧасы" | "поставитьЧасыUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_HOURS)?)
+        }
+        "поставитьМинуты" | "поставитьМинутыUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_MINUTES)?)
+        }
+        "поставитьСекунды" | "поставитьСекундыUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_SECONDS)?)
+        }
+        "поставитьМиллисекунды" | "поставитьМиллисекундыUTC" => {
+            Value::Number(apply_set(cell, &args, span, method, FIELD_MILLIS)?)
+        }
         _ => return Err(RuntimeError::new(format!("Дата не имеет метода '{method}'"), span)),
     };
     Ok((result, None))
@@ -316,5 +453,91 @@ mod tests {
         assert_eq!(format_iso(cell.get()), "1970-01-01T00:00:00.000Z");
         cell.set(86_400_000.0);
         assert_eq!(format_iso(cell.get()), "1970-01-02T00:00:00.000Z");
+    }
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    #[test]
+    fn parse_without_z_is_utc() {
+        assert_eq!(parse_iso("2026-07-19T12:00:00"), parse_iso("2026-07-19T12:00:00Z"));
+    }
+
+    #[test]
+    fn parse_with_offset() {
+        let with_offset = parse_iso("2026-07-19T12:00:00+02:00");
+        let utc = parse_iso("2026-07-19T10:00:00Z");
+        assert_eq!(with_offset, utc);
+        let negative_offset = parse_iso("2026-07-19T10:00:00-02:00");
+        assert_eq!(negative_offset, parse_iso("2026-07-19T12:00:00Z"));
+    }
+
+    #[test]
+    fn parse_invalid_offset_is_nan() {
+        assert!(parse_iso("2026-07-19T12:00:00+25:00").is_nan());
+        assert!(parse_iso("2026-07-19T12:00:00X").is_nan());
+    }
+
+    #[test]
+    fn set_month_rolls_over_into_next_year() {
+        let cell = Cell::new(days_from_civil(2020, 1, 1) as f64 * 86_400_000.0);
+        let ret = apply_set(&cell, &[Value::Number(13.0)], span(), "поставитьМесяц", FIELD_MONTH).unwrap();
+        assert_eq!(ret, cell.get());
+        assert_eq!(format_iso(cell.get()), "2021-02-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn set_date_zero_rolls_into_previous_month() {
+        let cell = Cell::new(days_from_civil(2020, 6, 15) as f64 * 86_400_000.0);
+        apply_set(&cell, &[Value::Number(0.0)], span(), "поставитьДень", FIELD_DAY).unwrap();
+        assert_eq!(format_iso(cell.get()), "2020-05-31T00:00:00.000Z");
+    }
+
+    #[test]
+    fn set_hours_preserves_date_and_other_fields() {
+        let ms = days_from_civil(2020, 1, 1) as f64 * 86_400_000.0 + 10.0 * 3_600_000.0 + 30.0 * 60_000.0 + 500.0;
+        let cell = Cell::new(ms);
+        apply_set(&cell, &[Value::Number(25.0)], span(), "поставитьЧасы", FIELD_HOURS).unwrap();
+        assert_eq!(format_iso(cell.get()), "2020-01-02T01:30:00.500Z");
+    }
+
+    #[test]
+    fn set_full_year_on_invalid_date_falls_back_to_epoch() {
+        let cell = Cell::new(f64::NAN);
+        let ret = apply_set(&cell, &[Value::Number(2020.0)], span(), "поставитьГод", FIELD_YEAR).unwrap();
+        assert!(ret.is_finite());
+        assert_eq!(format_iso(cell.get()), "2020-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn set_month_on_invalid_date_stays_nan() {
+        let cell = Cell::new(f64::NAN);
+        let ret = apply_set(&cell, &[Value::Number(5.0)], span(), "поставитьМесяц", FIELD_MONTH).unwrap();
+        assert!(ret.is_nan());
+        assert!(cell.get().is_nan());
+    }
+
+    #[test]
+    fn set_time_clamps_out_of_range() {
+        let cell = Cell::new(0.0);
+        let ret = apply_set_time(&cell, &[Value::Number(MAX_TIME + 1.0)], span(), "поставитьВремя").unwrap();
+        assert!(ret.is_nan());
+        assert!(cell.get().is_nan());
+    }
+
+    #[test]
+    fn set_full_year_with_month_and_day_args() {
+        let cell = Cell::new(0.0);
+        let ret = apply_set(
+            &cell,
+            &[Value::Number(2021.0), Value::Number(5.0), Value::Number(15.0)],
+            span(),
+            "поставитьГод",
+            FIELD_YEAR,
+        )
+        .unwrap();
+        assert_eq!(ret, cell.get());
+        assert_eq!(format_iso(cell.get()), "2021-06-15T00:00:00.000Z");
     }
 }
