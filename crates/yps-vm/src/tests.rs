@@ -2,7 +2,7 @@ use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 use yps_parser::ast::Program;
 
-use crate::{compile_program, run_to_string};
+use crate::{Vm, compile_program, run_to_string};
 
 fn parse(src: &str) -> Program {
     let source = SourceFile::new("<тест>".to_string(), src.to_string());
@@ -1588,4 +1588,148 @@ fn async_generator_sync_for_of_rejected_vm() {
         го (гыы х сашаГрей ген()) { сказать(х); }
     "#;
     assert!(run_err(src).contains("синхронно"));
+}
+
+fn run_vm(src: &str) -> Vm {
+    let mut vm = Vm::with_writer(Box::new(std::io::sink()));
+    let proto = compile_program(&parse(src)).expect("компиляция");
+    vm.run(proto).expect("выполнение VM");
+    vm
+}
+
+#[test]
+fn gc_breaks_object_cycles() {
+    let src = r#"
+        йопта делать() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        го (гыы и = 0; и < 200; и = и + 1) { делать(); }
+    "#;
+    let mut vm = run_vm(src);
+    let before = vm.live_objects();
+    let cleared = vm.collect_cycles();
+    let after = vm.live_objects();
+    assert!(cleared > 0, "циклы объектов должны разрываться, очищено {cleared}");
+    assert!(after < before, "живых объектов должно стать меньше: было {before}, стало {after}");
+}
+
+#[test]
+fn gc_breaks_closure_upvalue_cycles() {
+    let src = r#"
+        йопта делать() {
+            гыы сам = {};
+            сам.ф = () => сам;
+        }
+        го (гыы и = 0; и < 200; и = и + 1) { делать(); }
+    "#;
+    let mut vm = run_vm(src);
+    let before = vm.live_objects();
+    let cleared = vm.collect_cycles();
+    assert!(cleared > 0, "циклы замыканий должны разрываться, очищено {cleared}");
+    assert!(vm.live_objects() < before, "живых объектов должно стать меньше после сборки");
+}
+
+#[test]
+fn gc_second_pass_finds_nothing_new() {
+    let src = r#"
+        йопта делать() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        го (гыы и = 0; и < 200; и = и + 1) { делать(); }
+    "#;
+    let mut vm = run_vm(src);
+    vm.collect_cycles();
+    assert_eq!(vm.collect_cycles(), 0, "повторная сборка не должна ничего чистить");
+}
+
+#[test]
+fn gc_keeps_live_objects_bounded() {
+    let src = r#"
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+    "#;
+    let vm = run_vm(src);
+    let live = vm.live_objects();
+    assert!(live < 20000, "живых объектов слишком много без ограничения: {live}");
+}
+
+#[test]
+fn gc_preserves_reachable_data() {
+    let src = r#"
+        гыы живой = { имя: "тест", числа: [1, 2, 3], вложенный: { глубина: 42 } };
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+        сказать(живой.имя);
+        сказать(живой.числа[0] + живой.числа[1] + живой.числа[2]);
+        сказать(живой.вложенный.глубина);
+    "#;
+    assert_eq!(run(src), "тест\n6\n42\n");
+}
+
+#[test]
+fn gc_preserves_reachable_data_explicit_collect() {
+    let src = r#"
+        гыы живой = { значение: 7, список: [1, 2, 3] };
+        живой.список.втолкнуть(живой);
+    "#;
+    let mut vm = run_vm(src);
+    let cleared = vm.collect_cycles();
+    assert_eq!(cleared, 0, "достижимый цикл не должен собираться, очищено {cleared}");
+}
+
+#[test]
+fn gc_preserves_suspended_generator_captures() {
+    let src = r#"
+        пиздюли ген() {
+            гыы секрет = [11, 22, 33];
+            поебалу секрет[0];
+            поебалу секрет[1];
+            поебалу секрет[2];
+        }
+        ясенХуй г = ген();
+        сказать(г.следующий().значение);
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+        сказать(г.следующий().значение);
+        сказать(г.следующий().значение);
+    "#;
+    assert_eq!(run(src), "11\n22\n33\n");
+}
+
+#[test]
+fn gc_manual_collect_preserves_async_pending_roots() {
+    let src = r#"
+        ясенХуй п = СловоПацана.сРешалками();
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.друг = б;
+            б.друг = а;
+        }
+        п.обещание.потом((з) => { сказать(з); });
+        го (гыы и = 0; и < 200; и = и + 1) { мусор(); }
+        п.решить(777);
+    "#;
+    assert_eq!(run(src), "777\n");
 }
