@@ -10,13 +10,19 @@ use crate::error::VmError;
 use crate::value::{AggregateKind, AggregateRole, AggregateState, CapKind, ObjMap, PromiseState, Value};
 use crate::vm::Vm;
 
-pub(crate) type Microtask = Box<dyn FnOnce(&mut Vm, Span) -> Result<(), VmError>>;
+pub(crate) type MicrotaskFn = Box<dyn FnOnce(&mut Vm, Span) -> Result<(), VmError>>;
 pub(crate) type Macrotask = Box<dyn FnOnce(&mut Vm, Span) -> Result<(), VmError>>;
+
+pub(crate) struct Microtask {
+    pub roots: Vec<Value>,
+    pub run: MicrotaskFn,
+}
 
 pub(crate) struct ScheduledTask {
     pub deadline: Instant,
     pub seq: u64,
     pub id: u64,
+    pub roots: Vec<Value>,
     pub task: Macrotask,
 }
 
@@ -49,19 +55,23 @@ impl MacrotaskQueue {
         Self { heap: BinaryHeap::new(), cancelled: HashSet::new(), next_id: 1, next_seq: 0 }
     }
 
-    pub fn schedule(&mut self, delay: Duration, task: Macrotask) -> u64 {
+    pub fn schedule(&mut self, delay: Duration, roots: Vec<Value>, task: Macrotask) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
         let seq = self.next_seq;
         self.next_seq = self.next_seq.wrapping_add(1);
-        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, task });
+        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, roots, task });
         id
     }
 
-    pub fn schedule_with_id(&mut self, id: u64, delay: Duration, task: Macrotask) {
+    pub fn schedule_with_id(&mut self, id: u64, delay: Duration, roots: Vec<Value>, task: Macrotask) {
         let seq = self.next_seq;
         self.next_seq = self.next_seq.wrapping_add(1);
-        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, task });
+        self.heap.push(ScheduledTask { deadline: Instant::now() + delay, seq, id, roots, task });
+    }
+
+    pub fn roots(&self) -> impl Iterator<Item = &Value> {
+        self.heap.iter().flat_map(|t| t.roots.iter())
     }
 
     pub fn cancel(&mut self, id: u64) {
@@ -143,25 +153,32 @@ pub(crate) fn make_pending_promise() -> (Value, Value, Value) {
 impl Vm {
     pub(crate) fn drain_microtasks(&mut self, span: Span) -> Result<(), VmError> {
         while let Some(task) = self.microtasks.pop_front() {
-            task(self, span)?;
+            (task.run)(self, span)?;
         }
         Ok(())
     }
 
-    pub(crate) fn enqueue_microtask(&mut self, task: Microtask) {
-        self.microtasks.push_back(task);
+    pub(crate) fn enqueue_microtask(&mut self, roots: Vec<Value>, run: MicrotaskFn) {
+        self.microtasks.push_back(Microtask { roots, run });
     }
 
     pub(crate) fn drive_event_loop(&mut self, span: Span) -> Result<(), VmError> {
+        let mut since_gc = 0usize;
         loop {
             self.drain_microtasks(span)?;
             if self.macrotasks.is_empty() {
+                self.maybe_collect_garbage();
                 return Ok(());
             }
             let Some(task) = self.macrotasks.pop_next_blocking() else {
                 return Ok(());
             };
             (task.task)(self, span)?;
+            since_gc += 1;
+            if since_gc >= crate::vm::GC_TASK_INTERVAL {
+                since_gc = 0;
+                self.maybe_collect_garbage();
+            }
         }
     }
 
@@ -214,7 +231,11 @@ impl Vm {
         *state.borrow_mut() = PromiseState::Fulfilled(value.clone());
         for cb in callbacks {
             let val_cloned = value.clone();
-            vm.enqueue_microtask(Box::new(move |vm, span| vm.call_value(cb, None, &[val_cloned], span).map(|_| ())));
+            let roots = vec![cb.clone(), val_cloned.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| vm.call_value(cb, None, &[val_cloned], span).map(|_| ())),
+            );
         }
     }
 
@@ -226,7 +247,11 @@ impl Vm {
         *state.borrow_mut() = PromiseState::Rejected(value.clone());
         for cb in callbacks {
             let val_cloned = value.clone();
-            vm.enqueue_microtask(Box::new(move |vm, span| vm.call_value(cb, None, &[val_cloned], span).map(|_| ())));
+            let roots = vec![cb.clone(), val_cloned.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| vm.call_value(cb, None, &[val_cloned], span).map(|_| ())),
+            );
         }
     }
 
@@ -380,13 +405,21 @@ fn run_aggregate(vm: &mut Vm, kind: AggregateKind, items: Vec<Value>, span: Span
     if n == 0 {
         match kind {
             AggregateKind::All | AggregateKind::AllSettled => {
-                vm.enqueue_microtask(Box::new(move |vm, sp| {
-                    vm.call_value(resolve_cap, None, &[array_value(Vec::new())], sp).map(|_| ())
-                }));
+                let roots = vec![resolve_cap.clone()];
+                vm.enqueue_microtask(
+                    roots,
+                    Box::new(move |vm, sp| {
+                        vm.call_value(resolve_cap, None, &[array_value(Vec::new())], sp).map(|_| ())
+                    }),
+                );
             }
             AggregateKind::Any => {
                 let err = aggregate_error(Vec::new());
-                vm.enqueue_microtask(Box::new(move |vm, sp| vm.call_value(reject_cap, None, &[err], sp).map(|_| ())));
+                let roots = vec![reject_cap.clone(), err.clone()];
+                vm.enqueue_microtask(
+                    roots,
+                    Box::new(move |vm, sp| vm.call_value(reject_cap, None, &[err], sp).map(|_| ())),
+                );
             }
             AggregateKind::Race => {}
         }
@@ -417,10 +450,18 @@ fn attach_aggregate(vm: &mut Vm, state: &Rc<RefCell<AggregateState>>, index: usi
             let snap = p_state.borrow().clone();
             match snap {
                 PromiseState::Fulfilled(v) => {
-                    vm.enqueue_microtask(Box::new(move |vm, sp| vm.call_value(fulfill, None, &[v], sp).map(|_| ())));
+                    let roots = vec![fulfill.clone(), v.clone()];
+                    vm.enqueue_microtask(
+                        roots,
+                        Box::new(move |vm, sp| vm.call_value(fulfill, None, &[v], sp).map(|_| ())),
+                    );
                 }
                 PromiseState::Rejected(v) => {
-                    vm.enqueue_microtask(Box::new(move |vm, sp| vm.call_value(reject, None, &[v], sp).map(|_| ())));
+                    let roots = vec![reject.clone(), v.clone()];
+                    vm.enqueue_microtask(
+                        roots,
+                        Box::new(move |vm, sp| vm.call_value(reject, None, &[v], sp).map(|_| ())),
+                    );
                 }
                 PromiseState::Pending { .. } => {
                     if let PromiseState::Pending { on_resolve, on_reject } = &mut *p_state.borrow_mut() {
@@ -431,7 +472,8 @@ fn attach_aggregate(vm: &mut Vm, state: &Rc<RefCell<AggregateState>>, index: usi
             }
         }
         other => {
-            vm.enqueue_microtask(Box::new(move |vm, sp| vm.call_value(fulfill, None, &[other], sp).map(|_| ())));
+            let roots = vec![fulfill.clone(), other.clone()];
+            vm.enqueue_microtask(roots, Box::new(move |vm, sp| vm.call_value(fulfill, None, &[other], sp).map(|_| ())));
         }
     }
 }
@@ -546,14 +588,18 @@ fn chain_promise(
     let snap = state.borrow().clone();
     match snap {
         PromiseState::Fulfilled(v) => {
-            vm.enqueue_microtask(Box::new(move |vm, span| {
-                invoke_handler(vm, on_fulfill, v, resolve_cap, reject_cap, true, span)
-            }));
+            let roots = vec![on_fulfill.clone(), v.clone(), resolve_cap.clone(), reject_cap.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| invoke_handler(vm, on_fulfill, v, resolve_cap, reject_cap, true, span)),
+            );
         }
         PromiseState::Rejected(v) => {
-            vm.enqueue_microtask(Box::new(move |vm, span| {
-                invoke_handler(vm, on_reject, v, resolve_cap, reject_cap, false, span)
-            }));
+            let roots = vec![on_reject.clone(), v.clone(), resolve_cap.clone(), reject_cap.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| invoke_handler(vm, on_reject, v, resolve_cap, reject_cap, false, span)),
+            );
         }
         PromiseState::Pending { .. } => {
             let resolve_cb = Value::PromiseThenHandler {
@@ -582,18 +628,26 @@ fn finally_promise(vm: &mut Vm, state: &Rc<RefCell<PromiseState>>, cb: Value, _s
     let snap = state.borrow().clone();
     match snap {
         PromiseState::Fulfilled(v) => {
-            vm.enqueue_microtask(Box::new(move |vm, span| {
-                vm.call_value(cb, None, &[], span)?;
-                vm.call_value(resolve_cap, None, &[v], span)?;
-                Ok(())
-            }));
+            let roots = vec![cb.clone(), resolve_cap.clone(), v.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| {
+                    vm.call_value(cb, None, &[], span)?;
+                    vm.call_value(resolve_cap, None, &[v], span)?;
+                    Ok(())
+                }),
+            );
         }
         PromiseState::Rejected(v) => {
-            vm.enqueue_microtask(Box::new(move |vm, span| {
-                vm.call_value(cb, None, &[], span)?;
-                vm.call_value(reject_cap, None, &[v], span)?;
-                Ok(())
-            }));
+            let roots = vec![cb.clone(), reject_cap.clone(), v.clone()];
+            vm.enqueue_microtask(
+                roots,
+                Box::new(move |vm, span| {
+                    vm.call_value(cb, None, &[], span)?;
+                    vm.call_value(reject_cap, None, &[v], span)?;
+                    Ok(())
+                }),
+            );
         }
         PromiseState::Pending { .. } => {
             let resolve_cb = Value::PromiseFinallyHandler { cb: Box::new(cb.clone()), cap: Box::new(resolve_cap) };

@@ -68,6 +68,10 @@ impl MethodTable {
     fn lookup(&self, name: &str) -> Option<&MethodDef> {
         self.index.get(name).map(|&i| &self.entries[i].1)
     }
+
+    pub(crate) fn defs(&self) -> impl Iterator<Item = &MethodDef> {
+        self.entries.iter().map(|(_, def)| def)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -235,6 +239,10 @@ impl ObjMap {
 
     pub fn remove(&mut self, key: &str) -> bool {
         self.entries.shift_remove(key).is_some()
+    }
+
+    pub(crate) fn gc_clear(&mut self) {
+        self.entries.clear();
     }
 
     pub fn contains_key(&self, key: &str) -> bool {

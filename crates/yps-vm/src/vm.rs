@@ -17,6 +17,9 @@ use crate::value::{
 const MAX_CALL_DEPTH: usize = 1000;
 const STACK_RED_ZONE: usize = 256 * 1024;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
+const GC_INSTR_INTERVAL: usize = 8192;
+pub(crate) const GC_TASK_INTERVAL: usize = 64;
+const GC_THRESHOLD: usize = 10000;
 const ERROR_NAME: &str = "Косяк";
 const DISPOSE_METHOD: &str = "расход";
 const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
@@ -67,10 +70,10 @@ enum DelegateKind {
 const GEN_RETURN_TAG: &str = "\0gen_return";
 
 pub struct CallFrame {
-    closure: Rc<Closure>,
+    pub(crate) closure: Rc<Closure>,
     ip: usize,
     base: usize,
-    owner: Option<Rc<ClassDef>>,
+    pub(crate) owner: Option<Rc<ClassDef>>,
 }
 
 pub struct Handler {
@@ -95,6 +98,8 @@ pub struct Vm {
     exports: ModuleExports,
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
     pub(crate) macrotasks: MacrotaskQueue,
+    gc: Rc<crate::gc::GcRegistry>,
+    gc_counter: usize,
     out: Box<dyn Write>,
 }
 
@@ -125,6 +130,8 @@ impl Vm {
             exports: std::collections::HashMap::new(),
             microtasks: std::collections::VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
+            gc: Rc::new(crate::gc::GcRegistry::default()),
+            gc_counter: 0,
             out,
         }
     }
@@ -161,6 +168,13 @@ impl Vm {
         loop {
             if self.frames.len() <= min_depth {
                 return Ok(());
+            }
+            if min_depth == 0 {
+                self.gc_counter += 1;
+                if self.gc_counter >= GC_INSTR_INTERVAL {
+                    self.gc_counter = 0;
+                    self.maybe_collect_garbage();
+                }
             }
             let frame_idx = self.frames.len() - 1;
             let closure = Rc::clone(&self.frames[frame_idx].closure);
@@ -515,7 +529,8 @@ impl Vm {
                     } else {
                         for_in_keys(&src, span)?
                     };
-                    self.stack.push(Value::Array(Rc::new(RefCell::new(keys))));
+                    let arr = self.gc_array(keys);
+                    self.stack.push(arr);
                 }
                 Op::ForIterInit => {
                     let src = self.pop();
@@ -633,7 +648,8 @@ impl Vm {
                     let n = n as usize;
                     let at = self.stack.len() - n;
                     let elems: Vec<Value> = self.stack.split_off(at);
-                    self.stack.push(Value::Array(Rc::new(RefCell::new(elems))));
+                    let arr = self.gc_array(elems);
+                    self.stack.push(arr);
                 }
                 Op::ArrPush => {
                     let v = self.pop();
@@ -664,7 +680,10 @@ impl Vm {
                 Op::NormalizeIterable => {
                     let src = self.pop();
                     match self.user_iterator_values(&src, span)? {
-                        Some(values) => self.stack.push(Value::Array(Rc::new(RefCell::new(values)))),
+                        Some(values) => {
+                            let arr = self.gc_array(values);
+                            self.stack.push(arr);
+                        }
                         None => self.stack.push(src),
                     }
                 }
@@ -683,7 +702,8 @@ impl Vm {
                             ));
                         }
                     };
-                    self.stack.push(Value::Array(Rc::new(RefCell::new(rest))));
+                    let arr = self.gc_array(rest);
+                    self.stack.push(arr);
                 }
                 Op::ObjectRest(key_count) => {
                     let key_count = key_count as usize;
@@ -705,7 +725,8 @@ impl Vm {
                             ));
                         }
                     }
-                    self.stack.push(Value::Object(Rc::new(RefCell::new(map))));
+                    let obj = self.gc_object(map);
+                    self.stack.push(obj);
                 }
                 Op::NewObject(n) => {
                     let n = n as usize;
@@ -716,7 +737,8 @@ impl Vm {
                     while let (Some(k), Some(v)) = (it.next(), it.next()) {
                         map.insert(k.to_ecma_string(), v);
                     }
-                    self.stack.push(Value::Object(Rc::new(RefCell::new(map))));
+                    let obj = self.gc_object(map);
+                    self.stack.push(obj);
                 }
                 Op::ObjSet => {
                     let v = self.pop();
@@ -1001,7 +1023,7 @@ impl Vm {
         let mut map = ObjMap::new();
         map.insert("name".to_string(), Value::string(ERROR_NAME));
         map.insert("message".to_string(), Value::string(err.message));
-        Value::Object(Rc::new(RefCell::new(map)))
+        self.gc_object(map)
     }
 
     fn const_str(&self, chunk: &crate::chunk::Chunk, idx: u32) -> Rc<str> {
@@ -1047,7 +1069,8 @@ impl Vm {
         }
         if proto.has_rest {
             let rest: Vec<Value> = if args.len() > fixed { args[fixed..].to_vec() } else { Vec::new() };
-            self.stack.push(Value::Array(Rc::new(RefCell::new(rest))));
+            let arr = self.gc_array(rest);
+            self.stack.push(arr);
         }
     }
 
@@ -1181,16 +1204,27 @@ impl Vm {
             Value::Promise { state } => Rc::clone(state),
             _ => unreachable!(),
         };
-        self.enqueue_microtask(Box::new(move |vm, sp| {
-            let (kind, value) = match vm.call_closure_sync(closure, this, owner, &args, sp) {
-                Ok(val) => (CapKind::Resolve, val),
-                Err(e) => match e.thrown {
-                    Some(val) => (CapKind::Reject, *val),
-                    None => (CapKind::Reject, vm.error_to_value(VmError::new(e.message, sp))),
-                },
-            };
-            Vm::settle_promise(&outer_state, kind, value, vm, sp)
-        }));
+        let mut roots = vec![promise.clone(), Value::Function(Rc::clone(&closure))];
+        if let Some(this) = &this {
+            roots.push(this.clone());
+        }
+        if let Some(owner) = &owner {
+            roots.push(Value::Class(Rc::clone(owner)));
+        }
+        roots.extend(args.iter().cloned());
+        self.enqueue_microtask(
+            roots,
+            Box::new(move |vm, sp| {
+                let (kind, value) = match vm.call_closure_sync(closure, this, owner, &args, sp) {
+                    Ok(val) => (CapKind::Resolve, val),
+                    Err(e) => match e.thrown {
+                        Some(val) => (CapKind::Reject, *val),
+                        None => (CapKind::Reject, vm.error_to_value(VmError::new(e.message, sp))),
+                    },
+                };
+                Vm::settle_promise(&outer_state, kind, value, vm, sp)
+            }),
+        );
         promise
     }
 
@@ -1252,6 +1286,7 @@ impl Vm {
         let ms = parse_delay_ms(args.get(1).cloned(), "чутка", span)?;
         let id = self.macrotasks.schedule(
             std::time::Duration::from_millis(ms),
+            vec![cb.clone()],
             Box::new(move |vm, sp| {
                 if let Err(e) = vm.call_value(cb, None, &[], sp) {
                     report_async_error("чутка", &e);
@@ -1289,6 +1324,7 @@ impl Vm {
         self.macrotasks.schedule_with_id(
             id,
             std::time::Duration::from_millis(ms),
+            vec![cb.clone()],
             Box::new(move |vm, sp| {
                 if let Err(e) = vm.call_value(cb_clone, None, &[], sp) {
                     report_async_error("интервал", &e);
@@ -1304,7 +1340,10 @@ impl Vm {
     fn builtin_queue_microtask(&mut self, args: &[Value], span: Span, front: bool) -> Result<Value, VmError> {
         let name = if front { "наСледующемТике" } else { "сразу" };
         let cb = timer_callback(args.first().cloned(), name, span)?;
-        let task: Microtask = Box::new(move |vm, sp| vm.call_value(cb, None, &[], sp).map(|_| ()));
+        let task = Microtask {
+            roots: vec![cb.clone()],
+            run: Box::new(move |vm, sp| vm.call_value(cb, None, &[], sp).map(|_| ())),
+        };
         if front {
             self.microtasks.push_front(task);
         } else {
@@ -1315,12 +1354,15 @@ impl Vm {
 
     fn builtin_queue_microtask_promise(&mut self, args: &[Value], span: Span) -> Result<Value, VmError> {
         let cb = timer_callback(args.first().cloned(), "сОчередить", span)?;
-        self.enqueue_microtask(Box::new(move |vm, sp| {
-            if let Err(e) = vm.call_value(cb, None, &[], sp) {
-                report_async_error("сОчередить", &e);
-            }
-            Ok(())
-        }));
+        self.enqueue_microtask(
+            vec![cb.clone()],
+            Box::new(move |vm, sp| {
+                if let Err(e) = vm.call_value(cb, None, &[], sp) {
+                    report_async_error("сОчередить", &e);
+                }
+                Ok(())
+            }),
+        );
         Ok(Value::Undefined)
     }
 
@@ -1329,6 +1371,7 @@ impl Vm {
         let (promise, resolve_cap, _reject) = crate::promise::make_pending_promise();
         self.macrotasks.schedule(
             std::time::Duration::from_millis(ms),
+            vec![promise.clone(), resolve_cap.clone()],
             Box::new(move |vm, sp| {
                 if let Value::PromiseCapability { state, kind } = resolve_cap {
                     let _ = Vm::settle_promise(&state, kind, Value::Undefined, vm, sp);
@@ -1442,7 +1485,7 @@ impl Vm {
         map.insert("value".to_string(), value);
         map.insert("готово".to_string(), Value::Bool(done));
         map.insert("done".to_string(), Value::Bool(done));
-        Value::Object(Rc::new(RefCell::new(map)))
+        self.gc_object(map)
     }
 
     fn async_gen_promise(&mut self, outcome: Result<Value, VmError>) -> Result<Value, VmError> {
@@ -1685,7 +1728,7 @@ impl Vm {
     fn make_return_token(&self, value: Value) -> Value {
         let mut map = ObjMap::new();
         map.insert(GEN_RETURN_TAG.to_string(), value);
-        Value::Object(Rc::new(RefCell::new(map)))
+        self.gc_object(map)
     }
 
     fn iterate_values(&mut self, src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
@@ -2010,7 +2053,7 @@ impl Vm {
         ctx.insert("имя".to_string(), Value::string(name));
         ctx.insert("статичное".to_string(), Value::Bool(is_static));
         ctx.insert("приватное".to_string(), Value::Bool(is_private));
-        Value::Object(Rc::new(RefCell::new(ctx)))
+        self.gc_object(ctx)
     }
 
     fn apply_member_decorators(
@@ -2104,7 +2147,7 @@ impl Vm {
         };
         let mut seed = ObjMap::new();
         seed.insert(crate::value::CLASS_TAG.to_string(), Value::Class(Rc::clone(&class_def)));
-        let instance = Value::Object(Rc::new(RefCell::new(seed)));
+        let instance = self.gc_object(seed);
 
         self.init_instance_fields(&class_def, &instance, span)?;
         self.run_constructor(&class_def, &instance, args, span)?;
@@ -2320,7 +2363,8 @@ impl Vm {
                     for (k, v) in exports.iter() {
                         map.insert(k.clone(), v.clone());
                     }
-                    self.define_module_global(local.clone(), Value::Object(Rc::new(RefCell::new(map))));
+                    let ns = self.gc_object(map);
+                    self.define_module_global(local.clone(), ns);
                 }
             }
         }
@@ -2689,9 +2733,80 @@ impl Vm {
                 return Rc::clone(uv);
             }
         }
-        let uv = Rc::new(RefCell::new(UpvalueState::Open(idx)));
+        let uv = self.gc_upvalue(UpvalueState::Open(idx));
         self.open_upvalues.push(Rc::clone(&uv));
         uv
+    }
+
+    pub(crate) fn gc_object(&self, map: ObjMap) -> Value {
+        let rc = Rc::new(RefCell::new(map));
+        self.gc.track_object(&rc);
+        Value::Object(rc)
+    }
+
+    pub(crate) fn gc_array(&self, items: Vec<Value>) -> Value {
+        let rc = Rc::new(RefCell::new(items));
+        self.gc.track_array(&rc);
+        Value::Array(rc)
+    }
+
+    pub(crate) fn gc_upvalue(&self, state: UpvalueState) -> Upvalue {
+        let rc = Rc::new(RefCell::new(state));
+        self.gc.track_upvalue(&rc);
+        rc
+    }
+
+    pub fn live_objects(&self) -> usize {
+        self.gc.live_count()
+    }
+
+    pub(crate) fn maybe_collect_garbage(&mut self) {
+        if self.live_objects() > GC_THRESHOLD {
+            self.collect_cycles();
+        }
+    }
+
+    pub fn collect_cycles(&mut self) -> usize {
+        let mut marker = crate::gc::Marker::default();
+        for value in &self.stack {
+            marker.push_value(value);
+        }
+        for frame in &self.frames {
+            marker.push_value(&Value::Function(Rc::clone(&frame.closure)));
+            if let Some(owner) = &frame.owner {
+                marker.push_value(&Value::Class(Rc::clone(owner)));
+            }
+        }
+        for (value, _) in self.globals.values() {
+            marker.push_value(value);
+        }
+        for up in &self.open_upvalues {
+            marker.push_upvalue(up);
+        }
+        if let Some(value) = &self.gen_yield {
+            marker.push_value(value);
+        }
+        for (value, _) in &self.disposables {
+            marker.push_value(value);
+        }
+        for value in self.exports.values() {
+            marker.push_value(value);
+        }
+        for module in self.module_cache.borrow().values() {
+            for value in module.values() {
+                marker.push_value(value);
+            }
+        }
+        for task in &self.microtasks {
+            for root in &task.roots {
+                marker.push_value(root);
+            }
+        }
+        for root in self.macrotasks.roots() {
+            marker.push_value(root);
+        }
+        marker.run();
+        marker.sweep(&self.gc)
     }
 
     fn close_upvalues(&mut self, from: usize) {
