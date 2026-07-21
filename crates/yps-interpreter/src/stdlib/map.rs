@@ -1,10 +1,13 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use indexmap::IndexMap;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{builtin, object_of, require_args};
-use crate::value::{MapKey, Value};
+use crate::value::{IteratorState, MapKey, Value};
 
 pub fn build_static() -> Value {
     object_of(&[("отПар", builtin("Карта.отПар"))])
@@ -87,17 +90,19 @@ pub fn call(
         }
         "size" | "размер" => Ok(Value::Number(map.borrow().len() as f64)),
         "keys" | "ключи" => {
-            let keys: Vec<Value> = map.borrow().keys().map(|k| k.0.clone()).collect();
-            Ok(Value::array(keys))
+            let values: Vec<Value> = map.borrow().keys().map(|k| k.0.clone()).collect();
+            let state = IteratorState::Array { values, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
         "values" | "значения" => {
-            let vals: Vec<Value> = map.borrow().values().cloned().collect();
-            Ok(Value::array(vals))
+            let values: Vec<Value> = map.borrow().values().cloned().collect();
+            let state = IteratorState::Array { values, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
         "entries" | "записи" => {
-            let pairs: Vec<Value> =
-                map.borrow().iter().map(|(k, v)| Value::array(vec![k.0.clone(), v.clone()])).collect();
-            Ok(Value::array(pairs))
+            let entries: Vec<(Value, Value)> = map.borrow().iter().map(|(k, v)| (k.0.clone(), v.clone())).collect();
+            let state = IteratorState::MapEntries { entries, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
         "getOrInsert" | "взятьИлиВставить" => {
             require_args(&args, 2, span, "getOrInsert")?;
@@ -165,7 +170,7 @@ mod tests {
 
     #[test]
     fn map_negative_zero_key_normalized() {
-        let key = eval("гыы м = захуярить Карта(); м.set(-0, 1); м.keys()[0];");
+        let key = eval("гыы м = захуярить Карта(); м.set(-0, 1); [...м.keys()][0];");
         match key {
             crate::value::Value::Number(n) => {
                 assert_eq!(n, 0.0);
@@ -173,5 +178,38 @@ mod tests {
             }
             other => panic!("ожидалось число, получено {other:?}"),
         }
+    }
+
+    #[test]
+    fn map_keys_values_entries_are_iterators() {
+        assert_eq!(eval("тип(захуярить Карта().keys());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Карта().значения());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Карта().записи());"), crate::value::Value::String("итератор".to_string()));
+    }
+
+    #[test]
+    fn map_keys_values_entries_insertion_order() {
+        assert_eq!(
+            eval("гыы м = захуярить Карта(); м.set(\"б\", 2); м.set(\"а\", 1); [...м.keys()].join(\",\");"),
+            crate::value::Value::String("б,а".to_string())
+        );
+        assert_eq!(
+            eval("гыы м = захуярить Карта(); м.set(\"б\", 2); м.set(\"а\", 1); [...м.values()].join(\",\");"),
+            crate::value::Value::String("2,1".to_string())
+        );
+        assert_eq!(
+            eval("гыы м = захуярить Карта(); м.set(\"б\", 2); [...м.записи()][0].join(\",\");"),
+            crate::value::Value::String("б,2".to_string())
+        );
+    }
+
+    #[test]
+    fn map_entries_for_of_pair_shape() {
+        assert_eq!(
+            eval(
+                "гыы м = захуярить Карта(); м.set(\"а\", 1); гыы сумма = 0; го (пара сашаГрей м.entries()) { сумма += пара[1]; } сумма;"
+            ),
+            crate::value::Value::Number(1.0)
+        );
     }
 }

@@ -1,10 +1,13 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use indexmap::IndexSet;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::require_args;
-use crate::value::{MapKey, Value};
+use crate::value::{IteratorState, MapKey, Value};
 
 pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     if args.is_empty() {
@@ -60,12 +63,14 @@ pub fn call(
         }
         "size" | "размер" => Ok(Value::Number(set.borrow().len() as f64)),
         "values" | "значения" | "keys" | "ключи" => {
-            let vals: Vec<Value> = set.borrow().iter().map(|k| k.0.clone()).collect();
-            Ok(Value::array(vals))
+            let values: Vec<Value> = set.borrow().iter().map(|k| k.0.clone()).collect();
+            let state = IteratorState::Array { values, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
         "entries" | "записи" => {
-            let pairs: Vec<Value> = set.borrow().iter().map(|k| Value::array(vec![k.0.clone(), k.0.clone()])).collect();
-            Ok(Value::array(pairs))
+            let entries: Vec<(Value, Value)> = set.borrow().iter().map(|k| (k.0.clone(), k.0.clone())).collect();
+            let state = IteratorState::MapEntries { entries, index: 0 };
+            Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
         "forEach" | "каждый" => {
             require_args(&args, 1, span, "forEach")?;
@@ -183,7 +188,7 @@ mod tests {
 
     #[test]
     fn set_negative_zero_value_normalized() {
-        let v = eval("гыы с = захуярить Набор(); с.add(-0); с.значения()[0];");
+        let v = eval("гыы с = захуярить Набор(); с.add(-0); [...с.значения()][0];");
         match v {
             crate::value::Value::Number(n) => {
                 assert_eq!(n, 0.0);
@@ -191,5 +196,32 @@ mod tests {
             }
             other => panic!("ожидалось число, получено {other:?}"),
         }
+    }
+
+    #[test]
+    fn set_keys_values_entries_are_iterators() {
+        assert_eq!(eval("тип(захуярить Набор().keys());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Набор().значения());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Набор().записи());"), crate::value::Value::String("итератор".to_string()));
+    }
+
+    #[test]
+    fn set_keys_values_insertion_order() {
+        assert_eq!(
+            eval("гыы с = захуярить Набор([3, 1, 2]); [...с.keys()].join(\",\");"),
+            crate::value::Value::String("3,1,2".to_string())
+        );
+        assert_eq!(
+            eval("гыы с = захуярить Набор([3, 1, 2]); [...с.значения()].join(\",\");"),
+            crate::value::Value::String("3,1,2".to_string())
+        );
+    }
+
+    #[test]
+    fn set_entries_pair_shape() {
+        assert_eq!(
+            eval("гыы с = захуярить Набор([10]); [...с.записи()][0].join(\",\");"),
+            crate::value::Value::String("10,10".to_string())
+        );
     }
 }
