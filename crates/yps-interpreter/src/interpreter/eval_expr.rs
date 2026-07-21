@@ -498,10 +498,16 @@ impl Interpreter {
                         }
                         ObjectEntry::Spread(expr) => {
                             let val = self.eval_expr(expr)?;
-                            let val = match val.proxy_parts() {
-                                Some((target, _)) => (*target).clone(),
-                                None => val,
-                            };
+                            if let Value::Proxy { target, handler } = &val {
+                                let (t, h) = ((**target).clone(), (**handler).clone());
+                                let keys = self.proxy_own_keys(&t, &h, *span)?;
+                                for k in keys {
+                                    let ks = k.to_string();
+                                    let v = self.proxy_get(&t, &h, &ks, val.clone(), *span)?;
+                                    map.insert(ks, v);
+                                }
+                                continue;
+                            }
                             match val {
                                 Value::Object(src) => {
                                     for (k, v) in
@@ -646,6 +652,14 @@ impl Interpreter {
                         ));
                     }
                 };
+                if let Value::Proxy { target, handler } = &left {
+                    let (t, h) = ((**target).clone(), (**handler).clone());
+                    if crate::stdlib::proxy::trap(&h, crate::stdlib::proxy::GET_PROTOTYPE_OF).is_some() {
+                        let proto = self.proxy_get_prototype_of(&t, &h, span)?;
+                        return Ok(Value::Boolean(self.instance_of_check(&proto, &right_class)));
+                    }
+                    return Ok(Value::Boolean(self.instance_of_check(&t, &right_class)));
+                }
                 Ok(Value::Boolean(self.instance_of_check(&left, &right_class)))
             }
             BinaryOp::In => match right {
