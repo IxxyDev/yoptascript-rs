@@ -198,31 +198,29 @@ impl<'a> Parser<'a> {
             0
         };
 
-        if matches!(self.peek(decl_offset).kind, TokenKind::Identifier)
-            && matches!(self.peek(decl_offset + 1).kind, TokenKind::Keyword(KeywordKind::In))
-        {
-            if is_await {
-                let span = self.current().span;
-                self.push_error(span, "'сидетьНахуй' допустим только с 'сашаГрей' (for-await-of)");
-                self.skip_to_for_recovery();
-                return Err(());
+        match self.scan_for_head_keyword(decl_offset) {
+            Some(KeywordKind::In) => {
+                if is_await {
+                    let span = self.current().span;
+                    self.push_error(span, "'сидетьНахуй' допустим только с 'сашаГрей' (for-await-of)");
+                    self.skip_to_for_recovery();
+                    return Err(());
+                }
+                if decl_offset == 1 {
+                    self.advance();
+                }
+                return self.parse_for_in_rest(start);
             }
-            if decl_offset == 1 {
-                self.advance();
+            Some(KeywordKind::Of) => {
+                if decl_offset == 1 {
+                    self.advance();
+                }
+                if is_await {
+                    return self.parse_for_await_of_rest(start);
+                }
+                return self.parse_for_of_rest(start);
             }
-            return self.parse_for_in_rest(start);
-        }
-
-        if matches!(self.peek(decl_offset).kind, TokenKind::Identifier)
-            && matches!(self.peek(decl_offset + 1).kind, TokenKind::Keyword(KeywordKind::Of))
-        {
-            if decl_offset == 1 {
-                self.advance();
-            }
-            if is_await {
-                return self.parse_for_await_of_rest(start);
-            }
-            return self.parse_for_of_rest(start);
+            _ => {}
         }
 
         if is_await {
@@ -373,8 +371,42 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Throw { value, span: Span { start, end } })
     }
 
+    fn scan_for_head_keyword(&self, start_offset: usize) -> Option<KeywordKind> {
+        let mut offset = start_offset;
+        match self.peek(offset).kind {
+            TokenKind::Identifier => offset += 1,
+            TokenKind::Punctuation(PunctuationKind::LBracket | PunctuationKind::LBrace) => {
+                let mut depth = 0i32;
+                loop {
+                    match self.peek(offset).kind {
+                        TokenKind::Punctuation(
+                            PunctuationKind::LBracket | PunctuationKind::LBrace | PunctuationKind::LParen,
+                        ) => depth += 1,
+                        TokenKind::Punctuation(
+                            PunctuationKind::RBracket | PunctuationKind::RBrace | PunctuationKind::RParen,
+                        ) => {
+                            depth -= 1;
+                            if depth == 0 {
+                                offset += 1;
+                                break;
+                            }
+                        }
+                        TokenKind::Eof => return None,
+                        _ => {}
+                    }
+                    offset += 1;
+                }
+            }
+            _ => return None,
+        }
+        match &self.peek(offset).kind {
+            TokenKind::Keyword(kw @ (KeywordKind::In | KeywordKind::Of)) => Some(kw.clone()),
+            _ => None,
+        }
+    }
+
     pub(super) fn parse_for_in_rest(&mut self, start: usize) -> Result<Stmt, ()> {
-        let variable = self.parse_identifier()?;
+        let variable = self.parse_pattern()?;
         self.advance();
 
         let iterable = self.parse_expr()?;
@@ -389,7 +421,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_for_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
-        let variable = self.parse_identifier()?;
+        let variable = self.parse_pattern()?;
         self.advance();
 
         let iterable = self.parse_expr()?;
@@ -403,7 +435,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_for_await_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
-        let variable = self.parse_identifier()?;
+        let variable = self.parse_pattern()?;
         self.advance();
 
         let iterable = self.parse_expr()?;

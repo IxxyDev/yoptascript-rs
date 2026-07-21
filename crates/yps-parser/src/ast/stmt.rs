@@ -128,19 +128,19 @@ pub enum Stmt {
         span: Span,
     },
     ForIn {
-        variable: Identifier,
+        variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
         span: Span,
     },
     ForOf {
-        variable: Identifier,
+        variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
         span: Span,
     },
     ForAwaitOf {
-        variable: Identifier,
+        variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
         span: Span,

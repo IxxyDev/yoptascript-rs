@@ -190,7 +190,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
         Stmt::ForIn { variable, iterable, body, .. }
         | Stmt::ForOf { variable, iterable, body, .. }
         | Stmt::ForAwaitOf { variable, iterable, body, .. } => {
-            push_ident(variable, out);
+            collect_pattern(variable, out);
             collect_expr(iterable, out);
             collect_stmt(body, out);
         }

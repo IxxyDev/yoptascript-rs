@@ -580,3 +580,94 @@ fn test_parse_using_await_missing_name() {
     let msgs = diag_messages(&diags);
     assert!(msgs.iter().any(|m| m.contains("Ожидался идентификатор")), "Expected identifier error, got: {msgs:?}");
 }
+
+#[test]
+fn test_parse_for_of_plain_identifier() {
+    let (program, diags) = parse_program_from_source("го (гыы х сашаГрей сп) { сказать(х); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForOf { variable: Pattern::Identifier(id), .. } => assert_eq!(id.name, "х"),
+        other => panic!("Expected ForOf with identifier, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_of_array_pattern() {
+    let (program, diags) = parse_program_from_source("го (гыы [а, б] сашаГрей пары) { сказать(а); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForOf { variable: Pattern::Array { elements, .. }, .. } => assert_eq!(elements.len(), 2),
+        other => panic!("Expected ForOf with array pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_of_object_pattern() {
+    let (program, diags) = parse_program_from_source("го (гыы { х, у } сашаГрей точки) { сказать(х); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForOf { variable: Pattern::Object { properties, .. }, .. } => assert_eq!(properties.len(), 2),
+        other => panic!("Expected ForOf with object pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_of_array_pattern_rest_and_default() {
+    let (program, diags) =
+        parse_program_from_source("го (гыы [первый = 0, ...хвост] сашаГрей сп) { сказать(первый); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForOf { variable: Pattern::Array { elements, rest, .. }, .. } => {
+            assert_eq!(elements.len(), 1);
+            assert!(matches!(elements[0], Some(Pattern::Default { .. })));
+            assert!(rest.is_some());
+        }
+        other => panic!("Expected ForOf with array pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_of_nested_pattern() {
+    let (program, diags) = parse_program_from_source("го (гыы { к: { л } } сашаГрей сп) { сказать(л); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForOf { variable: Pattern::Object { properties, .. }, .. } => {
+            assert!(matches!(properties[0].value, Some(Pattern::Object { .. })));
+        }
+        other => panic!("Expected ForOf with nested pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_in_array_pattern() {
+    let (program, diags) = parse_program_from_source("го (гыы [а, б] чоунастут об) { сказать(а); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForIn { variable: Pattern::Array { elements, .. }, .. } => assert_eq!(elements.len(), 2),
+        other => panic!("Expected ForIn with array pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_await_of_object_pattern() {
+    let (program, diags) = parse_program_from_source("го сидетьНахуй (гыы { х, у } сашаГрей ист) { сказать(х); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    match &program.items[0] {
+        Stmt::ForAwaitOf { variable: Pattern::Object { properties, .. }, .. } => assert_eq!(properties.len(), 2),
+        other => panic!("Expected ForAwaitOf with object pattern, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_for_classic_with_array_destructure_init_unchanged() {
+    let (program, diags) = parse_program_from_source("го (гыы [а, б] = [1, 2]; а < 10; а = а + 1) { сказать(а); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    assert!(matches!(program.items[0], Stmt::For { .. }), "Expected classic For, got {:?}", program.items[0]);
+}
+
+#[test]
+fn test_parse_for_classic_plain_still_for() {
+    let (program, diags) = parse_program_from_source("го (гыы i = 0; i < 10; i = i + 1) { сказать(i); }");
+    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
+    assert!(matches!(program.items[0], Stmt::For { .. }), "Expected classic For, got {:?}", program.items[0]);
+}

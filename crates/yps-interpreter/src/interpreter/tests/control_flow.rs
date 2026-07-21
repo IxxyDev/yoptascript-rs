@@ -658,3 +658,87 @@ fn empty_array_is_truthy() {
     );
     assert_eq!(interp.get("результат"), Some(Value::String("правда".to_string())));
 }
+
+#[test]
+fn for_of_array_pattern_binds_elements() {
+    let interp = run_code(
+        r#"
+        гыы р = [];
+        го (гыы [а, б] сашаГрей [[1, 2], [3, 4], [5, 6]]) {
+            р.втолкнуть(а + б);
+        }
+        "#,
+    );
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(3.0), Value::Number(7.0), Value::Number(11.0)]));
+}
+
+#[test]
+fn for_of_object_pattern_binds_properties() {
+    let interp = run_code(
+        r#"
+        гыы р = [];
+        го (гыы { х, у } сашаГрей [{ х: 1, у: 2 }, { х: 10, у: 20 }]) {
+            р.втолкнуть(х + у);
+        }
+        "#,
+    );
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(3.0), Value::Number(30.0)]));
+}
+
+#[test]
+fn for_of_pattern_rest_and_default() {
+    let interp = run_code(
+        r#"
+        гыы хвосты = [];
+        го (гыы [первый, ...остаток] сашаГрей [[1, 2, 3], [9]]) {
+            хвосты.втолкнуть(остаток.длина);
+        }
+        гыы дефолты = [];
+        го (гыы [а = 100, б = 200] сашаГрей [[1], [], [7, 8]]) {
+            дефолты.втолкнуть(а + б);
+        }
+        "#,
+    );
+    assert_struct_eq(interp.get("хвосты"), Value::array(vec![Value::Number(2.0), Value::Number(0.0)]));
+    assert_struct_eq(
+        interp.get("дефолты"),
+        Value::array(vec![Value::Number(201.0), Value::Number(300.0), Value::Number(15.0)]),
+    );
+}
+
+#[test]
+fn for_of_pattern_closures_capture_per_iteration() {
+    let interp = run_code(
+        r#"
+        гыы фс = [];
+        го (гыы [к, зн] сашаГрей [["а", 1], ["б", 2], ["в", 3]]) {
+            фс.втолкнуть(() => к + зн);
+        }
+        гыы р = [фс[0](), фс[1](), фс[2]()];
+        "#,
+    );
+    assert_struct_eq(
+        interp.get("р"),
+        Value::array(vec![
+            Value::String("а1".to_string()),
+            Value::String("б2".to_string()),
+            Value::String("в3".to_string()),
+        ]),
+    );
+}
+
+#[test]
+fn for_of_pattern_generator_yields_destructured() {
+    let interp = run_code(
+        r#"
+        пиздюли ген() {
+            го (гыы [а, б] сашаГрей [[1, 2], [3, 4]]) {
+                поебалу а + б;
+            }
+        }
+        гыы р = [];
+        го (гыы х сашаГрей ген()) { р.втолкнуть(х); }
+        "#,
+    );
+    assert_struct_eq(interp.get("р"), Value::array(vec![Value::Number(3.0), Value::Number(7.0)]));
+}

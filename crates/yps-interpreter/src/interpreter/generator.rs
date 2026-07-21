@@ -211,8 +211,8 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
             },
-            GenFrame::ForIter { var_name, iter, body } => {
-                let var_name = var_name.clone();
+            GenFrame::ForIter { variable, iter, body } => {
+                let variable = variable.clone();
                 let iter_rc = iter.clone();
                 let body_rc = body.clone();
                 let next_val = {
@@ -222,7 +222,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 match next_val {
                     Some(v) => {
                         interp.env.fork_current();
-                        interp.env.set(&var_name, v);
+                        interp.destructure_pattern(&variable, v, false, span)?;
                         push_body(g, &body_rc);
                     }
                     None => {
@@ -483,8 +483,7 @@ fn step_block_stmt(
             let val = interp.eval_expr(iterable)?;
             let iter_rc = value_to_iterator(val, *fs)?;
             interp.env.push_scope();
-            interp.env.define(variable.name.clone(), Value::Undefined, false);
-            g.frames.push(GenFrame::ForIter { var_name: variable.name.clone(), iter: iter_rc, body: body_stmts(body) });
+            g.frames.push(GenFrame::ForIter { variable: variable.clone(), iter: iter_rc, body: body_stmts(body) });
             Ok(None)
         }
         Stmt::ForIn { variable, iterable, body, span: fs } => {
@@ -500,8 +499,7 @@ fn step_block_stmt(
             };
             let iter_rc = Rc::new(RefCell::new(IteratorState::Array { values: keys, index: 0 }));
             interp.env.push_scope();
-            interp.env.define(variable.name.clone(), Value::Undefined, false);
-            g.frames.push(GenFrame::ForIter { var_name: variable.name.clone(), iter: iter_rc, body: body_stmts(body) });
+            g.frames.push(GenFrame::ForIter { variable: variable.clone(), iter: iter_rc, body: body_stmts(body) });
             Ok(None)
         }
         Stmt::Return { value, .. } => {

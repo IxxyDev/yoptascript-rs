@@ -15,7 +15,7 @@ pub struct AbortState {
     pub promise: RefCell<Option<Value>>,
 }
 
-use yps_parser::ast::{Block, Expr, Param, Stmt};
+use yps_parser::ast::{Block, Expr, Param, Pattern, Stmt};
 
 use crate::environment::{EnvFrame, Environment};
 
@@ -74,7 +74,7 @@ pub enum GenFrame {
         phase: LoopPhase,
     },
     ForIter {
-        var_name: String,
+        variable: Pattern,
         iter: Rc<RefCell<IteratorState>>,
         body: Rc<[Stmt]>,
     },
@@ -120,7 +120,7 @@ impl fmt::Debug for GenFrame {
             GenFrame::While { phase, .. } => write!(f, "While({phase:?})"),
             GenFrame::DoWhile { phase, .. } => write!(f, "DoWhile({phase:?})"),
             GenFrame::For { phase, .. } => write!(f, "For({phase:?})"),
-            GenFrame::ForIter { var_name, .. } => write!(f, "ForIter({var_name})"),
+            GenFrame::ForIter { .. } => write!(f, "ForIter"),
             GenFrame::Delegate { .. } => write!(f, "Delegate"),
             GenFrame::TryCatch { .. } => write!(f, "TryCatch"),
         }

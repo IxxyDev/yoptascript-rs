@@ -179,7 +179,8 @@ impl Resolver {
             | Stmt::ForAwaitOf { variable, iterable, body, .. } => {
                 self.resolve_expr(scope, iterable);
                 let loop_scope = self.new_scope(Some(scope));
-                self.declare(loop_scope, variable);
+                self.declare_pattern(loop_scope, variable);
+                self.resolve_pattern_defaults(loop_scope, variable);
                 self.resolve_stmt(loop_scope, body);
             }
             Stmt::Labeled { body, .. } => self.resolve_stmt(scope, body),
