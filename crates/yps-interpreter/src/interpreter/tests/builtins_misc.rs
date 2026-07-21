@@ -249,6 +249,100 @@ fn date_json_invalid_to_null() {
 }
 
 #[test]
+fn date_setters_mutate_in_place_and_return_new_time() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы врем = д.поставитьГод(2020, 5, 15);
+        гыы совпадает = врем === д.времяМс();
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("совпадает"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-06-15T00:00:00.000Z".to_string())));
+}
+
+#[test]
+fn date_set_month_rollover() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(Дата.разобрать("2020-01-01T00:00:00Z"));
+        д.поставитьМесяц(13);
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("исо"), Some(Value::String("2021-02-01T00:00:00.000Z".to_string())));
+}
+
+#[test]
+fn date_set_hours_and_minutes_rollover() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(Дата.разобрать("2020-01-01T10:30:15.500Z"));
+        д.поставитьЧасы(25);
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-02T01:30:15.500Z".to_string())));
+}
+
+#[test]
+fn date_utc_getters_and_setters_match_local() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(Дата.разобрать("2020-06-15T10:20:30.400Z"));
+        гыы годРавны = д.год() === д.годUTC();
+        гыы смещение = д.смещениеЧасовогоПояса();
+        д.поставитьМесяцUTC(0);
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("годРавны"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("смещение"), Some(Value::Number(0.0)));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-15T10:20:30.400Z".to_string())));
+}
+
+#[test]
+fn date_set_time_and_get_time() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата(0);
+        гыы врем = д.поставитьВремя(86400000);
+        "#,
+    );
+    assert_eq!(interp.get("врем"), Some(Value::Number(86_400_000.0)));
+}
+
+#[test]
+fn date_parse_iso_variants() {
+    let interp = run_code(
+        r#"
+        гыы а = Дата.разобрать("2026-07-19");
+        гыы б = Дата.разобрать("2026-07-19T12:00:00Z");
+        гыы в = Дата.разобрать("2026-07-19T12:00:00+02:00");
+        гыы г = Дата.разобрать("не дата");
+        гыы гПлохо = г !== г;
+        "#,
+    );
+    assert_eq!(interp.get("а"), Some(Value::Number(1_784_419_200_000.0)));
+    assert_eq!(interp.get("б"), Some(Value::Number(1_784_462_400_000.0)));
+    assert_eq!(interp.get("в"), Some(Value::Number(1_784_455_200_000.0)));
+    assert_eq!(interp.get("гПлохо"), Some(Value::Boolean(true)));
+}
+
+#[test]
+fn date_set_full_year_on_invalid_date() {
+    let interp = run_code(
+        r#"
+        гыы д = захуярить Дата("не дата");
+        д.поставитьГод(2020);
+        гыы исо = д.вИСО();
+        "#,
+    );
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-01T00:00:00.000Z".to_string())));
+}
+
+#[test]
 fn reflect_get_existing_property() {
     let interp = run_code(
         r#"
@@ -379,4 +473,141 @@ fn reflect_construct_creates_instance() {
         "#,
     );
     assert_eq!(interp.get("рх"), Some(Value::Number(10.0)));
+}
+
+#[test]
+fn reflect_set_on_plain_object() {
+    let interp = run_code(
+        r#"
+        гыы о = {};
+        гыы ок = Отражение.установить(о, "а", 5);
+        гыы знач = о.а;
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("знач"), Some(Value::Number(5.0)));
+}
+
+#[test]
+fn reflect_set_routes_through_proxy_trap() {
+    let interp = run_code(
+        r#"
+        гыы захвачено = "";
+        ясенХуй п = захуярить Посредник({}, {
+            установить: (ц, к, зн, пр) => { захвачено = к + "=" + зн; отвечаю правда; }
+        });
+        Отражение.установить(п, "поле", 9);
+        "#,
+    );
+    assert_eq!(interp.get("захвачено"), Some(Value::String("поле=9".to_string())));
+}
+
+#[test]
+fn reflect_delete_on_plain_object_and_proxy() {
+    let interp = run_code(
+        r#"
+        гыы о = { а: 1 };
+        гыы ок = Отражение.удалить(о, "а");
+        гыы после = тип(о.а);
+        гыы удалено = "";
+        ясенХуй п = захуярить Посредник({}, { удалить: (ц, к) => { удалено = к; отвечаю правда; } });
+        Отражение.удалить(п, "x");
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("после"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(interp.get("удалено"), Some(Value::String("x".to_string())));
+}
+
+#[test]
+fn reflect_set_prototype_of_plain_and_proxy() {
+    let interp = run_code(
+        r#"
+        клёво К {}
+        гыы экз = захуярить К();
+        гыы о = {};
+        гыы ок = Отражение.назначитьПрототип(о, экз);
+        гыы есть = о шкура К;
+        гыы захвачено = ноль;
+        ясенХуй п = захуярить Посредник({}, {
+            назначитьПрототип: (ц, прт) => { захвачено = прт; отвечаю правда; }
+        });
+        Отражение.назначитьПрототип(п, экз);
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
+    assert!(matches!(interp.get("захвачено"), Some(Value::Object(_))));
+}
+
+#[test]
+fn reflect_define_and_describe_property_plain() {
+    let interp = run_code(
+        r#"
+        гыы о = {};
+        гыы ок = Отражение.определитьСвойство(о, "п", { значение: 42 });
+        гыы деск = Отражение.описатьСвойство(о, "п").значение;
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("деск"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn reflect_define_property_routes_through_proxy_trap() {
+    let interp = run_code(
+        r#"
+        гыы определено = "";
+        ясенХуй п = захуярить Посредник({}, {
+            определитьСвойство: (ц, к, деск) => { определено = к; отвечаю правда; }
+        });
+        гыы ок = Отражение.определитьСвойство(п, "поле", { значение: 1 });
+        "#,
+    );
+    assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("определено"), Some(Value::String("поле".to_string())));
+}
+
+#[test]
+fn reflect_extensibility_plain_and_proxy() {
+    let interp = run_code(
+        r#"
+        гыы о = {};
+        гыы до = Отражение.расширяем(о);
+        Отражение.запретитьРасширение(о);
+        гыы после = Отражение.расширяем(о);
+        гыы запрещено = 0;
+        ясенХуй п = захуярить Посредник({}, {
+            расширяем: (ц) => лож,
+            запретитьРасширение: (ц) => { запрещено = запрещено + 1; отвечаю правда; }
+        });
+        гыы прокси_расш = Отражение.расширяем(п);
+        Отражение.запретитьРасширение(п);
+        "#,
+    );
+    assert_eq!(interp.get("до"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("после"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("прокси_расш"), Some(Value::Boolean(false)));
+    assert_eq!(interp.get("запрещено"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn reflect_forwarding_handler_uses_target_defaults() {
+    let interp = run_code(
+        r#"
+        ясенХуй п = захуярить Посредник({ x: 1 }, {
+            получить: (ц, к, пр) => Отражение.получить(ц, к),
+            установить: (ц, к, зн, пр) => Отражение.установить(ц, к, зн),
+            есть: (ц, к) => Отражение.есть(ц, к),
+            собственныеКлючи: (ц) => Отражение.собственныеКлючи(ц)
+        });
+        п.y = 2;
+        гыы сумма = п.x + п.y;
+        гыы естьX = "x" чоунастут п;
+        гыы ключи = Отражение.собственныеКлючи(п).склеить(",");
+        "#,
+    );
+    assert_eq!(interp.get("сумма"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("естьX"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("ключи"), Some(Value::String("x,y".to_string())));
 }
