@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-07-21
+
+### Added
+
+- **Async generators** (`ассо пиздюли`) on both backends: promise-wrapped
+  `следующий`/`вернуть`/`кинуть`, `await` inside bodies, `yield*`
+  delegation, and `for await` over native async generators, sync
+  iterables and user `Симбол.асинхИтератор` objects.
+- **Destructuring in `for-of`/`for-in` loop heads**
+  (`го (ясенХуй [а, б] из пары)`) across parser, both backends,
+  formatter and LSP, with per-iteration binding preserved.
+- **Class static initialization blocks** (`попонятия { ... }`), run in
+  declaration order interleaved with static fields, `this` bound to the
+  class; static field initializers are now `this`-aware to match JS.
+- **VM: native string and array instance methods** — the full
+  interpreter surface (callbacks run VM closures, mutators share the
+  receiver) instead of only `.втолкнуть`.
+- **VM: `await using`** (`юзай сидетьНахуй`) with interpreter-matching
+  disposal semantics.
+- **VM: mark-sweep cycle collector** — closure, upvalue and object
+  cycles no longer leak on the bytecode backend.
+- **Full Proxy traps and Reflect methods**: ownKeys, prototype,
+  descriptor and extensibility traps dispatch in enumeration, spread,
+  `шкура` and the `Кент` APIs; `Отражение` gains the seven mirror
+  methods.
+- **`Дата` completed**: setters with rollover, UTC accessors, ISO-8601
+  parsing with offsets and `Дата.разобрать`.
+- **Map/Set `ключи`/`значения`/`записи` return real iterators**;
+  `Кент.изЗаписей` accepts iterators.
+
 ## [1.6.1] - 2026-07-19
 
 ### Fixed
