@@ -1134,6 +1134,17 @@ impl Compiler {
                         decorator_count: decorators.len() as u32,
                     });
                 }
+                ClassMember::StaticBlock { body, span: bspan } => {
+                    self.compile_method("<статический блок>", &[], body, false, *bspan)?;
+                    descs.push(ClassMemberDesc {
+                        kind: MemberKind::StaticBlock,
+                        name: String::new(),
+                        has_value: true,
+                        is_static: true,
+                        is_private: false,
+                        decorator_count: 0,
+                    });
+                }
             }
         }
 
@@ -1143,7 +1154,7 @@ impl Compiler {
                 | ClassMember::Getter { decorators, .. }
                 | ClassMember::Setter { decorators, .. }
                 | ClassMember::Field { decorators, .. } => decorators.as_slice(),
-                ClassMember::Constructor { .. } => continue,
+                ClassMember::Constructor { .. } | ClassMember::StaticBlock { .. } => continue,
             };
             for dec in decs {
                 self.compile_expr(dec)?;

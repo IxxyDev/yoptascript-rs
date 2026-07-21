@@ -1817,7 +1817,7 @@ impl Vm {
         drop(values);
 
         let mut members = ClassMembers::default();
-        let mut static_field_inits: Vec<(String, Option<Value>, Option<Value>)> = Vec::new();
+        let mut static_inits: Vec<StaticInit> = Vec::new();
         for (i, desc) in blueprint.members.iter().enumerate() {
             let decs = &member_decorators[i];
             let raw = raw_values[i].clone();
@@ -1868,10 +1868,17 @@ impl Vm {
                         if matches!(result, Value::Undefined) { None } else { Some(result) }
                     };
                     if matches!(desc.kind, MemberKind::StaticField) {
-                        static_field_inits.push((desc.name.clone(), init_closure.map(Value::Function), transform));
+                        static_inits.push(StaticInit::Field {
+                            name: desc.name.clone(),
+                            init: init_closure.map(Value::Function),
+                            transform,
+                        });
                     } else {
                         members.field_inits.push((desc.name.clone(), init_closure, transform));
                     }
+                }
+                MemberKind::StaticBlock => {
+                    static_inits.push(StaticInit::Block { thunk: raw.unwrap() });
                 }
             }
         }
@@ -1884,18 +1891,38 @@ impl Vm {
             static_fields: RefCell::new(ObjMap::new()),
         });
 
-        for (name, init, transform) in static_field_inits {
-            let base = match init {
-                Some(Value::Function(closure)) => {
-                    self.call_closure_sync(closure, None, Some(Rc::clone(&class_def)), &[], span)?
+        let class_this = Value::Class(Rc::clone(&class_def));
+        for init in static_inits {
+            match init {
+                StaticInit::Field { name, init, transform } => {
+                    let base = match init {
+                        Some(Value::Function(closure)) => self.call_closure_sync(
+                            closure,
+                            Some(class_this.clone()),
+                            Some(Rc::clone(&class_def)),
+                            &[],
+                            span,
+                        )?,
+                        _ => Value::Undefined,
+                    };
+                    let val = match transform {
+                        Some(tf) => self.call_value(tf, None, &[base], span)?,
+                        None => base,
+                    };
+                    class_def.static_fields.borrow_mut().insert(name, val);
                 }
-                _ => Value::Undefined,
-            };
-            let val = match transform {
-                Some(tf) => self.call_value(tf, None, &[base], span)?,
-                None => base,
-            };
-            class_def.static_fields.borrow_mut().insert(name, val);
+                StaticInit::Block { thunk } => {
+                    if let Value::Function(closure) = thunk {
+                        self.call_closure_sync(
+                            closure,
+                            Some(class_this.clone()),
+                            Some(Rc::clone(&class_def)),
+                            &[],
+                            span,
+                        )?;
+                    }
+                }
+            }
         }
 
         let mut class_value = Value::Class(class_def);
@@ -2817,12 +2844,18 @@ fn as_return_token(value: &Value) -> Option<Value> {
     None
 }
 
+enum StaticInit {
+    Field { name: String, init: Option<Value>, transform: Option<Value> },
+    Block { thunk: Value },
+}
+
 fn decorator_kind_label(kind: MemberKind) -> &'static str {
     match kind {
         MemberKind::Method | MemberKind::StaticMethod => "метод",
         MemberKind::Getter | MemberKind::StaticGetter => "геттер",
         MemberKind::Setter | MemberKind::StaticSetter => "сеттер",
         MemberKind::Field | MemberKind::StaticField => "поле",
+        MemberKind::StaticBlock => "статический блок",
     }
 }
 

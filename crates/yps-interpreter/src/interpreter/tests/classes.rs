@@ -559,3 +559,75 @@ fn object_not_frozen_by_default() {
     assert_eq!(i.get("заморожен"), Some(Value::Boolean(false)));
     assert_eq!(i.get("х"), Some(Value::Number(7.0)));
 }
+
+#[test]
+fn class_static_block_runs_with_this_as_class() {
+    let i = run_code(
+        r#"
+        клёво К {
+            попонятия {
+                тырыпыры.метка = "готово";
+            }
+        }
+        гыы м = К.метка;
+        "#,
+    );
+    assert_eq!(i.get("м"), Some(Value::String("готово".to_string())));
+}
+
+#[test]
+fn class_static_block_interleaves_with_fields() {
+    let i = run_code(
+        r#"
+        клёво К {
+            попонятия а = 1;
+            попонятия {
+                тырыпыры.б = тырыпыры.а + 1;
+            }
+            попонятия в = 2;
+            попонятия {
+                тырыпыры.г = тырыпыры.в + тырыпыры.б;
+            }
+        }
+        гыы а = К.а;
+        гыы б = К.б;
+        гыы в = К.в;
+        гыы г = К.г;
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(1.0)));
+    assert_eq!(i.get("б"), Some(Value::Number(2.0)));
+    assert_eq!(i.get("в"), Some(Value::Number(2.0)));
+    assert_eq!(i.get("г"), Some(Value::Number(4.0)));
+}
+
+#[test]
+fn class_static_block_can_call_static_method() {
+    let i = run_code(
+        r#"
+        клёво К {
+            попонятия сумма = 5;
+            попонятия удвой() { отвечаю тырыпыры.сумма * 2; }
+            попонятия {
+                тырыпыры.итог = тырыпыры.удвой();
+            }
+        }
+        гыы итог = К.итог;
+        "#,
+    );
+    assert_eq!(i.get("итог"), Some(Value::Number(10.0)));
+}
+
+#[test]
+fn class_static_block_throw_propagates() {
+    let err = run_code_err(
+        r#"
+        клёво К {
+            попонятия {
+                кидай "бабах";
+            }
+        }
+        "#,
+    );
+    assert!(err.message.contains("бабах"), "ошибка: {}", err.message);
+}

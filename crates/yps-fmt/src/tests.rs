@@ -627,6 +627,23 @@ mod suite {
     }
 
     #[test]
+    fn static_block_round_trips() {
+        let src = concat!(
+            "клёво К {\n",
+            "    попонятия а = 1;\n",
+            "    попонятия {\n",
+            "        тырыпыры.б = тырыпыры.а + 1;\n",
+            "    }\n",
+            "    попонятия в = 2;\n",
+            "}\n",
+        );
+        let out = parse_and_format(src);
+        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для статического блока: {out:?}");
+        assert!(out.contains("попонятия {"), "форматтер должен печатать 'попонятия {{': {out:?}");
+        assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для статического блока");
+    }
+
+    #[test]
     fn using_sync_stays_without_await() {
         let src = "{\n    юзай р = получить();\n}\n";
         let out = parse_and_format(src);

@@ -281,6 +281,9 @@ impl Resolver {
                     }
                     self.resolve_function(scope, None, std::slice::from_ref(param), body);
                 }
+                ClassMember::StaticBlock { body, .. } => {
+                    self.resolve_function(scope, None, &[], body);
+                }
             }
         }
     }

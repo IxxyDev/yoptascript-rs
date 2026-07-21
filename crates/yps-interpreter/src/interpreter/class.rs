@@ -18,14 +18,19 @@ struct CollectedMembers {
     constructor: Option<MethodDef>,
     methods: HashMap<String, MethodDef>,
     static_methods: HashMap<String, MethodDef>,
-    static_fields: HashMap<String, Value>,
     field_inits: Vec<(String, Option<Rc<Block>>, Option<Value>)>,
     getters: HashMap<String, MethodDef>,
     setters: HashMap<String, MethodDef>,
     static_getters: HashMap<String, MethodDef>,
     static_setters: HashMap<String, MethodDef>,
+    static_actions: Vec<StaticInitAction>,
     static_inits: Vec<Value>,
     instance_inits: Vec<Value>,
+}
+
+enum StaticInitAction {
+    Field { name: String, init: Option<Expr>, transform: Option<Value> },
+    Block { body: Rc<Block> },
 }
 
 impl Interpreter {
@@ -107,7 +112,7 @@ impl Interpreter {
             constructor: parts.constructor,
             methods: parts.methods,
             static_methods: parts.static_methods,
-            static_fields: std::cell::RefCell::new(parts.static_fields),
+            static_fields: std::cell::RefCell::new(HashMap::new()),
             field_inits: parts.field_inits,
             getters: parts.getters,
             setters: parts.setters,
@@ -118,13 +123,12 @@ impl Interpreter {
             prototype_cache: std::cell::OnceCell::new(),
         };
 
-        let class_val = self.apply_class_decorators(
-            Value::Class(Rc::new(class_def)),
-            &class_dec_fns,
-            &name.name,
-            &mut parts.static_inits,
-            span,
-        )?;
+        let class_rc = Rc::new(class_def);
+        let class_val = Value::Class(Rc::clone(&class_rc));
+        self.run_static_init_actions(&class_rc, &class_val, &parts.static_actions, span)?;
+
+        let class_val =
+            self.apply_class_decorators(class_val, &class_dec_fns, &name.name, &mut parts.static_inits, span)?;
 
         for init in &parts.static_inits {
             self.call_function(init.clone(), vec![], span)?;
@@ -142,7 +146,7 @@ impl Interpreter {
                 | ClassMember::Field { decorators, .. }
                 | ClassMember::Getter { decorators, .. }
                 | ClassMember::Setter { decorators, .. } => decorators,
-                ClassMember::Constructor { .. } => {
+                ClassMember::Constructor { .. } | ClassMember::StaticBlock { .. } => {
                     member_dec_fns.push(Vec::new());
                     continue;
                 }
@@ -260,7 +264,7 @@ impl Interpreter {
                         parts.instance_inits.extend(inits);
                     }
                 }
-                ClassMember::Field { .. } => {}
+                ClassMember::Field { .. } | ClassMember::StaticBlock { .. } => {}
             }
         }
         Ok(())
@@ -274,38 +278,93 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         for (i, member) in members.iter().enumerate() {
-            if let ClassMember::Field { name: f_name, init, is_static, is_private, .. } = member {
-                let dec_fns = &member_dec_fns[i];
-                let (init_transform, inits) = self.apply_member_decorators(
-                    Value::Undefined,
-                    dec_fns,
-                    "поле",
-                    &f_name.name,
-                    *is_static,
-                    *is_private,
-                    span,
-                )?;
-                let transform = if matches!(init_transform, Value::Undefined) { None } else { Some(init_transform) };
+            match member {
+                ClassMember::Field { name: f_name, init, is_static, is_private, .. } => {
+                    let dec_fns = &member_dec_fns[i];
+                    let (init_transform, inits) = self.apply_member_decorators(
+                        Value::Undefined,
+                        dec_fns,
+                        "поле",
+                        &f_name.name,
+                        *is_static,
+                        *is_private,
+                        span,
+                    )?;
+                    let transform =
+                        if matches!(init_transform, Value::Undefined) { None } else { Some(init_transform) };
 
-                if *is_static {
-                    let base_val =
-                        if let Some(init_expr) = init { self.eval_expr(init_expr)? } else { Value::Undefined };
-                    let val = if let Some(ref tf) = transform {
+                    if *is_static {
+                        parts.static_actions.push(StaticInitAction::Field {
+                            name: f_name.name.clone(),
+                            init: init.clone(),
+                            transform,
+                        });
+                        parts.static_inits.extend(inits);
+                    } else {
+                        let body = init.as_ref().map(|expr| {
+                            Rc::new(Block {
+                                stmts: vec![yps_parser::ast::Stmt::Return { value: Some(expr.clone()), span }],
+                                span,
+                            })
+                        });
+                        parts.field_inits.push((f_name.name.clone(), body, transform));
+                        parts.instance_inits.extend(inits);
+                    }
+                }
+                ClassMember::StaticBlock { body, .. } => {
+                    parts.static_actions.push(StaticInitAction::Block { body: body.clone() });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn run_static_init_actions(
+        &mut self,
+        class_rc: &Rc<ClassDef>,
+        class_val: &Value,
+        actions: &[StaticInitAction],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if actions.is_empty() {
+            return Ok(());
+        }
+        let saved = self.env.clone();
+        self.env.push_scope();
+        self.env.define(symbols::THIS.to_string(), class_val.clone(), false);
+        if let Some(parent) = &class_rc.parent {
+            self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(parent)), false);
+        }
+        let result = self.run_static_init_actions_inner(class_rc, actions, span);
+        self.env = saved;
+        result
+    }
+
+    fn run_static_init_actions_inner(
+        &mut self,
+        class_rc: &Rc<ClassDef>,
+        actions: &[StaticInitAction],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        for action in actions {
+            match action {
+                StaticInitAction::Field { name, init, transform } => {
+                    let base_val = if let Some(expr) = init { self.eval_expr(expr)? } else { Value::Undefined };
+                    let val = if let Some(tf) = transform {
                         self.call_function(tf.clone(), vec![base_val], span)?
                     } else {
                         base_val
                     };
-                    parts.static_fields.insert(f_name.name.clone(), val);
-                    parts.static_inits.extend(inits);
-                } else {
-                    let body = init.as_ref().map(|expr| {
-                        Rc::new(Block {
-                            stmts: vec![yps_parser::ast::Stmt::Return { value: Some(expr.clone()), span }],
-                            span,
-                        })
-                    });
-                    parts.field_inits.push((f_name.name.clone(), body, transform));
-                    parts.instance_inits.extend(inits);
+                    class_rc.static_fields.borrow_mut().insert(name.clone(), val);
+                }
+                StaticInitAction::Block { body } => {
+                    self.env.push_scope();
+                    let result = self.exec_block_stmts(&body.stmts);
+                    self.env.pop_scope();
+                    if let Some(ControlFlow::Throw(val)) = result? {
+                        return Err(RuntimeError::thrown(val, span));
+                    }
                 }
             }
         }

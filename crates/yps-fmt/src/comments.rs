@@ -140,7 +140,8 @@ fn collect_member(member: &ClassMember, out: &mut Vec<Span>) {
         ClassMember::Constructor { body, .. }
         | ClassMember::Method { body, .. }
         | ClassMember::Getter { body, .. }
-        | ClassMember::Setter { body, .. } => collect_block(body, out),
+        | ClassMember::Setter { body, .. }
+        | ClassMember::StaticBlock { body, .. } => collect_block(body, out),
         ClassMember::Field { .. } => {}
     }
 }

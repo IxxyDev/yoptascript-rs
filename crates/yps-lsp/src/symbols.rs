@@ -37,22 +37,23 @@ fn collect(stmt: &Stmt, text: &str, out: &mut Vec<DocumentSymbol>) {
 fn class_children(members: &[ClassMember], text: &str) -> Vec<DocumentSymbol> {
     members
         .iter()
-        .map(|member| match member {
+        .filter_map(|member| match member {
             ClassMember::Constructor { span, .. } => {
-                symbol(text, "constructor", None, SymbolKind::CONSTRUCTOR, *span, *span, None)
+                Some(symbol(text, "constructor", None, SymbolKind::CONSTRUCTOR, *span, *span, None))
             }
             ClassMember::Method { name, is_static, span, .. } => {
-                symbol(text, &name.name, static_detail(*is_static), SymbolKind::METHOD, *span, name.span, None)
+                Some(symbol(text, &name.name, static_detail(*is_static), SymbolKind::METHOD, *span, name.span, None))
             }
             ClassMember::Field { name, is_static, span, .. } => {
-                symbol(text, &name.name, static_detail(*is_static), SymbolKind::FIELD, *span, name.span, None)
+                Some(symbol(text, &name.name, static_detail(*is_static), SymbolKind::FIELD, *span, name.span, None))
             }
             ClassMember::Getter { name, span, .. } => {
-                symbol(text, &name.name, Some("get".to_string()), SymbolKind::PROPERTY, *span, name.span, None)
+                Some(symbol(text, &name.name, Some("get".to_string()), SymbolKind::PROPERTY, *span, name.span, None))
             }
             ClassMember::Setter { name, span, .. } => {
-                symbol(text, &name.name, Some("set".to_string()), SymbolKind::PROPERTY, *span, name.span, None)
+                Some(symbol(text, &name.name, Some("set".to_string()), SymbolKind::PROPERTY, *span, name.span, None))
             }
+            ClassMember::StaticBlock { .. } => None,
         })
         .collect()
 }

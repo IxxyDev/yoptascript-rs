@@ -145,6 +145,7 @@ fn member_eq(a: &ClassMember, b: &ClassMember) -> bool {
                 name: n2, param: pa2, body: b2, is_static: s2, is_private: pr2, decorators: d2, ..
             },
         ) => n1.name == n2.name && s1 == s2 && pr1 == pr2 && exprs_eq(d1, d2) && param_eq(pa1, pa2) && block_eq(b1, b2),
+        (ClassMember::StaticBlock { body: b1, .. }, ClassMember::StaticBlock { body: b2, .. }) => block_eq(b1, b2),
         _ => false,
     }
 }
