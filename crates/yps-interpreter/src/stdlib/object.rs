@@ -206,27 +206,24 @@ pub fn call_static(
         }
         "изЗаписей" => {
             require_args(&args, 1, span, "Кент.изЗаписей")?;
-            match &args[0] {
-                Value::Array(entries) => {
-                    let mut map = IndexMap::new();
-                    for entry in entries.borrow().iter() {
-                        match entry {
-                            Value::Array(pair) if pair.borrow().len() >= 2 => {
-                                let pair = pair.borrow();
-                                map.insert(pair[0].to_string(), pair[1].clone());
-                            }
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    "Кент.изЗаписей: каждая запись — [ключ, значение]",
-                                    span,
-                                ));
-                            }
-                        }
+            let entries = match &args[0] {
+                Value::Array(entries) => entries.borrow().0.clone(),
+                Value::Iterator(rc) => crate::stdlib::iterator::drain(interp, rc, span)?,
+                _ => return Err(RuntimeError::new("Кент.изЗаписей ожидает массив или итератор", span)),
+            };
+            let mut map = IndexMap::new();
+            for entry in &entries {
+                match entry {
+                    Value::Array(pair) if pair.borrow().len() >= 2 => {
+                        let pair = pair.borrow();
+                        map.insert(pair[0].to_string(), pair[1].clone());
                     }
-                    Ok(Value::object(map))
+                    _ => {
+                        return Err(RuntimeError::new("Кент.изЗаписей: каждая запись — [ключ, значение]", span));
+                    }
                 }
-                _ => Err(RuntimeError::new("Кент.изЗаписей ожидает массив", span)),
             }
+            Ok(Value::object(map))
         }
         "создать" => {
             require_args(&args, 1, span, "Кент.создать")?;

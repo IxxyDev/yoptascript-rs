@@ -302,7 +302,7 @@ fn test_nabor_values() {
     let interp = run_code(
         r#"
         гыы н = захуярить Набор([3, 1, 2]);
-        гыы зн = н.values();
+        гыы зн = [...н.values()];
         "#,
     );
     assert_struct_eq(interp.get("зн"), Value::array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
@@ -313,7 +313,7 @@ fn test_nabor_keys_matches_values() {
     let interp = run_code(
         r#"
         гыы н = захуярить Набор([3, 1, 2]);
-        гыы кл = н.ключи();
+        гыы кл = [...н.ключи()];
         "#,
     );
     assert_struct_eq(interp.get("кл"), Value::array(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
@@ -324,7 +324,7 @@ fn test_nabor_entries() {
     let interp = run_code(
         r#"
         гыы н = захуярить Набор([3, 1, 2]);
-        гыы зп = н.entries();
+        гыы зп = [...н.entries()];
         "#,
     );
     assert_struct_eq(
@@ -459,8 +459,8 @@ fn test_karta_keys_values_entries_preserve_insertion_order() {
         к.set("первый", 1);
         к.set("второй", 2);
         к.set("третий", 3);
-        гыы клч = к.keys();
-        гыы знч = к.values();
+        гыы клч = [...к.keys()];
+        гыы знч = [...к.values()];
         "#,
     );
     assert_struct_eq(
@@ -482,7 +482,7 @@ fn test_karta_overwrite_keeps_position() {
         к.set("а", 1);
         к.set("б", 2);
         к.set("а", 99);
-        гыы знч = к.values();
+        гыы знч = [...к.values()];
         "#,
     );
     assert_struct_eq(interp.get("знч"), Value::array(vec![Value::Number(99.0), Value::Number(2.0)]));
@@ -582,4 +582,20 @@ fn test_kosyak_unknown_static_method() {
         "Сообщение должно упоминать неизвестный метод, получено: {}",
         err.message
     );
+}
+
+#[test]
+fn test_kent_iz_zapisej_accepts_map_entries_iterator() {
+    let interp = run_code(
+        r#"
+        гыы к = захуярить Карта();
+        к.set("а", 1);
+        к.set("б", 2);
+        гыы обж = Кент.изЗаписей(к.записи());
+        гыы а = обж.а;
+        гыы б = обж.б;
+        "#,
+    );
+    assert_struct_eq(interp.get("а"), Value::Number(1.0));
+    assert_struct_eq(interp.get("б"), Value::Number(2.0));
 }
