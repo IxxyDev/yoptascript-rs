@@ -294,9 +294,9 @@ fn expr_eq(a: &Expr, b: &Expr) -> bool {
             Expr::ArrowFunction { params: p2, body: b2, is_async: a2, .. },
         ) => a1 == a2 && params_eq(p1, p2) && block_eq(b1, b2),
         (
-            Expr::FunctionExpr { name: n1, params: p1, body: b1, is_async: a1, .. },
-            Expr::FunctionExpr { name: n2, params: p2, body: b2, is_async: a2, .. },
-        ) => a1 == a2 && opt_ident_eq(n1, n2) && params_eq(p1, p2) && block_eq(b1, b2),
+            Expr::FunctionExpr { name: n1, params: p1, body: b1, is_generator: g1, is_async: a1, .. },
+            Expr::FunctionExpr { name: n2, params: p2, body: b2, is_generator: g2, is_async: a2, .. },
+        ) => g1 == g2 && a1 == a2 && opt_ident_eq(n1, n2) && params_eq(p1, p2) && block_eq(b1, b2),
         (Expr::Spread { expr: e1, .. }, Expr::Spread { expr: e2, .. }) => expr_eq(e1, e2),
         (Expr::Yield { argument: a1, delegate: d1, .. }, Expr::Yield { argument: a2, delegate: d2, .. }) => {
             d1 == d2 && opt_boxed_expr_eq(a1, a2)

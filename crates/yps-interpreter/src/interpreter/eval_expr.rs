@@ -314,7 +314,7 @@ impl Interpreter {
                 };
                 Ok(func)
             }
-            Expr::FunctionExpr { name, params, body, is_async, .. } => match name {
+            Expr::FunctionExpr { name, params, body, is_generator, is_async, .. } => match name {
                 Some(ident) => {
                     let mut fn_env = Environment::from_snapshot(self.env.snapshot(), self.env.registry());
                     fn_env.push_scope();
@@ -323,7 +323,7 @@ impl Interpreter {
                         params: params.clone(),
                         body: body.clone(),
                         env: fn_env.snapshot(),
-                        is_generator: false,
+                        is_generator: *is_generator,
                         is_async: *is_async,
                     };
                     fn_env.define(ident.name.clone(), func.clone(), false);
@@ -334,7 +334,7 @@ impl Interpreter {
                     params: params.clone(),
                     body: body.clone(),
                     env: self.env.snapshot(),
-                    is_generator: false,
+                    is_generator: *is_generator,
                     is_async: *is_async,
                 }),
             },

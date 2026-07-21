@@ -666,4 +666,22 @@ mod suite {
         assert!(out.contains("го (гыы { х, у } сашаГрей точки)"), "форматтер должен печатать паттерн объекта: {out:?}");
         assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для деструктуризации в for-of");
     }
+
+    #[test]
+    fn async_generator_round_trip() {
+        let src = concat!(
+            "ассо пиздюли ген() {\n",
+            "    поебалу 1;\n",
+            "    поебалуна [2, 3];\n",
+            "}\n",
+            "гыы выр = ассо пиздюли() {\n",
+            "    поебалу 4;\n",
+            "};\n",
+        );
+        let out = parse_and_format(src);
+        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для асинхронного генератора: {out:?}");
+        assert!(out.contains("ассо пиздюли ген()"), "форматтер должен печатать 'ассо пиздюли ген()': {out:?}");
+        assert!(out.contains("= ассо пиздюли()"), "форматтер должен печатать 'ассо пиздюли()' выражение: {out:?}");
+        assert_eq!(out, parse_and_format(&out), "идемпотентность нарушена для асинхронного генератора");
+    }
 }

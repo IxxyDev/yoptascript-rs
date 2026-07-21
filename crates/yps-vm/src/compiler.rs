@@ -634,8 +634,10 @@ impl Compiler {
         self.compile_expr(iterable)?;
         if is_await {
             self.emit(Op::Await, span);
+            self.emit(Op::AsyncForIterInit, span);
+        } else {
+            self.emit(Op::ForIterInit, span);
         }
-        self.emit(Op::ForIterInit, span);
         let handle = self.push_temp(span);
 
         if let Pattern::Identifier(id) = variable {
@@ -928,7 +930,7 @@ impl Compiler {
         span: Span,
     ) -> Result<(), CompileError> {
         if is_generator {
-            self.compile_generator(name, params, body, span)
+            self.compile_generator(name, params, body, is_async, span)
         } else {
             self.compile_function(name, params, body, is_async, span)
         }
@@ -950,9 +952,10 @@ impl Compiler {
         name: &str,
         params: &[Param],
         body: &Block,
+        is_async: bool,
         span: Span,
     ) -> Result<(), CompileError> {
-        self.compile_callable(name, params, body, span, CallableKind::GENERATOR)
+        self.compile_callable(name, params, body, span, CallableKind::GENERATOR.with_async(is_async))
     }
 
     fn compile_arrow(
@@ -1454,9 +1457,9 @@ impl Compiler {
                 Ok(())
             }
             Expr::ArrowFunction { params, body, is_async, span } => self.compile_arrow(params, body, *is_async, *span),
-            Expr::FunctionExpr { name, params, body, is_async, span } => {
+            Expr::FunctionExpr { name, params, body, is_generator, is_async, span } => {
                 let fname = name.as_ref().map(|n| n.name.as_str()).unwrap_or("");
-                self.compile_function(fname, params, body, *is_async, *span)
+                self.compile_named_callable(fname, params, body, *is_generator, *is_async, *span)
             }
             Expr::Await { argument, span } => {
                 self.compile_expr(argument)?;

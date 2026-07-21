@@ -40,6 +40,7 @@ pub struct GenState {
     pub env: Environment,
     pub frames: Vec<GenFrame>,
     pub completed: bool,
+    pub is_async: bool,
     pub pending_bind: Option<BindTarget>,
     pub pending_send: Option<Value>,
 }

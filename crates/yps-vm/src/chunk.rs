@@ -153,6 +153,7 @@ pub enum Op {
 
     ForInKeys,
     ForIterInit,
+    AsyncForIterInit,
     ForIterNext(usize),
     ForIterClose,
     ArrayLen,

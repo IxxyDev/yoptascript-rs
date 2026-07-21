@@ -789,3 +789,236 @@ fn generator_yield_delegate_return_value_captured_with_const() {
     );
     assert_eq!(i.get("захвачено"), Some(Value::Number(7.0)));
 }
+
+#[test]
+fn async_generator_for_await_collects_values() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        ассо пиздюли ген() {
+            поебалу 1;
+            поебалу 2;
+            поебалу 3;
+        }
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей ген()) {
+                лог.push(х);
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            let b = a.borrow();
+            assert_eq!(b.0, vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_await_and_yield_interleave() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта удвоить(н) { отвечаю н * 2; }
+        ассо пиздюли ген() {
+            гыы а = сидетьНахуй удвоить(1);
+            поебалу а;
+            гыы б = сидетьНахуй удвоить(а);
+            поебалу б;
+        }
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей ген()) {
+                лог.push(х);
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a.borrow().0, vec![Value::Number(2.0), Value::Number(4.0)]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_next_returns_promise() {
+    let i = run_code(
+        r#"
+        ассо пиздюли ген() { поебалу 1; }
+        гыы ит = ген();
+        гыы т = тип(ит.следующий());
+        "#,
+    );
+    assert_eq!(i.get("т"), Some(Value::String("обещание".to_string())));
+}
+
+#[test]
+fn for_await_over_sync_iterable_of_promises() {
+    let i = run_code(
+        r#"
+        гыы сумма = 0;
+        ассо йопта потр() {
+            гыы обещания = [СловоПацана.решить(1), СловоПацана.решить(2), СловоПацана.решить(3)];
+            го сидетьНахуй (гыы х сашаГрей обещания) {
+                сумма += х;
+            }
+        }
+        потр();
+        "#,
+    );
+    assert_eq!(i.get("сумма"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn for_await_over_user_async_iterator() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        гыы объект = {
+            [Симбол.асинхИтератор]: йопта() {
+                гыы и = 0;
+                отвечаю {
+                    следующий: ассо йопта() {
+                        вилкойвглаз (и < 3) {
+                            и += 1;
+                            отвечаю { значение: и, готово: лож };
+                        }
+                        отвечаю { значение: ноль, готово: правда };
+                    }
+                };
+            }
+        };
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей объект) {
+                лог.push(х);
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a.borrow().0, vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_error_propagates_to_consumer_catch() {
+    let i = run_code(
+        r#"
+        гыы поймано = "";
+        ассо пиздюли ген() {
+            поебалу 1;
+            кидай "бабах";
+        }
+        ассо йопта потр() {
+            хапнуть {
+                го сидетьНахуй (гыы х сашаГрей ген()) {}
+            } гоп (е) {
+                поймано = е;
+            }
+        }
+        потр();
+        "#,
+    );
+    assert_eq!(i.get("поймано"), Some(Value::String("бабах".to_string())));
+}
+
+#[test]
+fn async_generator_break_runs_finally() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        ассо пиздюли ген() {
+            хапнуть {
+                поебалу 1;
+                поебалу 2;
+                поебалу 3;
+            } тюряжка {
+                лог.push("финал");
+            }
+        }
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей ген()) {
+                лог.push(х);
+                вилкойвглаз (х === 2) { харэ; }
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a.borrow().0, vec![Value::Number(1.0), Value::Number(2.0), Value::String("финал".to_string())]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_yield_delegate_sync_iterable() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        ассо пиздюли ген() {
+            поебалуна [1, 2];
+            поебалу 3;
+        }
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей ген()) {
+                лог.push(х);
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a.borrow().0, vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_function_expression() {
+    let i = run_code(
+        r#"
+        гыы лог = [];
+        гыы ген = ассо пиздюли() {
+            поебалу 10;
+            поебалу 20;
+        };
+        ассо йопта потр() {
+            го сидетьНахуй (гыы х сашаГрей ген()) {
+                лог.push(х);
+            }
+        }
+        потр();
+        "#,
+    );
+    match i.get("лог") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a.borrow().0, vec![Value::Number(10.0), Value::Number(20.0)]);
+        }
+        other => panic!("Ожидался массив, получено {other:?}"),
+    }
+}
+
+#[test]
+fn async_generator_sync_iteration_rejected() {
+    let err = run_code_err(
+        r#"
+        ассо пиздюли ген() { поебалу 1; }
+        гыы а = [...ген()];
+        "#,
+    );
+    assert!(err.message.contains("синхронно"), "неожиданное сообщение: {}", err.message);
+}

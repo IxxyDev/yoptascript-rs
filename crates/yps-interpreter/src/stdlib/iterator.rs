@@ -100,15 +100,20 @@ pub fn call(
             let sent = args.into_iter().next().unwrap_or(Value::Undefined);
             let mut state_borrow = borrow_iter_mut(&rc, span)?;
             if let IteratorState::Generator(gen_state) = &mut *state_borrow {
+                let is_async = gen_state.is_async;
                 let outcome = crate::interpreter::generator::step_generator(
                     interp,
                     gen_state,
                     crate::interpreter::generator::GenInput::Send(sent),
                     span,
-                )?;
-                match outcome {
-                    crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                    crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                );
+                if is_async {
+                    Ok((async_gen_result(outcome)?, None))
+                } else {
+                    match outcome? {
+                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                    }
                 }
             } else {
                 match next(interp, &mut state_borrow, span)? {
@@ -122,18 +127,24 @@ pub fn call(
             let mut state_borrow = borrow_iter_mut(&rc, span)?;
             match &mut *state_borrow {
                 IteratorState::Generator(gen_state) => {
+                    let is_async = gen_state.is_async;
                     if gen_state.completed {
-                        return Ok((make_result(arg, true), None));
+                        let done = make_result(arg, true);
+                        return Ok((if is_async { Interpreter::make_fulfilled_promise(done) } else { done }, None));
                     }
                     let outcome = crate::interpreter::generator::step_generator(
                         interp,
                         gen_state,
                         crate::interpreter::generator::GenInput::Return(arg),
                         span,
-                    )?;
-                    match outcome {
-                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                    );
+                    if is_async {
+                        Ok((async_gen_result(outcome)?, None))
+                    } else {
+                        match outcome? {
+                            crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                            crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                        }
                     }
                 }
                 IteratorState::Done => Ok((make_result(arg, true), None)),
@@ -145,7 +156,11 @@ pub fn call(
             let mut state_borrow = borrow_iter_mut(&rc, span)?;
             match &mut *state_borrow {
                 IteratorState::Generator(gen_state) => {
+                    let is_async = gen_state.is_async;
                     if gen_state.completed {
+                        if is_async {
+                            return Ok((Interpreter::make_rejected_promise(arg), None));
+                        }
                         return Err(RuntimeError::thrown(arg, span));
                     }
                     let outcome = crate::interpreter::generator::step_generator(
@@ -153,10 +168,14 @@ pub fn call(
                         gen_state,
                         crate::interpreter::generator::GenInput::Throw(arg),
                         span,
-                    )?;
-                    match outcome {
-                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                    );
+                    if is_async {
+                        Ok((async_gen_result(outcome)?, None))
+                    } else {
+                        match outcome? {
+                            crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
+                            crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                        }
                     }
                 }
                 IteratorState::Done => Err(RuntimeError::thrown(arg, span)),
@@ -497,6 +516,12 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             }
         }
         IteratorState::Generator(gen_state) => {
+            if gen_state.is_async {
+                return Err(RuntimeError::new(
+                    "Асинхронный генератор нельзя итерировать синхронно (используй 'го жди')",
+                    span,
+                ));
+            }
             let result = crate::interpreter::generator::step_generator(
                 interp,
                 gen_state,
@@ -535,6 +560,20 @@ fn expect_count(value: &Value, span: Span, method: &str) -> Result<usize, Runtim
     match value {
         Value::Number(n) if n.is_finite() && *n >= 0.0 => Ok(*n as usize),
         _ => Err(RuntimeError::new(format!("'{method}' ожидает неотрицательное число"), span)),
+    }
+}
+
+fn async_gen_result(
+    outcome: Result<crate::interpreter::generator::StepOutcome, RuntimeError>,
+) -> Result<Value, RuntimeError> {
+    use crate::interpreter::generator::StepOutcome;
+    match outcome {
+        Ok(StepOutcome::Yielded(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, false))),
+        Ok(StepOutcome::Done(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, true))),
+        Err(e) => match e.thrown {
+            Some(val) => Ok(Interpreter::make_rejected_promise(*val)),
+            None => Err(e),
+        },
     }
 }
 
