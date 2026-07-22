@@ -1733,3 +1733,47 @@ fn gc_manual_collect_preserves_async_pending_roots() {
     "#;
     assert_eq!(run(src), "777\n");
 }
+
+#[test]
+fn const_fold_float_edge_cases_match_runtime() {
+    assert_eq!(run("сказать(1 / 0);"), "Infinity\n");
+    assert_eq!(run("сказать(-1 / 0);"), "-Infinity\n");
+    assert_eq!(run("сказать(0 / 0);"), "NaN\n");
+    assert_eq!(run("сказать(-0.0);"), run("гыы н = -0.0; сказать(н);"));
+    assert_eq!(run("сказать(0.1 + 0.2);"), run("гыы а = 0.1; гыы б = 0.2; сказать(а + б);"));
+}
+
+#[test]
+fn const_fold_nan_comparisons_are_false() {
+    assert_eq!(
+        run("сказать((0 / 0) < 1, (0 / 0) > 1, (0 / 0) <= 1, (0 / 0) >= 1, (0 / 0) == (0 / 0));"),
+        "false false false false false\n"
+    );
+}
+
+#[test]
+fn const_fold_does_not_touch_cross_type_add() {
+    assert_eq!(run(r#"сказать("а" + 1);"#), run(r#"гыы с = "а"; сказать(с + 1);"#));
+    assert_eq!(run(r#"сказать(1 + "а");"#), run(r#"гыы н = 1; сказать(н + "а");"#));
+}
+
+#[test]
+fn const_fold_does_not_touch_partial_short_circuit() {
+    assert_eq!(run("гыы х = 5; сказать(правда && х);"), "5\n");
+    assert_eq!(run("гыы х = 5; сказать(лож || х);"), "5\n");
+    assert_eq!(run("сказать(лож && пропавшая);"), "false\n");
+}
+
+#[test]
+fn const_fold_bigint_left_to_runtime() {
+    assert_eq!(run("сказать(3n + 4n);"), run("гыы а = 3n; сказать(а + 4n);"));
+    run_err("сказать(1n + 1);");
+}
+
+#[test]
+fn const_fold_nested_tree_matches_runtime() {
+    assert_eq!(
+        run("сказать((1 + 2 * 3 - 4 / 2) ** 2);"),
+        run("гыы а = 1; гыы б = 2; гыы в = 3; гыы г = 4; сказать((а + б * в - г / б) ** 2);")
+    );
+}

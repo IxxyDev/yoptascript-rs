@@ -11,7 +11,7 @@ use crate::chunk::{
     TemplateStrings, UpvalueDesc,
 };
 use crate::error::CompileError;
-use crate::value::string_to_number;
+use crate::value::{string_to_number, to_int32, to_uint32};
 
 const THIS_LOCAL: &str = "\0this";
 
@@ -1695,6 +1695,12 @@ impl Compiler {
             }
             UnaryOp::Delete => self.compile_delete(expr, span),
             _ => {
+                if let Some(v) = fold_const(expr)
+                    && let Some(folded) = fold_unary(op, &v)
+                {
+                    self.emit_fold_const(folded, span);
+                    return Ok(());
+                }
                 self.compile_expr(expr)?;
                 let vop = match op {
                     UnaryOp::Plus => Op::Pos,
@@ -1733,7 +1739,29 @@ impl Compiler {
         }
     }
 
+    fn emit_fold_const(&mut self, val: FoldVal, span: Span) {
+        match val {
+            FoldVal::Num(n) => {
+                let idx = self.cur().chunk.add_constant(Constant::Number(n));
+                self.emit(Op::Constant(idx), span);
+            }
+            FoldVal::Str(s) => {
+                let idx = self.cur().chunk.add_constant(Constant::Str(s));
+                self.emit(Op::Constant(idx), span);
+            }
+            FoldVal::Bool(b) => {
+                self.emit(if b { Op::True } else { Op::False }, span);
+            }
+        }
+    }
+
     fn compile_binary(&mut self, op: BinaryOp, lhs: &Expr, rhs: &Expr, span: Span) -> Result<(), CompileError> {
+        if let (Some(l), Some(r)) = (fold_const(lhs), fold_const(rhs))
+            && let Some(folded) = fold_binary_op(op, &l, &r)
+        {
+            self.emit_fold_const(folded, span);
+            return Ok(());
+        }
         match op {
             BinaryOp::Assign => return self.compile_assign(lhs, rhs, span),
             BinaryOp::PlusAssign
@@ -2117,6 +2145,99 @@ fn parse_number_literal(raw: &str) -> f64 {
     string_to_number(&cleaned)
 }
 
+#[derive(Clone)]
+enum FoldVal {
+    Num(f64),
+    Str(Rc<str>),
+    Bool(bool),
+}
+
+fn fold_val_to_number(v: &FoldVal) -> f64 {
+    match v {
+        FoldVal::Num(n) => *n,
+        FoldVal::Bool(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        FoldVal::Str(s) => string_to_number(s),
+    }
+}
+
+fn fold_val_is_truthy(v: &FoldVal) -> bool {
+    match v {
+        FoldVal::Num(n) => *n != 0.0,
+        FoldVal::Str(s) => !s.is_empty(),
+        FoldVal::Bool(b) => *b,
+    }
+}
+
+fn fold_const(expr: &Expr) -> Option<FoldVal> {
+    match expr {
+        Expr::Literal(Literal::Number { raw, .. }) => Some(FoldVal::Num(parse_number_literal(raw))),
+        Expr::Literal(Literal::String { value, .. }) => Some(FoldVal::Str(Rc::from(value.as_str()))),
+        Expr::Literal(Literal::Boolean { value, .. }) => Some(FoldVal::Bool(*value)),
+        Expr::Grouping { expr, .. } => fold_const(expr),
+        Expr::Unary { op, expr, .. } => fold_unary(*op, &fold_const(expr)?),
+        Expr::Binary { op, lhs, rhs, .. } => fold_binary_op(*op, &fold_const(lhs)?, &fold_const(rhs)?),
+        _ => None,
+    }
+}
+
+fn fold_unary(op: UnaryOp, v: &FoldVal) -> Option<FoldVal> {
+    match op {
+        UnaryOp::Minus => Some(FoldVal::Num(-fold_val_to_number(v))),
+        UnaryOp::Plus => Some(FoldVal::Num(fold_val_to_number(v))),
+        UnaryOp::Not => Some(FoldVal::Bool(!fold_val_is_truthy(v))),
+        _ => None,
+    }
+}
+
+fn fold_binary_op(op: BinaryOp, l: &FoldVal, r: &FoldVal) -> Option<FoldVal> {
+    use FoldVal::{Bool, Num, Str};
+    match (op, l, r) {
+        (BinaryOp::Add, Num(a), Num(b)) => Some(Num(a + b)),
+        (BinaryOp::Add, Str(a), Str(b)) => {
+            let mut s = String::with_capacity(a.len() + b.len());
+            s.push_str(a);
+            s.push_str(b);
+            Some(Str(Rc::from(s)))
+        }
+        (BinaryOp::Sub, Num(a), Num(b)) => Some(Num(a - b)),
+        (BinaryOp::Mul, Num(a), Num(b)) => Some(Num(a * b)),
+        (BinaryOp::Div, Num(a), Num(b)) => Some(Num(a / b)),
+        (BinaryOp::Mod, Num(a), Num(b)) => Some(Num(a % b)),
+        (BinaryOp::Exp, Num(a), Num(b)) => Some(Num(a.powf(*b))),
+        (BinaryOp::BitAnd, Num(a), Num(b)) => Some(Num(f64::from(to_int32(*a) & to_int32(*b)))),
+        (BinaryOp::BitOr, Num(a), Num(b)) => Some(Num(f64::from(to_int32(*a) | to_int32(*b)))),
+        (BinaryOp::BitXor, Num(a), Num(b)) => Some(Num(f64::from(to_int32(*a) ^ to_int32(*b)))),
+        (BinaryOp::LeftShift, Num(a), Num(b)) => Some(Num(f64::from(to_int32(*a).wrapping_shl(to_uint32(*b) & 0x1f)))),
+        (BinaryOp::RightShift, Num(a), Num(b)) => Some(Num(f64::from(to_int32(*a).wrapping_shr(to_uint32(*b) & 0x1f)))),
+        (BinaryOp::UnsignedRightShift, Num(a), Num(b)) => {
+            Some(Num(f64::from(to_uint32(*a).wrapping_shr(to_uint32(*b) & 0x1f))))
+        }
+        (BinaryOp::Less, Num(a), Num(b)) => Some(Bool(a < b)),
+        (BinaryOp::Greater, Num(a), Num(b)) => Some(Bool(a > b)),
+        (BinaryOp::LessOrEqual, Num(a), Num(b)) => Some(Bool(a <= b)),
+        (BinaryOp::GreaterOrEqual, Num(a), Num(b)) => Some(Bool(a >= b)),
+        (BinaryOp::Less, Str(a), Str(b)) => Some(Bool(a.as_bytes() < b.as_bytes())),
+        (BinaryOp::Greater, Str(a), Str(b)) => Some(Bool(a.as_bytes() > b.as_bytes())),
+        (BinaryOp::LessOrEqual, Str(a), Str(b)) => Some(Bool(a.as_bytes() <= b.as_bytes())),
+        (BinaryOp::GreaterOrEqual, Str(a), Str(b)) => Some(Bool(a.as_bytes() >= b.as_bytes())),
+        (BinaryOp::Equals | BinaryOp::StrictEquals, Num(a), Num(b)) => Some(Bool(a == b)),
+        (BinaryOp::NotEquals | BinaryOp::StrictNotEquals, Num(a), Num(b)) => Some(Bool(a != b)),
+        (BinaryOp::Equals | BinaryOp::StrictEquals, Str(a), Str(b)) => Some(Bool(a == b)),
+        (BinaryOp::NotEquals | BinaryOp::StrictNotEquals, Str(a), Str(b)) => Some(Bool(a != b)),
+        (BinaryOp::Equals | BinaryOp::StrictEquals, Bool(a), Bool(b)) => Some(Bool(a == b)),
+        (BinaryOp::NotEquals | BinaryOp::StrictNotEquals, Bool(a), Bool(b)) => Some(Bool(a != b)),
+        (BinaryOp::And, Bool(a), Bool(b)) => Some(Bool(*a && *b)),
+        (BinaryOp::Or, Bool(a), Bool(b)) => Some(Bool(*a || *b)),
+        _ => None,
+    }
+}
+
 fn expr_kind(expr: &Expr) -> &'static str {
     match expr {
         Expr::New { .. } => "new",
@@ -2129,5 +2250,120 @@ fn expr_kind(expr: &Expr) -> &'static str {
         Expr::DynamicImport { .. } => "dynamic import",
         Expr::OptionalMember { .. } | Expr::OptionalIndex { .. } | Expr::OptionalCall { .. } => "optional chaining",
         _ => "?",
+    }
+}
+
+#[cfg(test)]
+mod fold_tests {
+    use yps_lexer::{Lexer, SourceFile};
+    use yps_parser::Parser;
+
+    use std::rc::Rc;
+
+    use super::compile_program;
+    use crate::chunk::{Chunk, Constant, FnProto, Op};
+
+    fn compile(src: &str) -> Rc<FnProto> {
+        let source = SourceFile::new("<тест>".to_string(), src.to_string());
+        let lexer = Lexer::new(&source);
+        let (tokens, ld) = lexer.tokenize();
+        assert!(ld.is_empty(), "лексические ошибки: {ld:?}");
+        let parser = Parser::new(&tokens, &source);
+        let (program, pd) = parser.parse_program();
+        assert!(pd.is_empty(), "ошибки разбора: {pd:?}");
+        compile_program(&program).expect("компиляция")
+    }
+
+    fn has_op(chunk: &Chunk, pred: impl Fn(&Op) -> bool) -> bool {
+        chunk.code.iter().any(pred)
+    }
+
+    fn has_number_const(chunk: &Chunk, n: f64) -> bool {
+        chunk.constants.iter().any(|c| matches!(c, Constant::Number(x) if x.to_bits() == n.to_bits()))
+    }
+
+    fn has_str_const(chunk: &Chunk, s: &str) -> bool {
+        chunk.constants.iter().any(|c| matches!(c, Constant::Str(x) if x.as_ref() == s))
+    }
+
+    fn has_nan_const(chunk: &Chunk) -> bool {
+        chunk.constants.iter().any(|c| matches!(c, Constant::Number(x) if x.is_nan()))
+    }
+
+    #[test]
+    fn folds_nested_numeric_arithmetic() {
+        let proto = compile("сказать(1 + 2 * 3);");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Add | Op::Mul)), "арифметика должна свернуться");
+        assert!(has_number_const(chunk, 7.0));
+    }
+
+    #[test]
+    fn folds_string_concat_of_literals() {
+        let proto = compile(r#"сказать("a" + "b");"#);
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Add)), "конкатенация должна свернуться");
+        assert!(has_str_const(chunk, "ab"));
+    }
+
+    #[test]
+    fn does_not_fold_string_plus_number() {
+        let proto = compile(r#"сказать("a" + 1);"#);
+        let chunk = &proto.chunk;
+        assert!(has_op(chunk, |op| matches!(op, Op::Add)), "смешанный '+' не должен сворачиваться");
+    }
+
+    #[test]
+    fn does_not_fold_across_variables() {
+        let proto = compile("гыы х = 1; сказать(х + 2);");
+        let chunk = &proto.chunk;
+        assert!(has_op(chunk, |op| matches!(op, Op::Add)), "'+' с переменной не должен сворачиваться");
+    }
+
+    #[test]
+    fn folds_division_edge_cases() {
+        let proto = compile("сказать(1 / 0); сказать(0 / 0); сказать(-0.0);");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Div)), "деление литералов должно свернуться");
+        assert!(has_number_const(chunk, f64::INFINITY));
+        assert!(has_nan_const(chunk));
+        assert!(has_number_const(chunk, -0.0));
+    }
+
+    #[test]
+    fn folds_nan_equality_to_false() {
+        let proto = compile("сказать((0 / 0) == (0 / 0));");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Div | Op::Eq)));
+        assert!(has_op(chunk, |op| matches!(op, Op::False)));
+    }
+
+    #[test]
+    fn folds_nan_comparison_to_false() {
+        let proto = compile("сказать((0 / 0) < 1, (0 / 0) > 1, (0 / 0) <= 1, (0 / 0) >= 1);");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Lt | Op::Gt | Op::Le | Op::Ge)));
+    }
+
+    #[test]
+    fn folds_boolean_logical_ops() {
+        let proto = compile("сказать(правда && лож, лож || правда);");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::JumpIfFalsePeek(_) | Op::JumpIfTruePeek(_))));
+    }
+
+    #[test]
+    fn does_not_fold_short_circuit_with_non_literal_rhs() {
+        let proto = compile("гыы х = правда; сказать(правда && х, лож || х);");
+        let chunk = &proto.chunk;
+        assert!(has_op(chunk, |op| matches!(op, Op::JumpIfFalsePeek(_) | Op::JumpIfTruePeek(_))));
+    }
+
+    #[test]
+    fn folds_unary_minus_and_not() {
+        let proto = compile("сказать(-(5), !правда);");
+        let chunk = &proto.chunk;
+        assert!(!has_op(chunk, |op| matches!(op, Op::Neg | Op::Not)));
+        assert!(has_number_const(chunk, -5.0));
     }
 }
