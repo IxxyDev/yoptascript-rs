@@ -9,9 +9,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+libc = "0.2"
 yps-lexer = { path = "../crates/yps-lexer" }
 yps-parser = { path = "../crates/yps-parser" }
 yps-fmt = { path = "../crates/yps-fmt" }
+yps-interpreter = { path = "../crates/yps-interpreter" }
+yps-vm = { path = "../crates/yps-vm" }
 
 [[bin]]
 name = "lexer"
@@ -30,6 +33,13 @@ bench = false
 [[bin]]
 name = "fmt_roundtrip"
 path = "fuzz_targets/fmt_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exec_diff"
+path = "fuzz_targets/exec_diff.rs"
 test = false
 doc = false
 bench = false
