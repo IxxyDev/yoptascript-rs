@@ -57,7 +57,7 @@ pub fn dispatch(method: &str, args: Vec<Value>, span: Span) -> Result<Value, Run
 
 fn label_of(args: &[Value]) -> String {
     match args.first() {
-        Some(Value::String(s)) => s.clone(),
+        Some(Value::String(s)) => s.to_string(),
         Some(other) => other.to_string(),
         None => "по-умолчанию".to_string(),
     }

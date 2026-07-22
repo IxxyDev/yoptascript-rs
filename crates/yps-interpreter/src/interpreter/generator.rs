@@ -493,7 +493,7 @@ fn step_block_stmt(
                 Value::Array(arr) => (0..arr.borrow().len()).map(|i| Value::Number(i as f64)).collect(),
                 Value::TypedArray { length, .. } => (0..length).map(|i| Value::Number(i as f64)).collect(),
                 Value::Proxy { target, handler } => interp.proxy_own_keys(&target, &handler, *fs)?,
-                Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone())).collect(),
+                Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone().into())).collect(),
                 other => {
                     return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), *fs));
                 }

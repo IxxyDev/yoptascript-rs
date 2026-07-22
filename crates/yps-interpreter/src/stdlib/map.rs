@@ -182,24 +182,24 @@ mod tests {
 
     #[test]
     fn map_keys_values_entries_are_iterators() {
-        assert_eq!(eval("тип(захуярить Карта().keys());"), crate::value::Value::String("итератор".to_string()));
-        assert_eq!(eval("тип(захуярить Карта().значения());"), crate::value::Value::String("итератор".to_string()));
-        assert_eq!(eval("тип(захуярить Карта().записи());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Карта().keys());"), crate::value::Value::String("итератор".into()));
+        assert_eq!(eval("тип(захуярить Карта().значения());"), crate::value::Value::String("итератор".into()));
+        assert_eq!(eval("тип(захуярить Карта().записи());"), crate::value::Value::String("итератор".into()));
     }
 
     #[test]
     fn map_keys_values_entries_insertion_order() {
         assert_eq!(
             eval("гыы м = захуярить Карта(); м.set(\"б\", 2); м.set(\"а\", 1); [...м.keys()].join(\",\");"),
-            crate::value::Value::String("б,а".to_string())
+            crate::value::Value::String("б,а".into())
         );
         assert_eq!(
             eval("гыы м = захуярить Карта(); м.set(\"б\", 2); м.set(\"а\", 1); [...м.values()].join(\",\");"),
-            crate::value::Value::String("2,1".to_string())
+            crate::value::Value::String("2,1".into())
         );
         assert_eq!(
             eval("гыы м = захуярить Карта(); м.set(\"б\", 2); [...м.записи()][0].join(\",\");"),
-            crate::value::Value::String("б,2".to_string())
+            crate::value::Value::String("б,2".into())
         );
     }
 

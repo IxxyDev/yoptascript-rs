@@ -28,7 +28,7 @@ fn ternary_with_expression_condition() {
         гыы р = x > 5 ? "да" : "нет";
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("да".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("да".into())));
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn ternary_nested() {
         гыы р = x > 10 ? "большое" : x > 5 ? "среднее" : "маленькое";
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("маленькое".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("маленькое".into())));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn typeof_undefined() {
         гыы р = тип(ф());
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("неопределено".into())));
 }
 
 #[test]
@@ -212,8 +212,8 @@ fn object_keys_preserve_insertion_order() {
         гыы показ = строка(о);
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("я,б,а".to_string())));
-    assert_eq!(i.get("показ"), Some(Value::String("{я: 1, б: 2, а: 3}".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("я,б,а".into())));
+    assert_eq!(i.get("показ"), Some(Value::String("{я: 1, б: 2, а: 3}".into())));
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn object_delete_preserves_remaining_order() {
         гыы ключи = Кент.ключи(о).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("я,а".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("я,а".into())));
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn nested_delete_object_property() {
         гыы б = о.вложенный.б;
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("б".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("б".into())));
     assert_eq!(i.get("б"), Some(Value::Number(2.0)));
 }
 
@@ -268,7 +268,7 @@ fn nested_delete_object_index_property() {
         гыы ключи = Кент.ключи(о.вложенный).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("б".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("б".into())));
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn nested_delete_sealed_object_property_is_noop() {
         гыы ключи = Кент.ключи(о.вложенный).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".into())));
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn nested_delete_frozen_object_index_is_noop() {
         гыы ключи = Кент.ключи(о.вложенный).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".into())));
 }
 
 #[test]
@@ -341,9 +341,9 @@ fn number_print_v8_exponential() {
         гыы e = строка(0.0000001);
         "#,
     );
-    assert_eq!(i.get("a"), Some(Value::String("1e+21".to_string())));
-    assert_eq!(i.get("b"), Some(Value::String("1e-7".to_string())));
-    assert_eq!(i.get("c"), Some(Value::String("1.5e+21".to_string())));
-    assert_eq!(i.get("d"), Some(Value::String("123456".to_string())));
-    assert_eq!(i.get("e"), Some(Value::String("1e-7".to_string())));
+    assert_eq!(i.get("a"), Some(Value::String("1e+21".into())));
+    assert_eq!(i.get("b"), Some(Value::String("1e-7".into())));
+    assert_eq!(i.get("c"), Some(Value::String("1.5e+21".into())));
+    assert_eq!(i.get("d"), Some(Value::String("123456".into())));
+    assert_eq!(i.get("e"), Some(Value::String("1e-7".into())));
 }

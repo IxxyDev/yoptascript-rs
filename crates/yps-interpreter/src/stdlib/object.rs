@@ -54,7 +54,7 @@ pub fn call_static(
                         .borrow()
                         .keys()
                         .filter(|k| !symbols::is_internal_key(k))
-                        .map(|k| Value::String(k.clone()))
+                        .map(|k| Value::String(k.clone().into()))
                         .collect();
                     Ok(Value::array(keys))
                 }
@@ -107,7 +107,7 @@ pub fn call_static(
                         .borrow()
                         .iter()
                         .filter(|(k, _)| !symbols::is_internal_key(k))
-                        .map(|(k, v)| Value::array(vec![Value::String(k.clone()), v.clone()]))
+                        .map(|(k, v)| Value::array(vec![Value::String(k.clone().into()), v.clone()]))
                         .collect();
                     Ok(Value::array(entries))
                 }
@@ -173,7 +173,7 @@ pub fn call_static(
                 Value::Map(entries) => {
                     entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect()
                 }
-                Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                Value::String(s) => s.chars().map(|c| Value::String(c.to_string().into())).collect(),
                 other => {
                     return Err(RuntimeError::new(
                         format!(

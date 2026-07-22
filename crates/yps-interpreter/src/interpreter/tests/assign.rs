@@ -58,7 +58,7 @@ fn assign_object_member() {
         гыы результат = чел.имя;
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("Петя".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("Петя".into())));
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn assign_object_bracket_notation() {
         гыы результат = чел.имя;
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("Коля".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("Коля".into())));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn assign_object_in_array() {
         гыы результат = список[0].имя;
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("В".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("В".into())));
 }
 
 #[test]

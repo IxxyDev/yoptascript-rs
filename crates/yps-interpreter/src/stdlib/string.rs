@@ -40,7 +40,7 @@ pub fn call(
             } else {
                 String::from_utf16_lossy(&units[idx as usize..idx as usize + 1])
             };
-            Ok((Value::String(out), None))
+            Ok((Value::String(out.into()), None))
         }
         "charCodeAt" | "кодСимволаВ" => {
             let idx = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "charCodeAt")? };
@@ -117,7 +117,7 @@ pub fn call(
             } else {
                 String::new()
             };
-            Ok((Value::String(out), None))
+            Ok((Value::String(out.into()), None))
         }
         "substring" | "подстрока" => {
             let units = utf16_units(&s);
@@ -128,13 +128,13 @@ pub fn call(
             let e0 = end_raw.clamp(0, len);
             let (s1, e1) = if s0 <= e0 { (s0, e0) } else { (e0, s0) };
             let out = String::from_utf16_lossy(&units[s1 as usize..e1 as usize]);
-            Ok((Value::String(out), None))
+            Ok((Value::String(out.into()), None))
         }
-        "toUpperCase" | "вВерхнийРегистр" => Ok((Value::String(s.to_uppercase()), None)),
-        "toLowerCase" | "вНижнийРегистр" => Ok((Value::String(s.to_lowercase()), None)),
-        "trim" | "обрезать" => Ok((Value::String(s.trim().to_string()), None)),
-        "trimStart" | "обрезатьСлева" => Ok((Value::String(s.trim_start().to_string()), None)),
-        "trimEnd" | "обрезатьСправа" => Ok((Value::String(s.trim_end().to_string()), None)),
+        "toUpperCase" | "вВерхнийРегистр" => Ok((Value::String(s.to_uppercase().into()), None)),
+        "toLowerCase" | "вНижнийРегистр" => Ok((Value::String(s.to_lowercase().into()), None)),
+        "trim" | "обрезать" => Ok((Value::String(s.trim().to_string().into()), None)),
+        "trimStart" | "обрезатьСлева" => Ok((Value::String(s.trim_start().to_string().into()), None)),
+        "trimEnd" | "обрезатьСправа" => Ok((Value::String(s.trim_end().to_string().into()), None)),
         "split" | "разбить" => {
             if args.is_empty() {
                 return Ok((Value::array(vec![Value::String(s)]), None));
@@ -157,9 +157,9 @@ pub fn call(
             }
             let sep = as_string(&args[0], span, "split")?;
             let mut parts: Vec<Value> = if sep.is_empty() {
-                s.chars().map(|c| Value::String(c.to_string())).collect()
+                s.chars().map(|c| Value::String(c.to_string().into())).collect()
             } else {
-                s.split(sep).map(|p| Value::String(p.to_string())).collect()
+                s.split(sep).map(|p| Value::String(p.to_string().into())).collect()
             };
             if let Some(lim) = limit {
                 parts.truncate(lim);
@@ -174,12 +174,15 @@ pub fn call(
                 match &args[1] {
                     Value::String(rep) => {
                         let rep = rep.clone();
-                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, global, span)?), None));
+                        return Ok((
+                            Value::String(regexp::replace_string(&compiled, &s, &rep, global, span)?.into()),
+                            None,
+                        ));
                     }
                     Value::Function { .. } | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
                         let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, global, span)?;
-                        return Ok((Value::String(out), None));
+                        return Ok((Value::String(out.into()), None));
                     }
                     other => {
                         return Err(RuntimeError::new(
@@ -197,7 +200,7 @@ pub fn call(
                 out.push_str(&s[..byte_pos]);
                 out.push_str(&repl);
                 out.push_str(&s[byte_pos + from.len()..]);
-                Ok((Value::String(out), None))
+                Ok((Value::String(out.into()), None))
             } else {
                 Ok((Value::String(s.clone()), None))
             }
@@ -212,12 +215,15 @@ pub fn call(
                 match &args[1] {
                     Value::String(rep) => {
                         let rep = rep.clone();
-                        return Ok((Value::String(regexp::replace_string(&compiled, &s, &rep, true, span)?), None));
+                        return Ok((
+                            Value::String(regexp::replace_string(&compiled, &s, &rep, true, span)?.into()),
+                            None,
+                        ));
                     }
                     Value::Function { .. } | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
                         let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, true, span)?;
-                        return Ok((Value::String(out), None));
+                        return Ok((Value::String(out.into()), None));
                     }
                     other => {
                         return Err(RuntimeError::new(
@@ -233,7 +239,7 @@ pub fn call(
             let from = as_string(&args[0], span, "replaceAll")?;
             let to = as_string(&args[1], span, "replaceAll")?;
             if from.is_empty() {
-                return Ok((Value::String(s.replace(from, to)), None));
+                return Ok((Value::String(s.replace(from, to).into()), None));
             }
             let mut out = String::with_capacity(s.len());
             let mut last = 0usize;
@@ -244,7 +250,7 @@ pub fn call(
                 last = byte_pos + from.len();
             }
             out.push_str(&s[last..]);
-            Ok((Value::String(out), None))
+            Ok((Value::String(out.into()), None))
         }
         "match" | "совпадает" => {
             require_args(&args, 1, span, "match")?;
@@ -277,7 +283,7 @@ pub fn call(
             if !flags.contains('g') {
                 return Err(RuntimeError::new("matchAll требует флаг 'g'", span));
             }
-            let state = IteratorState::RegexMatches { re: Rc::clone(compiled), input: s.clone(), byte_pos: 0 };
+            let state = IteratorState::RegexMatches { re: Rc::clone(compiled), input: s.to_string(), byte_pos: 0 };
             Ok((Value::Iterator(Rc::new(RefCell::new(state))), None))
         }
         "search" | "найтиИндекс" => {
@@ -326,7 +332,7 @@ pub fn call(
             if s.len().saturating_mul(count) > MAX_STRING_LEN {
                 return Err(RuntimeError::new("Превышен лимит длины строки", span));
             }
-            Ok((Value::String(s.repeat(count)), None))
+            Ok((Value::String(s.repeat(count).into()), None))
         }
         "padStart" | "дополнитьСлева" => {
             require_args(&args, 1, span, "padStart")?;
@@ -334,14 +340,14 @@ pub fn call(
             let fill =
                 if args.len() > 1 { as_string(&args[1], span, "padStart")?.to_string() } else { " ".to_string() };
             check_pad_budget(target_len, &fill, span)?;
-            Ok((Value::String(pad(&s, target_len, &fill, true)), None))
+            Ok((Value::String(pad(&s, target_len, &fill, true).into()), None))
         }
         "padEnd" | "дополнитьСправа" => {
             require_args(&args, 1, span, "padEnd")?;
             let target_len = as_number(&args[0], span, "padEnd")? as usize;
             let fill = if args.len() > 1 { as_string(&args[1], span, "padEnd")?.to_string() } else { " ".to_string() };
             check_pad_budget(target_len, &fill, span)?;
-            Ok((Value::String(pad(&s, target_len, &fill, false)), None))
+            Ok((Value::String(pad(&s, target_len, &fill, false).into()), None))
         }
         "at" | "поИндексу" => {
             require_args(&args, 1, span, "at")?;
@@ -352,7 +358,7 @@ pub fn call(
             if real < 0 || real >= len {
                 Ok((Value::Undefined, None))
             } else {
-                Ok((Value::String(String::from_utf16_lossy(&units[real as usize..real as usize + 1])), None))
+                Ok((Value::String(String::from_utf16_lossy(&units[real as usize..real as usize + 1]).into()), None))
             }
         }
         "normalize" | "нормализовать" => {
@@ -370,7 +376,7 @@ pub fn call(
                     return Err(RuntimeError::new(format!("Некорректная форма нормализации: '{form}'"), span));
                 }
             };
-            Ok((Value::String(normalized), None))
+            Ok((Value::String(normalized.into()), None))
         }
         "codePointAt" | "кодТочки" => {
             let idx = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "codePointAt")? };
@@ -391,11 +397,11 @@ pub fn call(
             Ok((Value::Number(first as f64), None))
         }
         "concat" | "присоединить" => {
-            let mut out = s;
+            let mut out = s.to_string();
             for a in args {
                 out.push_str(&a.to_string());
             }
-            Ok((Value::String(out), None))
+            Ok((Value::String(out.into()), None))
         }
         _ => Err(RuntimeError::new(format!("У строки нет метода '{method}'"), span)),
     }

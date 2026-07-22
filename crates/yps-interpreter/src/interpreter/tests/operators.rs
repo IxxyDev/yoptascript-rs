@@ -89,7 +89,7 @@ fn optional_chain_member_on_object() {
         гыы р = чел?.имя;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("Вася".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("Вася".into())));
 }
 
 #[test]
@@ -247,11 +247,11 @@ fn typeof_basic() {
         гыы д = чезажижан неибу;
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::String("число".to_string())));
-    assert_eq!(interp.get("б"), Some(Value::String("строка".to_string())));
-    assert_eq!(interp.get("в"), Some(Value::String("булево".to_string())));
-    assert_eq!(interp.get("г"), Some(Value::String("объект".to_string())));
-    assert_eq!(interp.get("д"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(interp.get("а"), Some(Value::String("число".into())));
+    assert_eq!(interp.get("б"), Some(Value::String("строка".into())));
+    assert_eq!(interp.get("в"), Some(Value::String("булево".into())));
+    assert_eq!(interp.get("г"), Some(Value::String("объект".into())));
+    assert_eq!(interp.get("д"), Some(Value::String("неопределено".into())));
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn typeof_undefined_variable() {
         гыы р = чезажижан несуществует;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("неопределено".into())));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn typeof_function() {
         гыы р = чезажижан ф;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("функция".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("функция".into())));
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn delete_object_property() {
         гыы рез = чезажижан о["а"];
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("неопределено".into())));
 }
 
 #[test]

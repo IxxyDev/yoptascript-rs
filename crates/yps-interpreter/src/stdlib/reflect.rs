@@ -292,13 +292,13 @@ fn reflect_own_keys(interp: &mut Interpreter, obj: Value, span: Span) -> Result<
                 .borrow()
                 .keys()
                 .filter(|k| !symbols::is_internal_key(k) && !k.starts_with('#'))
-                .map(|k| Value::String(k.clone()))
+                .map(|k| Value::String(k.clone().into()))
                 .collect();
             Ok(Value::array(keys))
         }
         Value::Array(arr) => {
-            let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string())).collect();
-            keys.push(Value::String("length".to_string()));
+            let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string().into())).collect();
+            keys.push(Value::String("length".into()));
             Ok(Value::array(keys))
         }
         _ => Err(RuntimeError::new(

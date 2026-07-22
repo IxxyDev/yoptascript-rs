@@ -15,7 +15,7 @@ fn class_basic_constructor_and_fields() {
         гыы возраст = п.возраст;
         "#,
     );
-    assert_eq!(i.get("имя"), Some(Value::String("Вася".to_string())));
+    assert_eq!(i.get("имя"), Some(Value::String("Вася".into())));
     assert_eq!(i.get("возраст"), Some(Value::Number(25.0)));
 }
 
@@ -35,7 +35,7 @@ fn class_method_call() {
         гыы рез = к.мяукнуть();
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("Барсик".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("Барсик".into())));
 }
 
 #[test]
@@ -64,8 +64,8 @@ fn class_inheritance() {
         гыы вид = с.получитьВид();
         "#,
     );
-    assert_eq!(i.get("имя"), Some(Value::String("Шарик".to_string())));
-    assert_eq!(i.get("вид"), Some(Value::String("дворняга".to_string())));
+    assert_eq!(i.get("имя"), Some(Value::String("Шарик".into())));
+    assert_eq!(i.get("вид"), Some(Value::String("дворняга".into())));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn class_implicit_constructor_forwards_to_parent() {
         гыы рез = г.модель;
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("Камаз".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("Камаз".into())));
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn class_implicit_constructor_preserves_class_tag() {
         "#,
     );
     assert_eq!(i.get("знач"), Some(Value::Number(42.0)));
-    assert_eq!(i.get("класс"), Some(Value::String("Производный".to_string())));
+    assert_eq!(i.get("класс"), Some(Value::String("Производный".into())));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn catch_receives_runtime_error_as_object() {
         }
         "#,
     );
-    assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
+    assert_eq!(i.get("имя"), Some(Value::String("Косяк".into())));
     match i.get("текст") {
         Some(Value::String(s)) => assert!(s.contains("неопределённая_переменная")),
         other => panic!("ожидалась строка с сообщением, получено {other:?}"),
@@ -141,8 +141,8 @@ fn catch_thrown_kosyak_object_preserves_fields() {
         }
         "#,
     );
-    assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
-    assert_eq!(i.get("текст"), Some(Value::String("плохо".to_string())));
+    assert_eq!(i.get("имя"), Some(Value::String("Косяк".into())));
+    assert_eq!(i.get("текст"), Some(Value::String("плохо".into())));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn catch_thrown_string_passes_through() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("плоская строка".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("плоская строка".into())));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn class_instanceof_check() {
         гыы рез = чезажижан т;
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("объект".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("объект".into())));
 }
 
 #[test]
@@ -393,8 +393,8 @@ fn object_getter_setter() {
         гыы после = об.имя;
         "#,
     );
-    assert_eq!(i.get("до"), Some(Value::String("мир".to_string())));
-    assert_eq!(i.get("после"), Some(Value::String("всем".to_string())));
+    assert_eq!(i.get("до"), Some(Value::String("мир".into())));
+    assert_eq!(i.get("после"), Some(Value::String("всем".into())));
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn static_method_inherited_by_subclass() {
         гыы поле = Б.счёт;
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("А-привет".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("А-привет".into())));
     assert_eq!(i.get("поле"), Some(Value::Number(10.0)));
 }
 
@@ -444,7 +444,7 @@ fn super_method_call_in_instance_method() {
         гыы рез = п.голос();
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("...гав".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("...гав".into())));
 }
 
 #[test]
@@ -460,9 +460,9 @@ fn super_constructor_three_level_chain() {
         гыы поле_в = в.в;
         "#,
     );
-    assert_eq!(i.get("поле_а"), Some(Value::String("a".to_string())));
-    assert_eq!(i.get("поле_б"), Some(Value::String("b".to_string())));
-    assert_eq!(i.get("поле_в"), Some(Value::String("c".to_string())));
+    assert_eq!(i.get("поле_а"), Some(Value::String("a".into())));
+    assert_eq!(i.get("поле_б"), Some(Value::String("b".into())));
+    assert_eq!(i.get("поле_в"), Some(Value::String("c".into())));
 }
 
 #[test]
@@ -476,7 +476,7 @@ fn static_this_bound_to_class() {
         гыы рез = Мат.описание();
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("Мат(3.14)".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("Мат(3.14)".into())));
 }
 
 #[test]
@@ -572,7 +572,7 @@ fn class_static_block_runs_with_this_as_class() {
         гыы м = К.метка;
         "#,
     );
-    assert_eq!(i.get("м"), Some(Value::String("готово".to_string())));
+    assert_eq!(i.get("м"), Some(Value::String("готово".into())));
 }
 
 #[test]

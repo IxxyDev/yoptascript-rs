@@ -111,7 +111,7 @@ fn parse_response(raw: &str) -> Result<(u16, IndexMap<String, Value>, String), S
     let mut headers = IndexMap::new();
     for line in lines {
         if let Some((k, v)) = line.split_once(':') {
-            headers.insert(k.trim().to_ascii_lowercase(), Value::String(v.trim().to_string()));
+            headers.insert(k.trim().to_ascii_lowercase(), Value::String(v.trim().to_string().into()));
         }
     }
     Ok((code, headers, body.to_string()))
@@ -133,7 +133,7 @@ fn fetch(url: &str, opts: Value, span: Span) -> Result<Value, RuntimeError> {
         parse_response(&raw).map_err(|e| RuntimeError::new(format!("Сеть.достать: {e}"), span))?;
     let mut out = IndexMap::new();
     out.insert("статус".to_string(), Value::Number(code as f64));
-    out.insert("тело".to_string(), Value::String(body));
+    out.insert("тело".to_string(), Value::String(body.into()));
     out.insert("заголовки".to_string(), Value::object(headers));
     Ok(Value::object(out))
 }
@@ -160,7 +160,7 @@ fn extract_opts(opts: Value, span: Span) -> Result<FetchOpts, RuntimeError> {
         let body_val = map.borrow().get("тело").cloned();
         if let Some(v) = body_val {
             match v {
-                Value::String(s) => body = s.clone(),
+                Value::String(s) => body = s.to_string(),
                 Value::Undefined | Value::Null => {}
                 other => {
                     return Err(RuntimeError::new(
@@ -174,7 +174,7 @@ fn extract_opts(opts: Value, span: Span) -> Result<FetchOpts, RuntimeError> {
         if let Some(Value::Object(h)) = headers_val {
             for (k, v) in h.borrow().iter() {
                 let vs = match v {
-                    Value::String(s) => s.clone(),
+                    Value::String(s) => s.to_string(),
                     other => other.to_string(),
                 };
                 headers.push((k.clone(), vs));
@@ -248,6 +248,6 @@ mod tests {
         let (code, headers, body) = parse_response(raw).unwrap();
         assert_eq!(code, 200);
         assert_eq!(body, "привет");
-        assert_eq!(headers.get("content-type"), Some(&Value::String("text/plain".to_string())));
+        assert_eq!(headers.get("content-type"), Some(&Value::String("text/plain".into())));
     }
 }

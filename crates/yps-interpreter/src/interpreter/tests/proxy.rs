@@ -9,8 +9,8 @@ fn proxy_get_trap() {
         гыы инд = п["y"];
         "#,
     );
-    assert_eq!(i.get("поле"), Some(Value::String("G:x".to_string())));
-    assert_eq!(i.get("инд"), Some(Value::String("G:y".to_string())));
+    assert_eq!(i.get("поле"), Some(Value::String("G:x".into())));
+    assert_eq!(i.get("инд"), Some(Value::String("G:y".into())));
 }
 
 #[test]
@@ -21,7 +21,7 @@ fn proxy_get_default_forwards() {
         гыы р = п.имя;
         "#,
     );
-    assert_eq!(i.get("р"), Some(Value::String("Зэ".to_string())));
+    assert_eq!(i.get("р"), Some(Value::String("Зэ".into())));
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn proxy_set_trap_and_default() {
         гыы из_цели = цель2.k;
         "#,
     );
-    assert_eq!(i.get("захвачено"), Some(Value::String("инд=6".to_string())));
+    assert_eq!(i.get("захвачено"), Some(Value::String("инд=6".into())));
     assert_eq!(i.get("из_цели"), Some(Value::Number(9.0)));
 }
 
@@ -79,9 +79,9 @@ fn proxy_delete_trap_and_default() {
         гыы тип_после = тип(цель.x);
         "#,
     );
-    assert_eq!(i.get("удалено"), Some(Value::String("поле".to_string())));
+    assert_eq!(i.get("удалено"), Some(Value::String("поле".into())));
     assert_eq!(i.get("рез"), Some(Value::Boolean(true)));
-    assert_eq!(i.get("тип_после"), Some(Value::String("неопределено".to_string())));
+    assert_eq!(i.get("тип_после"), Some(Value::String("неопределено".into())));
 }
 
 #[test]
@@ -112,8 +112,8 @@ fn proxy_construct_trap_and_default() {
         гыы без_ловушки = о2.вид;
         "#,
     );
-    assert_eq!(i.get("с_ловушкой"), Some(Value::String("особый".to_string())));
-    assert_eq!(i.get("без_ловушки"), Some(Value::String("обычный".to_string())));
+    assert_eq!(i.get("с_ловушкой"), Some(Value::String("особый".into())));
+    assert_eq!(i.get("без_ловушки"), Some(Value::String("обычный".into())));
 }
 
 #[test]
@@ -126,8 +126,8 @@ fn proxy_typeof_transparent() {
         гыы тф = тип(пф);
         "#,
     );
-    assert_eq!(i.get("то"), Some(Value::String("объект".to_string())));
-    assert_eq!(i.get("тф"), Some(Value::String("функция".to_string())));
+    assert_eq!(i.get("то"), Some(Value::String("объект".into())));
+    assert_eq!(i.get("тф"), Some(Value::String("функция".into())));
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn proxy_own_keys_trap_drives_object_keys() {
         гыы ключи = Кент.ключи(п).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("x,y,z".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("x,y,z".into())));
     assert_eq!(i.get("вызвано"), Some(Value::Number(1.0)));
 }
 
@@ -259,7 +259,7 @@ fn proxy_own_keys_absent_falls_back_to_target() {
         гыы ключи = Кент.ключи(п).склеить(",");
         "#,
     );
-    assert_eq!(i.get("ключи"), Some(Value::String("а,б".to_string())));
+    assert_eq!(i.get("ключи"), Some(Value::String("а,б".into())));
 }
 
 #[test]
@@ -276,8 +276,8 @@ fn proxy_own_keys_drives_for_in_and_spread() {
         гыы значK1 = об.k1;
         "#,
     );
-    assert_eq!(i.get("собрано"), Some(Value::String("k1k2".to_string())));
-    assert_eq!(i.get("значK1"), Some(Value::String("V:k1".to_string())));
+    assert_eq!(i.get("собрано"), Some(Value::String("k1k2".into())));
+    assert_eq!(i.get("значK1"), Some(Value::String("V:k1".into())));
 }
 
 #[test]
@@ -320,7 +320,7 @@ fn proxy_set_prototype_of_trap_fires() {
         Кент.назначитьПрототип(п, прото);
         "#,
     );
-    assert_eq!(i.get("захвачено"), Some(Value::String("новый".to_string())));
+    assert_eq!(i.get("захвачено"), Some(Value::String("новый".into())));
 }
 
 #[test]
@@ -334,7 +334,7 @@ fn proxy_set_prototype_of_absent_falls_back_to_target() {
         гыы результат = Кент.прототип(цель).тег;
         "#,
     );
-    assert_eq!(i.get("результат"), Some(Value::String("цельный".to_string())));
+    assert_eq!(i.get("результат"), Some(Value::String("цельный".into())));
 }
 
 #[test]
@@ -350,8 +350,8 @@ fn proxy_define_property_trap_and_descriptor_trap() {
         гыы деск = Кент.описатьСвойство(п, "поле").значение;
         "#,
     );
-    assert_eq!(i.get("определено"), Some(Value::String("поле".to_string())));
-    assert_eq!(i.get("деск"), Some(Value::String("из-ловушки".to_string())));
+    assert_eq!(i.get("определено"), Some(Value::String("поле".into())));
+    assert_eq!(i.get("деск"), Some(Value::String("из-ловушки".into())));
 }
 
 #[test]

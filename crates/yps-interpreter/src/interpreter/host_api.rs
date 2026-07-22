@@ -139,7 +139,7 @@ impl Interpreter {
                 let (t, h) = ((**target).clone(), (**handler).clone());
                 self.proxy_own_keys(&t, &h, span)
             }
-            Value::Object(map) => Ok(map.borrow().keys().map(|k| Value::String(k.clone())).collect()),
+            Value::Object(map) => Ok(map.borrow().keys().map(|k| Value::String(k.clone().into())).collect()),
             other => Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span)),
         }
     }
@@ -151,7 +151,7 @@ impl Interpreter {
         };
         match obj {
             Value::Array(arr) => Ok(arr.borrow().0.clone()),
-            Value::String(s) => Ok(s.chars().map(|c| Value::String(c.to_string())).collect()),
+            Value::String(s) => Ok(s.chars().map(|c| Value::String(c.to_string().into())).collect()),
             Value::Set(items) => Ok(items.borrow().iter().map(|k| k.as_value().clone()).collect()),
             Value::Map(entries) => {
                 Ok(entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect())

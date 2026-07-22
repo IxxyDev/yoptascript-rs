@@ -15,8 +15,8 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     let message = iter.next().unwrap();
     let opts = iter.next();
     let mut map = IndexMap::new();
-    map.insert(symbols::ERROR_NAME_FIELD.to_string(), Value::String(symbols::ERROR_NAME.to_string()));
-    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(message.to_string()));
+    map.insert(symbols::ERROR_NAME_FIELD.to_string(), Value::String(symbols::ERROR_NAME.to_string().into()));
+    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(message.to_string().into()));
     if let Some(Value::Object(o)) = opts
         && let Some(cause) = o.borrow().get(symbols::ERROR_CAUSE_FIELD)
     {
@@ -28,7 +28,7 @@ pub fn construct(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
 pub fn is_error(args: &[Value]) -> bool {
     if let Some(Value::Object(map)) = args.first()
         && let Some(Value::String(name)) = map.borrow().get(symbols::ERROR_NAME_FIELD)
-        && name == symbols::ERROR_NAME
+        && **name == *symbols::ERROR_NAME
     {
         return true;
     }

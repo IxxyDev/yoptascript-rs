@@ -7,7 +7,7 @@ fn string_escape_newline() {
         гыы с = "привет\nмир";
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("привет\nмир".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("привет\nмир".into())));
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn string_escape_tab() {
         гыы с = "а\tб";
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("а\tб".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("а\tб".into())));
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn string_escape_backslash() {
         гыы с = "путь\\файл";
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("путь\\файл".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("путь\\файл".into())));
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn string_escape_quote() {
         гыы с = "он сказал \"да\"";
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("он сказал \"да\"".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("он сказал \"да\"".into())));
 }
 
 #[test]
@@ -47,19 +47,19 @@ fn string_escape_combined() {
         гыы с = "строка1\nстрока2\tтаб";
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("строка1\nстрока2\tтаб".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("строка1\nстрока2\tтаб".into())));
 }
 
 #[test]
 fn template_no_substitution() {
     let interp = run_code("гыы р = `привет мир`;");
-    assert_eq!(interp.get("р"), Some(Value::String("привет мир".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("привет мир".into())));
 }
 
 #[test]
 fn template_empty() {
     let interp = run_code("гыы р = ``;");
-    assert_eq!(interp.get("р"), Some(Value::String(String::new())));
+    assert_eq!(interp.get("р"), Some(Value::String(String::new().into())));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn template_single_interpolation() {
         гыы р = `привет, ${имя}!`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("привет, Вася!".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("привет, Вася!".into())));
 }
 
 #[test]
@@ -82,25 +82,25 @@ fn template_multiple_interpolations() {
         гыы р = `${а} + ${б} = ${а + б}`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("1 + 2 = 3".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("1 + 2 = 3".into())));
 }
 
 #[test]
 fn template_expression_interpolation() {
     let interp = run_code("гыы р = `результат: ${2 + 3 * 4}`;");
-    assert_eq!(interp.get("р"), Some(Value::String("результат: 14".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("результат: 14".into())));
 }
 
 #[test]
 fn template_with_escape() {
     let interp = run_code("гыы р = `строка1\\nстрока2`;");
-    assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".into())));
 }
 
 #[test]
 fn template_multiline() {
     let interp = run_code("гыы р = `строка1\nстрока2`;");
-    assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("строка1\nстрока2".into())));
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn template_nested() {
         гыы р = `внешний ${`внутренний ${х}`}`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("внешний внутренний 5".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("внешний внутренний 5".into())));
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn template_with_object_in_braces() {
         гыы р = `длина: ${длина(а)}`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("длина: 3".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("длина: 3".into())));
 }
 
 #[test]
@@ -133,13 +133,13 @@ fn template_only_interpolation() {
         гыы р = `${х}`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("42".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("42".into())));
 }
 
 #[test]
 fn template_escaped_dollar() {
     let interp = run_code("гыы р = `цена: \\${100}`;");
-    assert_eq!(interp.get("р"), Some(Value::String("цена: ${100}".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("цена: ${100}".into())));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn template_ternary_inside() {
         гыы р = `число ${х > 5 ? "большое" : "маленькое"}`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("число большое".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("число большое".into())));
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn tagged_template_basic() {
         гыы результат = тег`Привет, ${имя}! Тебе ${возраст}.`;
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("Привет, <Мир>! Тебе <42>.".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("Привет, <Мир>! Тебе <42>.".into())));
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn tagged_template_no_substitutions() {
         гыы р = тег`просто текст`;
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("просто текст".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("просто текст".into())));
 }
 
 #[test]
@@ -196,8 +196,8 @@ fn tagged_template_raw_vs_cooked() {
         гыы c = готовый`a\nb`;
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("a\\nb".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("a\nb".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("a\\nb".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("a\nb".into())));
 }
 
 #[test]
@@ -287,9 +287,9 @@ fn string_split_limit() {
         гыы c = "hello".разбить("", 3).join("|");
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("a|b".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("a|b".into())));
     assert_eq!(interp.get("b"), Some(Value::Number(0.0)));
-    assert_eq!(interp.get("c"), Some(Value::String("h|e|l".to_string())));
+    assert_eq!(interp.get("c"), Some(Value::String("h|e|l".into())));
 }
 
 #[test]
@@ -301,9 +301,9 @@ fn string_replace_dollar_patterns() {
         гыы c = "a.b.c".заменитьВсе(".", "$$");
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("price: $".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("[name]".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("a$b$c".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("price: $".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("[name]".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("a$b$c".into())));
 }
 
 #[test]
@@ -339,9 +339,9 @@ fn string_slice_utf16_code_units() {
         гыы c = "a😀b".подстрока(1, 3);
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("😀".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("a".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("😀".into())));
 }
 
 #[test]
@@ -353,9 +353,9 @@ fn string_at_utf16_code_units() {
         гыы c = "a😀b".поИндексу(-1);
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("a".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("b".into())));
 }
 
 #[test]
@@ -390,8 +390,8 @@ fn string_index_access_utf16() {
         гыы b = "a😀b"[3];
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("a".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".into())));
 }
 
 #[test]
@@ -402,7 +402,7 @@ fn bound_string_method_extract_and_call() {
         гыы рез = в();
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("АБВ".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("АБВ".into())));
 }
 
 #[test]
@@ -413,7 +413,7 @@ fn bound_string_method_extract_russian_alias() {
         гыы рез = в();
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("абв".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("абв".into())));
 }
 
 #[test]
@@ -467,8 +467,8 @@ fn string_namespace_from_char_code() {
         гыы b = Строка.fromCharCode(72, 105);
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("Hi".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("Hi".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("Hi".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("Hi".into())));
 }
 
 #[test]
@@ -479,8 +479,8 @@ fn string_namespace_from_code_point() {
         гыы b = Строка.fromCodePoint(97, 98);
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("😀".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("ab".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("😀".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("ab".into())));
 }
 
 #[test]
@@ -504,7 +504,7 @@ fn string_namespace_raw() {
         гыы rez = тег`Привет, ${имя}!\n`;
         "#,
     );
-    assert_eq!(interp.get("rez"), Some(Value::String("Привет, Мир!\\n".to_string())));
+    assert_eq!(interp.get("rez"), Some(Value::String("Привет, Мир!\\n".into())));
 }
 
 #[test]
@@ -545,8 +545,8 @@ fn normalize_nfkc_and_nfkd_forms() {
         гыы b = "ﬁ".нормализовать("NFKD");
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("fi".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("fi".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("fi".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("fi".into())));
 }
 
 #[test]

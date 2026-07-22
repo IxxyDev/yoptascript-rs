@@ -9,7 +9,7 @@ fn proto_create_and_lookup() {
         гыы рез = потомок.привет;
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("ку".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("ку".into())));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn proto_set_proto_changes_lookup() {
         гыы r = o.ключ;
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("ббб".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("ббб".into())));
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn proto_chain_two_levels() {
         гыы рез = сын.имя;
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("дед".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("дед".into())));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn class_prototype_has_methods() {
         гыы t = чезажижан m;
         "#,
     );
-    assert_eq!(interp.get("t"), Some(Value::String("функция".to_string())));
+    assert_eq!(interp.get("t"), Some(Value::String("функция".into())));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn proto_instance_carries_class_proto() {
         гыы t = чезажижан p.привет;
         "#,
     );
-    assert_eq!(interp.get("t"), Some(Value::String("функция".to_string())));
+    assert_eq!(interp.get("t"), Some(Value::String("функция".into())));
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn proto_set_proto_on_instance_changes_dispatch() {
         гыы рез = x.f();
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("из_прото".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("из_прото".into())));
 }
 
 #[test]
@@ -570,8 +570,8 @@ fn set_prototype_of_blocked_on_non_extensible_unless_unchanged() {
         гыы after_same = Кент.прототип(o).x;
         "#,
     );
-    assert_eq!(interp.get("after_diff"), Some(Value::String("a".to_string())));
-    assert_eq!(interp.get("after_same"), Some(Value::String("a".to_string())));
+    assert_eq!(interp.get("after_diff"), Some(Value::String("a".into())));
+    assert_eq!(interp.get("after_same"), Some(Value::String("a".into())));
 }
 
 #[test]

@@ -35,9 +35,9 @@ pub(crate) fn rejection_reason(e: RuntimeError) -> Value {
             let mut map = IndexMap::new();
             map.insert(
                 crate::symbols::ERROR_NAME_FIELD.to_string(),
-                Value::String(crate::symbols::ERROR_NAME.to_string()),
+                Value::String(crate::symbols::ERROR_NAME.to_string().into()),
             );
-            map.insert(crate::symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(e.message));
+            map.insert(crate::symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(e.message.into()));
             Value::object(map)
         }
     }
@@ -280,11 +280,11 @@ pub(crate) fn apply_aggregate(
             let mut entry = IndexMap::new();
             match role {
                 AggregateRole::Fulfill => {
-                    entry.insert("статус".to_string(), Value::String("выполнено".to_string()));
+                    entry.insert("статус".to_string(), Value::String("выполнено".into()));
                     entry.insert("значение".to_string(), value);
                 }
                 AggregateRole::Reject => {
-                    entry.insert("статус".to_string(), Value::String("отклонено".to_string()));
+                    entry.insert("статус".to_string(), Value::String("отклонено".into()));
                     entry.insert("причина".to_string(), value);
                 }
             }
@@ -335,8 +335,8 @@ pub(crate) fn apply_aggregate(
 
 fn aggregate_error(errors: Vec<Value>) -> Value {
     let mut agg = IndexMap::new();
-    agg.insert("name".to_string(), Value::String("ВсёОбосралось".to_string()));
-    agg.insert("message".to_string(), Value::String("Все обещания отклонены".to_string()));
+    agg.insert("name".to_string(), Value::String("ВсёОбосралось".into()));
+    agg.insert("message".to_string(), Value::String("Все обещания отклонены".into()));
     agg.insert("errors".to_string(), Value::array(errors));
     Value::object(agg)
 }

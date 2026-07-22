@@ -84,7 +84,7 @@ fn switch_with_string_cases() {
         }
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("приветствие".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("приветствие".into())));
 }
 
 #[test]
@@ -364,7 +364,7 @@ fn for_in_string_array() {
         }
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("абв".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("абв".into())));
 }
 
 #[test]
@@ -391,7 +391,7 @@ fn for_of_string() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("a-b-c-".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("a-b-c-".into())));
 }
 
 #[test]
@@ -656,7 +656,7 @@ fn empty_array_is_truthy() {
         вилкойвглаз ([]) { результат = "правда"; }
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("правда".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("правда".into())));
 }
 
 #[test]
@@ -719,11 +719,7 @@ fn for_of_pattern_closures_capture_per_iteration() {
     );
     assert_struct_eq(
         interp.get("р"),
-        Value::array(vec![
-            Value::String("а1".to_string()),
-            Value::String("б2".to_string()),
-            Value::String("в3".to_string()),
-        ]),
+        Value::array(vec![Value::String("а1".into()), Value::String("б2".into()), Value::String("в3".into())]),
     );
 }
 

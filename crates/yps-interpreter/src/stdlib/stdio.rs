@@ -31,13 +31,13 @@ fn read_line_from<R: BufRead>(reader: &mut R, span: Span) -> Result<Value, Runti
             line.pop();
         }
     }
-    Ok(Value::String(line))
+    Ok(Value::String(line.into()))
 }
 
 fn read_all_from<R: Read>(reader: &mut R, span: Span) -> Result<Value, RuntimeError> {
     let mut buf = String::new();
     reader.read_to_string(&mut buf).map_err(|e| RuntimeError::new(format!("'прочестьВсё' не смогла: {e}"), span))?;
-    Ok(Value::String(buf))
+    Ok(Value::String(buf.into()))
 }
 
 #[cfg(test)]

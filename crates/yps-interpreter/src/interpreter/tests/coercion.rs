@@ -73,10 +73,10 @@ fn add_string_concat_via_ecma_string() {
         гыы уп = "" + неибу;
         "#,
     );
-    assert_eq!(interp.get("со").unwrap(), Value::String("об=[object Object]".to_string()));
-    assert_eq!(interp.get("см").unwrap(), Value::String("мас=1,2,3".to_string()));
-    assert_eq!(interp.get("нп").unwrap(), Value::String("null".to_string()));
-    assert_eq!(interp.get("уп").unwrap(), Value::String("undefined".to_string()));
+    assert_eq!(interp.get("со").unwrap(), Value::String("об=[object Object]".into()));
+    assert_eq!(interp.get("см").unwrap(), Value::String("мас=1,2,3".into()));
+    assert_eq!(interp.get("нп").unwrap(), Value::String("null".into()));
+    assert_eq!(interp.get("уп").unwrap(), Value::String("undefined".into()));
 }
 
 #[test]
@@ -89,8 +89,8 @@ fn add_numeric_and_mixed() {
         "#,
     );
     assert_eq!(interp.get("а").unwrap(), Value::Number(3.0));
-    assert_eq!(interp.get("б").unwrap(), Value::String("15px".to_string()));
-    assert_eq!(interp.get("в").unwrap(), Value::String("px105".to_string()));
+    assert_eq!(interp.get("б").unwrap(), Value::String("15px".into()));
+    assert_eq!(interp.get("в").unwrap(), Value::String("px105".into()));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn switch_uses_strict_equality_not_abstract() {
         }
         "#,
     );
-    assert_eq!(interp.get("рез").unwrap(), Value::String("число".to_string()));
+    assert_eq!(interp.get("рез").unwrap(), Value::String("число".into()));
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn user_to_string_in_concat() {
         гыы рез = "" + об;
         "#,
     );
-    assert_eq!(interp.get("рез").unwrap(), Value::String("привет".to_string()));
+    assert_eq!(interp.get("рез").unwrap(), Value::String("привет".into()));
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn symbol_to_string_tag_used_in_string_coercion() {
         гыы рез = об + "";
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("[object МойТип]".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("[object МойТип]".into())));
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn bare_object_string_coercion_unchanged_without_tag() {
         гыы рез = об + "";
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".into())));
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn symbol_to_string_tag_non_string_ignored() {
         гыы рез = об + "";
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("[object Object]".into())));
 }
 
 #[test]
@@ -326,7 +326,7 @@ fn bigint_div_by_zero_is_catchable_error() {
         }
         "#,
     );
-    assert_eq!(i.get("рез"), Some(Value::String("поймал".to_string())));
+    assert_eq!(i.get("рез"), Some(Value::String("поймал".into())));
 }
 
 #[test]
@@ -413,5 +413,5 @@ fn symbol_keys_do_not_leak_into_object_display() {
     );
     let Some(Value::String(s)) = i.get("рез") else { panic!("ожидалась строка") };
     assert!(!s.contains("sym"), "внутренний символьный ключ протёк в Display: {s}");
-    assert_eq!(s, "{а: 1}");
+    assert_eq!(s, "{а: 1}".into());
 }

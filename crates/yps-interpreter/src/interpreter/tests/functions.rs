@@ -198,7 +198,7 @@ fn default_param_used_when_no_arg() {
         гыы р = приветствие();
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("мир".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("мир".into())));
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn default_param_overridden_by_arg() {
         гыы р = приветствие("братан");
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::String("братан".to_string())));
+    assert_eq!(interp.get("р"), Some(Value::String("братан".into())));
 }
 
 #[test]

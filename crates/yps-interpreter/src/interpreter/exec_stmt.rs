@@ -131,7 +131,7 @@ impl Interpreter {
                         crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
                     }
                     Value::Proxy { target, handler } => self.proxy_own_keys(&target, &handler, *span)?,
-                    Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone())).collect(),
+                    Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone().into())).collect(),
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),
@@ -213,9 +213,12 @@ impl Interpreter {
                                     let mut map = IndexMap::new();
                                     map.insert(
                                         symbols::ERROR_NAME_FIELD.to_string(),
-                                        Value::String(symbols::ERROR_NAME.to_string()),
+                                        Value::String(symbols::ERROR_NAME.to_string().into()),
                                     );
-                                    map.insert(symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(err.message));
+                                    map.insert(
+                                        symbols::ERROR_MESSAGE_FIELD.to_string(),
+                                        Value::String(err.message.into()),
+                                    );
                                     Value::object(map)
                                 });
                                 self.run_catch(cb, catch_param.as_ref(), thrown)
@@ -545,7 +548,7 @@ impl Interpreter {
         }
         let items: Vec<Value> = match val {
             Value::Array(elements) => elements.borrow().0.clone(),
-            Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+            Value::String(s) => s.chars().map(|c| Value::String(c.to_string().into())).collect(),
             Value::Set(s) => s.borrow().iter().map(|k| k.as_value().clone()).collect(),
             Value::Map(entries) => {
                 entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect()
@@ -739,6 +742,6 @@ mod tests {
             }
             r;
         "#;
-        assert_eq!(eval(src), crate::value::Value::String("нет".to_string()));
+        assert_eq!(eval(src), crate::value::Value::String("нет".into()));
     }
 }

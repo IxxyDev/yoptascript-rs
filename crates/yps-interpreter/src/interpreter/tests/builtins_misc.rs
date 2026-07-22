@@ -63,7 +63,7 @@ fn bigint_typeof() {
         гыы t = чезажижан 9n;
         "#,
     );
-    assert_eq!(interp.get("t"), Some(Value::String("бигцелое".to_string())));
+    assert_eq!(interp.get("t"), Some(Value::String("бигцелое".into())));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn date_construct_and_instance_method_gate() {
         "#,
     );
     assert_eq!(interp.get("год"), Some(Value::Number(1970.0)));
-    assert_eq!(interp.get("исо"), Some(Value::String("1970-01-01T00:00:00.000Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("1970-01-01T00:00:00.000Z".into())));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn date_before_1970() {
         гыы исо = д.вИСО();
         "#,
     );
-    assert_eq!(interp.get("исо"), Some(Value::String("1969-12-31T00:00:00.000Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("1969-12-31T00:00:00.000Z".into())));
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn date_invalid_returns_nan_and_invalid_string() {
         гыы плохо = год !== год;
         "#,
     );
-    assert_eq!(interp.get("исо"), Some(Value::String("Invalid Date".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("Invalid Date".into())));
     assert_eq!(interp.get("плохо"), Some(Value::Boolean(true)));
 }
 
@@ -212,8 +212,8 @@ fn date_typeof_is_object() {
         гыы имя = тип(д);
         "#,
     );
-    assert_eq!(interp.get("оп"), Some(Value::String("объект".to_string())));
-    assert_eq!(interp.get("имя"), Some(Value::String("дата".to_string())));
+    assert_eq!(interp.get("оп"), Some(Value::String("объект".into())));
+    assert_eq!(interp.get("имя"), Some(Value::String("дата".into())));
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn date_now_is_number() {
         гыы т = тип(Дата.сейчас());
         "#,
     );
-    assert_eq!(interp.get("т"), Some(Value::String("число".to_string())));
+    assert_eq!(interp.get("т"), Some(Value::String("число".into())));
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn date_json_serializes_to_iso() {
         гыы с = Жсон.вСтроку(д);
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("\"1970-01-01T00:00:00.000Z\"".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("\"1970-01-01T00:00:00.000Z\"".into())));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn date_json_invalid_to_null() {
         гыы с = Жсон.вСтроку(д);
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("null".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("null".into())));
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn date_setters_mutate_in_place_and_return_new_time() {
         "#,
     );
     assert_eq!(interp.get("совпадает"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("исо"), Some(Value::String("2020-06-15T00:00:00.000Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-06-15T00:00:00.000Z".into())));
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn date_set_month_rollover() {
         гыы исо = д.вИСО();
         "#,
     );
-    assert_eq!(interp.get("исо"), Some(Value::String("2021-02-01T00:00:00.000Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("2021-02-01T00:00:00.000Z".into())));
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn date_set_hours_and_minutes_rollover() {
         гыы исо = д.вИСО();
         "#,
     );
-    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-02T01:30:15.500Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-02T01:30:15.500Z".into())));
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn date_utc_getters_and_setters_match_local() {
     );
     assert_eq!(interp.get("годРавны"), Some(Value::Boolean(true)));
     assert_eq!(interp.get("смещение"), Some(Value::Number(0.0)));
-    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-15T10:20:30.400Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-15T10:20:30.400Z".into())));
 }
 
 #[test]
@@ -339,7 +339,7 @@ fn date_set_full_year_on_invalid_date() {
         гыы исо = д.вИСО();
         "#,
     );
-    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-01T00:00:00.000Z".to_string())));
+    assert_eq!(interp.get("исо"), Some(Value::String("2020-01-01T00:00:00.000Z".into())));
 }
 
 #[test]
@@ -442,7 +442,7 @@ fn reflect_own_keys_excludes_private() {
         "#,
     );
     assert_eq!(interp.get("длн"), Some(Value::Number(1.0)));
-    assert_eq!(interp.get("первый"), Some(Value::String("открытое".to_string())));
+    assert_eq!(interp.get("первый"), Some(Value::String("открытое".into())));
 }
 
 #[test]
@@ -499,7 +499,7 @@ fn reflect_set_routes_through_proxy_trap() {
         Отражение.установить(п, "поле", 9);
         "#,
     );
-    assert_eq!(interp.get("захвачено"), Some(Value::String("поле=9".to_string())));
+    assert_eq!(interp.get("захвачено"), Some(Value::String("поле=9".into())));
 }
 
 #[test]
@@ -515,8 +515,8 @@ fn reflect_delete_on_plain_object_and_proxy() {
         "#,
     );
     assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("после"), Some(Value::String("неопределено".to_string())));
-    assert_eq!(interp.get("удалено"), Some(Value::String("x".to_string())));
+    assert_eq!(interp.get("после"), Some(Value::String("неопределено".into())));
+    assert_eq!(interp.get("удалено"), Some(Value::String("x".into())));
 }
 
 #[test]
@@ -565,7 +565,7 @@ fn reflect_define_property_routes_through_proxy_trap() {
         "#,
     );
     assert_eq!(interp.get("ок"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("определено"), Some(Value::String("поле".to_string())));
+    assert_eq!(interp.get("определено"), Some(Value::String("поле".into())));
 }
 
 #[test]
@@ -609,5 +609,5 @@ fn reflect_forwarding_handler_uses_target_defaults() {
     );
     assert_eq!(interp.get("сумма"), Some(Value::Number(3.0)));
     assert_eq!(interp.get("естьX"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("ключи"), Some(Value::String("x,y".to_string())));
+    assert_eq!(interp.get("ключи"), Some(Value::String("x,y".into())));
 }

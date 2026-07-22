@@ -64,8 +64,8 @@ fn test_class_decorator() {
     match ctx {
         Value::Object(map) => {
             let map = map.borrow();
-            assert_eq!(map.get("вид"), Some(&Value::String("класс".to_string())));
-            assert_eq!(map.get("имя"), Some(&Value::String("МойКласс".to_string())));
+            assert_eq!(map.get("вид"), Some(&Value::String("класс".into())));
+            assert_eq!(map.get("имя"), Some(&Value::String("МойКласс".into())));
             assert_eq!(map.get("статичное"), Some(&Value::Boolean(false)));
             assert_eq!(map.get("приватное"), Some(&Value::Boolean(false)));
         }

@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [lexer, parser, fmt_roundtrip]
+        target: [lexer, parser, fmt_roundtrip, exec_diff]
     steps:
       - uses: actions/checkout@v5
 
@@ -26,7 +26,7 @@ jobs:
 
       - run: cargo install cargo-fuzz --locked
 
-      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300 -timeout=10
 
       - uses: actions/upload-artifact@v4
         if: failure()
