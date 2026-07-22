@@ -117,10 +117,10 @@ impl Interpreter {
                 if *op == UnaryOp::Typeof {
                     if let Expr::Identifier(ident) = expr.as_ref() {
                         let val = self.env.get(&ident.name).unwrap_or(Value::Undefined);
-                        return Ok(Value::String(val.typeof_str().to_string()));
+                        return Ok(Value::String(val.typeof_str().to_string().into()));
                     }
                     let val = self.eval_expr(expr)?;
-                    return Ok(Value::String(val.typeof_str().to_string()));
+                    return Ok(Value::String(val.typeof_str().to_string().into()));
                 }
                 if *op == UnaryOp::Delete {
                     return self.eval_delete(expr, *span);
@@ -353,14 +353,14 @@ impl Interpreter {
                         }
                     }
                 }
-                Ok(Value::String(result))
+                Ok(Value::String(result.into()))
             }
             Expr::TaggedTemplate { tag, quasis, expressions, span } => {
                 let mut strings_map = IndexMap::new();
                 let mut raw_vec = Vec::with_capacity(quasis.len());
                 for (i, q) in quasis.iter().enumerate() {
-                    strings_map.insert(i.to_string(), Value::String(q.cooked.clone()));
-                    raw_vec.push(Value::String(q.raw.clone()));
+                    strings_map.insert(i.to_string(), Value::String(q.cooked.clone().into()));
+                    raw_vec.push(Value::String(q.raw.clone().into()));
                 }
                 let len = Value::Number(quasis.len() as f64);
                 strings_map.insert("длина".to_string(), len.clone());
@@ -404,10 +404,13 @@ impl Interpreter {
                 let path = match source_val {
                     Value::String(s) => s,
                     other => {
-                        return Ok(Self::make_rejected_promise(Value::String(format!(
-                            "Аргумент динамического импорта должен быть строкой, получено '{}'",
-                            other.type_name()
-                        ))));
+                        return Ok(Self::make_rejected_promise(Value::String(
+                            format!(
+                                "Аргумент динамического импорта должен быть строкой, получено '{}'",
+                                other.type_name()
+                            )
+                            .into(),
+                        )));
                     }
                 };
                 match self.load_module(&path, *span) {
@@ -418,7 +421,7 @@ impl Interpreter {
                         }
                         Ok(Self::make_fulfilled_promise(Value::object(map)))
                     }
-                    Err(err) => Ok(Self::make_rejected_promise(Value::String(err.message))),
+                    Err(err) => Ok(Self::make_rejected_promise(Value::String(err.message.into()))),
                 }
             }
         }
@@ -435,7 +438,7 @@ impl Interpreter {
                 }
             }
             Literal::BigInt { value, .. } => Ok(Value::BigInt(*value)),
-            Literal::String { value, .. } => Ok(Value::String(value.clone())),
+            Literal::String { value, .. } => Ok(Value::String(value.clone().into())),
             Literal::Boolean { value, .. } => Ok(Value::Boolean(*value)),
             Literal::Null { .. } => Ok(Value::Null),
             Literal::Undefined { .. } => Ok(Value::Undefined),
@@ -459,7 +462,7 @@ impl Interpreter {
                                         .map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])),
                                 );
                             }
-                            Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                            Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string().into()))),
                             Value::TypedArray { buffer, offset, length, kind } => {
                                 values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
                             }
@@ -589,7 +592,7 @@ impl Interpreter {
                 };
                 Ok(Value::Number(!(to_int_n(n, 32) as i32) as f64))
             }
-            UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string())),
+            UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string().into())),
             UnaryOp::Delete => Ok(Value::Boolean(true)),
             UnaryOp::Void => Ok(Value::Undefined),
         }
@@ -805,7 +808,7 @@ impl Interpreter {
     }
 
     fn object_to_primitive(&mut self, value: &Value, span: Span) -> Result<Value, RuntimeError> {
-        let to_primitive_arg = vec![Value::String("умолчание".to_string())];
+        let to_primitive_arg = vec![Value::String("умолчание".into())];
         let to_primitive_sym = symbols::symbol_key(crate::stdlib::symbol::TO_PRIMITIVE_ID);
         for hook in [to_primitive_sym.as_str(), symbols::TO_PRIMITIVE_METHOD] {
             if let Some(res) = self.try_call_object_method(value, hook, to_primitive_arg.clone(), span)? {
@@ -831,7 +834,7 @@ impl Interpreter {
         }
 
         if let Some(tag) = self.to_string_tag(value) {
-            return Ok(Value::String(format!("[object {tag}]")));
+            return Ok(Value::String(format!("[object {tag}]").into()));
         }
 
         Ok(coercion::to_primitive_builtin(value))
@@ -843,7 +846,7 @@ impl Interpreter {
         };
         let key = symbols::symbol_key(crate::stdlib::symbol::TO_STRING_TAG_ID);
         match map.borrow().get(&key) {
-            Some(Value::String(tag)) => Some(tag.clone()),
+            Some(Value::String(tag)) => Some(tag.to_string()),
             _ => None,
         }
     }
@@ -872,7 +875,7 @@ impl Interpreter {
         if matches!(lp, Value::String(_)) || matches!(rp, Value::String(_)) {
             let mut s = coercion::to_ecma_string(&lp);
             s.push_str(&coercion::to_ecma_string(&rp));
-            return Ok(Value::String(s));
+            return Ok(Value::String(s.into()));
         }
         Ok(Value::Number(coercion::to_number(&lp) + coercion::to_number(&rp)))
     }

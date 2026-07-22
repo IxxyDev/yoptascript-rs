@@ -465,12 +465,12 @@ impl Interpreter {
                     }
                     map.try_borrow_mut()
                         .map_err(|_| RuntimeError::new("Внутренняя реентрантная мутация объекта", span))?
-                        .insert(key.clone(), value);
+                        .insert(key.to_string(), value);
                     Ok(())
                 } else {
                     let child = map
                         .borrow()
-                        .get(key)
+                        .get(key.as_ref())
                         .cloned()
                         .ok_or_else(|| RuntimeError::new(format!("Ключ '{key}' не найден в объекте"), span))?;
                     Self::descend_set(child, &path[1..], value, span)

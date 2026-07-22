@@ -341,8 +341,8 @@ pub fn call_instance(
         }
         "смещениеЧасовогоПояса" => Value::Number(comp.as_ref().map_or(f64::NAN, |_| 0.0)),
         "вИСО" | "вСтроку" => Value::String(match &comp {
-            Some(c) => format_components(c),
-            None => "Invalid Date".to_string(),
+            Some(c) => format_components(c).into(),
+            None => "Invalid Date".into(),
         }),
         "поставитьВремя" => Value::Number(apply_set_time(cell, &args, span, "поставитьВремя")?),
         "поставитьГод" | "поставитьГодUTC" => {

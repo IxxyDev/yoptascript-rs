@@ -332,7 +332,7 @@ fn nested_intervals_independent_cancellation() {
     let log = interp.get("лог").unwrap();
     let Value::Array(items) = log else { panic!("expected array") };
     let items = items.borrow();
-    let labels: Vec<&str> = items.iter().map(|v| if let Value::String(s) = v { s.as_str() } else { "?" }).collect();
+    let labels: Vec<&str> = items.iter().map(|v| if let Value::String(s) = v { s.as_ref() } else { "?" }).collect();
     assert_eq!(labels.iter().filter(|l| **l == "внешний").count(), 3);
     assert_eq!(labels.iter().filter(|l| **l == "внутренний").count(), 2);
 }

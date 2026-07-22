@@ -27,7 +27,7 @@ fn try_catch_catches_throw() {
         }
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("ошибка".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("ошибка".into())));
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn nested_try_catch() {
         }
         "#,
     );
-    assert_eq!(interp.get("результат"), Some(Value::String("снаружи".to_string())));
+    assert_eq!(interp.get("результат"), Some(Value::String("снаружи".into())));
 }
 
 #[test]

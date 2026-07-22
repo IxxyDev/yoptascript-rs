@@ -29,9 +29,9 @@ fn using_disposes_in_lifo_order() {
     let Value::Array(items) = log else { panic!("expected array") };
     let items = items.borrow();
     assert_eq!(items.len(), 3);
-    assert_eq!(items[0], Value::String("в".to_string()));
-    assert_eq!(items[1], Value::String("б".to_string()));
-    assert_eq!(items[2], Value::String("а".to_string()));
+    assert_eq!(items[0], Value::String("в".into()));
+    assert_eq!(items[1], Value::String("б".into()));
+    assert_eq!(items[2], Value::String("а".into()));
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn symbol_create_and_typeof() {
         гыы т = чезажижан с;
         "#,
     );
-    assert_eq!(interp.get("т"), Some(Value::String("символ".to_string())));
+    assert_eq!(interp.get("т"), Some(Value::String("символ".into())));
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn symbol_description_property() {
         гыы оп = с.описание;
         "#,
     );
-    assert_eq!(interp.get("оп"), Some(Value::String("моёОписание".to_string())));
+    assert_eq!(interp.get("оп"), Some(Value::String("моёОписание".into())));
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn symbol_to_string_method() {
         гыы стр = с.вСтроку();
         "#,
     );
-    assert_eq!(interp.get("стр"), Some(Value::String("Симбол(м)".to_string())));
+    assert_eq!(interp.get("стр"), Some(Value::String("Симбол(м)".into())));
 }
 
 #[test]
@@ -213,9 +213,9 @@ fn async_using_lifo_mixed_with_sync() {
     let Value::Array(items) = log else { panic!("expected array") };
     let items = items.borrow();
     assert_eq!(items.len(), 3);
-    assert_eq!(items[0], Value::String("в".to_string()));
-    assert_eq!(items[1], Value::String("б".to_string()));
-    assert_eq!(items[2], Value::String("а".to_string()));
+    assert_eq!(items[0], Value::String("в".into()));
+    assert_eq!(items[1], Value::String("б".into()));
+    assert_eq!(items[2], Value::String("а".into()));
 }
 
 #[test]
@@ -252,10 +252,10 @@ fn async_using_awaits_promise_before_scope_exit() {
     let log = interp.get("лог").unwrap();
     let Value::Array(items) = log else { panic!("expected array") };
     let items = items.borrow();
-    assert_eq!(items[0], Value::String("тело".to_string()));
-    assert_eq!(items[1], Value::String("начало".to_string()));
-    assert_eq!(items[2], Value::String("конец".to_string()));
-    assert_eq!(items[3], Value::String("после".to_string()));
+    assert_eq!(items[0], Value::String("тело".into()));
+    assert_eq!(items[1], Value::String("начало".into()));
+    assert_eq!(items[2], Value::String("конец".into()));
+    assert_eq!(items[3], Value::String("после".into()));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn async_using_rejection_is_catchable() {
         }
         "#,
     );
-    assert_eq!(interp.get("пойман"), Some(Value::String("бабах".to_string())));
+    assert_eq!(interp.get("пойман"), Some(Value::String("бабах".into())));
 }
 
 #[test]

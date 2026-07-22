@@ -96,7 +96,7 @@ fn eq_switch_case_uses_reference_identity() {
         }
         "#,
     );
-    assert_eq!(interp.get("рез"), Some(Value::String("идент".to_string())));
+    assert_eq!(interp.get("рез"), Some(Value::String("идент".into())));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn svz_map_key_reference_identity() {
         гыы чужой = м.взять(другой);
         "#,
     );
-    assert_eq!(interp.get("наш"), Some(Value::String("значение".to_string())));
+    assert_eq!(interp.get("наш"), Some(Value::String("значение".into())));
     assert_eq!(interp.get("чужой"), Some(Value::Undefined));
 }
 
@@ -451,8 +451,8 @@ fn bound_method_typeof_matches_function() {
         гыы тф = тип(ф);
         "#,
     );
-    assert_eq!(interp.get("тм"), Some(Value::String("функция".to_string())));
-    assert_eq!(interp.get("тф"), Some(Value::String("функция".to_string())));
+    assert_eq!(interp.get("тм"), Some(Value::String("функция".into())));
+    assert_eq!(interp.get("тф"), Some(Value::String("функция".into())));
 }
 
 #[test]

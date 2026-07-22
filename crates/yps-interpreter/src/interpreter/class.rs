@@ -36,8 +36,8 @@ enum StaticInitAction {
 impl Interpreter {
     pub(super) fn build_decorator_context(&self, kind: &str, name: &str, is_static: bool, is_private: bool) -> Value {
         let mut ctx = IndexMap::new();
-        ctx.insert(symbols::DEC_KIND.to_string(), Value::String(kind.to_string()));
-        ctx.insert(symbols::DEC_NAME.to_string(), Value::String(name.to_string()));
+        ctx.insert(symbols::DEC_KIND.to_string(), Value::String(kind.to_string().into()));
+        ctx.insert(symbols::DEC_NAME.to_string(), Value::String(name.to_string().into()));
         ctx.insert(symbols::DEC_STATIC.to_string(), Value::Boolean(is_static));
         ctx.insert(symbols::DEC_PRIVATE.to_string(), Value::Boolean(is_private));
         ctx.insert(
@@ -409,7 +409,7 @@ impl Interpreter {
         };
 
         let mut seed = IndexMap::new();
-        seed.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone()));
+        seed.insert(symbols::CLASS_TAG.to_string(), Value::String(class_def.name.clone().into()));
         seed.insert(symbols::PROTO.to_string(), Value::Class(Rc::clone(&class_def)));
         let mut instance_val = Value::object(seed);
 

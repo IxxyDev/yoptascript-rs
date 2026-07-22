@@ -407,7 +407,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
             }
             let c = chars[*index];
             *index += 1;
-            Ok(Some(Value::String(c.to_string())))
+            Ok(Some(Value::String(c.to_string().into())))
         }
         IteratorState::MapEntries { entries, index } => {
             if *index >= entries.len() {

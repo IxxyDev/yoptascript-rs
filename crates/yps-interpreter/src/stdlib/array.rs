@@ -31,7 +31,7 @@ pub fn call_static(
             require_args(&args, 1, span, "Помойка.извне")?;
             match &args[0] {
                 Value::Array(a) => Ok(Value::array(a.borrow().0.clone())),
-                Value::String(s) => Ok(Value::array(s.chars().map(|c| Value::String(c.to_string())).collect())),
+                Value::String(s) => Ok(Value::array(s.chars().map(|c| Value::String(c.to_string().into())).collect())),
                 other => Err(RuntimeError::new(format!("Помойка.извне не поддерживает '{}'", other.type_name()), span)),
             }
         }
@@ -148,7 +148,7 @@ pub fn call(
             };
             let snapshot = rc.borrow().clone();
             let parts: Vec<String> = snapshot.iter().map(|v| join_element(v, &sep)).collect();
-            Ok(Value::String(parts.join(&sep)))
+            Ok(Value::String(parts.join(&sep).into()))
         }
         "reverse" | "перевернуть" => {
             rc.borrow_mut().reverse();
@@ -709,74 +709,59 @@ mod tests {
 
     #[test]
     fn reduce_right_with_and_without_init() {
-        assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+\"-\"+б);"), crate::value::Value::String("3-2-1".to_string()));
+        assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+\"-\"+б);"), crate::value::Value::String("3-2-1".into()));
         assert_eq!(eval("[1,2,3].reduceRight((а,б)=>а+б, 10);"), crate::value::Value::Number(16.0));
     }
 
     #[test]
     fn fill_full_range() {
-        assert_eq!(eval("[1,2,3,4,5].fill(0).join(\",\");"), crate::value::Value::String("0,0,0,0,0".to_string()));
+        assert_eq!(eval("[1,2,3,4,5].fill(0).join(\",\");"), crate::value::Value::String("0,0,0,0,0".into()));
     }
 
     #[test]
     fn fill_start_end() {
-        assert_eq!(
-            eval("[1,2,3,4,5].fill(0, 1, 3).join(\",\");"),
-            crate::value::Value::String("1,0,0,4,5".to_string())
-        );
+        assert_eq!(eval("[1,2,3,4,5].fill(0, 1, 3).join(\",\");"), crate::value::Value::String("1,0,0,4,5".into()));
     }
 
     #[test]
     fn fill_negative_indices() {
-        assert_eq!(eval("[1,2,3,4,5].fill(0, -3).join(\",\");"), crate::value::Value::String("1,2,0,0,0".to_string()));
+        assert_eq!(eval("[1,2,3,4,5].fill(0, -3).join(\",\");"), crate::value::Value::String("1,2,0,0,0".into()));
     }
 
     #[test]
     fn fill_russian_alias() {
-        assert_eq!(eval("[1,2,3,4,5].заполнить(9).join(\",\");"), crate::value::Value::String("9,9,9,9,9".to_string()));
+        assert_eq!(eval("[1,2,3,4,5].заполнить(9).join(\",\");"), crate::value::Value::String("9,9,9,9,9".into()));
     }
 
     #[test]
     fn copy_within_forward() {
-        assert_eq!(
-            eval("[1,2,3,4,5].copyWithin(0, 3).join(\",\");"),
-            crate::value::Value::String("4,5,3,4,5".to_string())
-        );
+        assert_eq!(eval("[1,2,3,4,5].copyWithin(0, 3).join(\",\");"), crate::value::Value::String("4,5,3,4,5".into()));
     }
 
     #[test]
     fn copy_within_with_target_offset() {
-        assert_eq!(
-            eval("[1,2,3,4,5].copyWithin(1, 3).join(\",\");"),
-            crate::value::Value::String("1,4,5,4,5".to_string())
-        );
+        assert_eq!(eval("[1,2,3,4,5].copyWithin(1, 3).join(\",\");"), crate::value::Value::String("1,4,5,4,5".into()));
     }
 
     #[test]
     fn copy_within_russian_alias() {
         assert_eq!(
             eval("[1,2,3,4,5].копироватьВнутри(0, 3).join(\",\");"),
-            crate::value::Value::String("4,5,3,4,5".to_string())
+            crate::value::Value::String("4,5,3,4,5".into())
         );
     }
 
     #[test]
     fn entries_keys_values_are_iterators() {
-        assert_eq!(eval("тип([\"a\",\"b\"].entries());"), crate::value::Value::String("итератор".to_string()));
-        assert_eq!(
-            eval("[...[\"a\",\"b\",\"c\"].keys()].join(\",\");"),
-            crate::value::Value::String("0,1,2".to_string())
-        );
-        assert_eq!(eval("[...[\"a\",\"b\"].values()].join(\",\");"), crate::value::Value::String("a,b".to_string()));
-        assert_eq!(
-            eval("[...[\"a\",\"b\"].entries()][0].join(\",\");"),
-            crate::value::Value::String("0,a".to_string())
-        );
+        assert_eq!(eval("тип([\"a\",\"b\"].entries());"), crate::value::Value::String("итератор".into()));
+        assert_eq!(eval("[...[\"a\",\"b\",\"c\"].keys()].join(\",\");"), crate::value::Value::String("0,1,2".into()));
+        assert_eq!(eval("[...[\"a\",\"b\"].values()].join(\",\");"), crate::value::Value::String("a,b".into()));
+        assert_eq!(eval("[...[\"a\",\"b\"].entries()][0].join(\",\");"), crate::value::Value::String("0,a".into()));
     }
 
     #[test]
     fn keys_values_russian_aliases() {
-        assert_eq!(eval("[...[10,20].ключи()].join(\",\");"), crate::value::Value::String("0,1".to_string()));
-        assert_eq!(eval("[...[10,20].значения()].join(\",\");"), crate::value::Value::String("10,20".to_string()));
+        assert_eq!(eval("[...[10,20].ключи()].join(\",\");"), crate::value::Value::String("0,1".into()));
+        assert_eq!(eval("[...[10,20].значения()].join(\",\");"), crate::value::Value::String("10,20".into()));
     }
 }

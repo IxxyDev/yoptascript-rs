@@ -44,7 +44,7 @@ pub fn well_known(property: &str) -> Option<Value> {
 pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
     let description = match args.into_iter().next() {
         Some(Value::Undefined) | None => None,
-        Some(Value::String(s)) => Some(s),
+        Some(Value::String(s)) => Some(s.to_string()),
         Some(other) => Some(other.to_string()),
     };
     Ok(Value::Symbol { description, id: fresh_id() })
@@ -59,7 +59,7 @@ pub fn call_static(
     match method {
         "для" => {
             let key = match args.into_iter().next() {
-                Some(Value::String(s)) => s,
+                Some(Value::String(s)) => s.to_string(),
                 Some(other) => other.to_string(),
                 None => return Err(RuntimeError::new("'Симбол.для' ожидает ключ", span)),
             };
@@ -78,7 +78,7 @@ pub fn call_static(
             let sym = args.into_iter().next();
             if let Some(Value::Symbol { id, .. }) = sym {
                 let key = REGISTRY.with(|r| r.borrow().iter().find(|(_, v)| **v == id).map(|(k, _)| k.clone()));
-                Ok(key.map(Value::String).unwrap_or(Value::Undefined))
+                Ok(key.map(Value::string).unwrap_or(Value::Undefined))
             } else {
                 Err(RuntimeError::new("'Симбол.ключДля' ожидает символ", span))
             }
@@ -103,7 +103,7 @@ pub fn call_instance(
                 Some(d) => format!("Симбол({d})"),
                 None => "Симбол()".to_string(),
             };
-            Ok((Value::String(s), None))
+            Ok((Value::String(s.into()), None))
         }
         _ => Err(RuntimeError::new(format!("Символ не имеет метода '{method}'"), span)),
     }
@@ -113,7 +113,7 @@ pub fn member(receiver: &Value, property: &str) -> Option<Value> {
     let Value::Symbol { description, .. } = receiver else { return None };
     if property == "описание" {
         return Some(match description {
-            Some(d) => Value::String(d.clone()),
+            Some(d) => Value::String(d.clone().into()),
             None => Value::Undefined,
         });
     }

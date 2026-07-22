@@ -152,7 +152,7 @@ pub fn call_instance(
 ) -> Result<(Value, Option<Value>), RuntimeError> {
     let n = as_number(&receiver, span, "метод числа")?;
     match method {
-        "вСтроку" => Ok((Value::String(Value::Number(n).to_string()), None)),
+        "вСтроку" => Ok((Value::String(Value::Number(n).to_string().into()), None)),
         "фиксированный" => {
             let digits = if args.is_empty() { 0.0 } else { as_number(&args[0], span, "фиксированный")? };
             if !digits.is_finite() || !(0.0..=100.0).contains(&digits) {
@@ -162,7 +162,7 @@ pub fn call_instance(
                 ));
             }
             let digits = digits as usize;
-            Ok((Value::String(format!("{n:.*}", digits)), None))
+            Ok((Value::String(format!("{n:.*}", digits).into()), None))
         }
         _ => Err(RuntimeError::new(format!("У числа нет метода '{method}'"), span)),
     }

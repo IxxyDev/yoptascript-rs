@@ -249,14 +249,14 @@ fn generator_yield_value_via_next_protocol() {
     let r3 = i.get("р3").unwrap();
     if let Value::Object(m) = r1 {
         let m = m.borrow();
-        assert_eq!(m.get("значение"), Some(&Value::String("а".to_string())));
+        assert_eq!(m.get("значение"), Some(&Value::String("а".into())));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!("ожидался объект, получено {r1:?}");
     }
     if let Value::Object(m) = r2 {
         let m = m.borrow();
-        assert_eq!(m.get("значение"), Some(&Value::String("б".to_string())));
+        assert_eq!(m.get("значение"), Some(&Value::String("б".into())));
         assert_eq!(m.get("готово"), Some(&Value::Boolean(false)));
     } else {
         panic!();
@@ -341,7 +341,7 @@ fn generator_try_catch_yields_in_catch() {
     );
     assert_struct_eq(
         i.get("рез"),
-        Value::array(vec![Value::Number(1.0), Value::String("бум".to_string()), Value::Number(2.0)]),
+        Value::array(vec![Value::Number(1.0), Value::String("бум".into()), Value::Number(2.0)]),
     );
 }
 
@@ -480,7 +480,7 @@ fn generator_throw_caught_by_inner_try() {
         гыы гт = р.готово;
         "#,
     );
-    assert_eq!(i.get("зн"), Some(Value::String("упс".to_string())));
+    assert_eq!(i.get("зн"), Some(Value::String("упс".into())));
     assert_eq!(i.get("гт"), Some(Value::Boolean(false)));
 }
 
@@ -496,7 +496,7 @@ fn generator_throw_uncaught_propagates() {
         г.кинуть("бах");
         "#,
     );
-    assert_eq!(err.thrown, Some(Box::new(Value::String("бах".to_string()))));
+    assert_eq!(err.thrown, Some(Box::new(Value::String("бах".into()))));
 }
 
 #[test]
@@ -531,7 +531,7 @@ fn generator_throw_on_completed() {
         г.кинуть("после конца");
         "#,
     );
-    assert_eq!(err.thrown, Some(Box::new(Value::String("после конца".to_string()))));
+    assert_eq!(err.thrown, Some(Box::new(Value::String("после конца".into()))));
 }
 
 #[test]
@@ -611,7 +611,7 @@ fn generator_return_in_finally_overrides_gen_return() {
         "#,
     );
     assert_eq!(i.get("первый"), Some(Value::Number(1.0)));
-    assert_eq!(i.get("зн"), Some(Value::String("из-финалли".to_string())));
+    assert_eq!(i.get("зн"), Some(Value::String("из-финалли".into())));
     assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
     assert_eq!(i.get("посл"), Some(Value::Boolean(true)));
 }
@@ -640,7 +640,7 @@ fn generator_closed_when_for_of_breaks_early() {
         "#,
     );
     assert_eq!(i.get("сумма"), Some(Value::Number(3.0)));
-    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("закрыт".to_string())]));
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("закрыт".into())]));
 }
 
 #[test]
@@ -663,10 +663,7 @@ fn generator_yield_delegate_forwards_sent_values() {
         ит.следующий("S2");
         "#,
     );
-    assert_struct_eq(
-        i.get("лог"),
-        Value::array(vec![Value::String("S1".to_string()), Value::String("S2".to_string())]),
-    );
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("S1".into()), Value::String("S2".into())]));
 }
 
 #[test]
@@ -693,8 +690,8 @@ fn generator_yield_delegate_return_runs_inner_finally() {
         гыы гт = р.готово;
         "#,
     );
-    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("вн-финалли".to_string())]));
-    assert_eq!(i.get("зн"), Some(Value::String("СТОП".to_string())));
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("вн-финалли".into())]));
+    assert_eq!(i.get("зн"), Some(Value::String("СТОП".into())));
     assert_eq!(i.get("гт"), Some(Value::Boolean(true)));
 }
 
@@ -724,10 +721,10 @@ fn generator_yield_delegate_throw_recovers_in_inner_catch() {
         гыы дальше = ит.следующий().значение;
         "#,
     );
-    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("БАХ".to_string())]));
-    assert_eq!(i.get("зн"), Some(Value::String("восстановлен".to_string())));
+    assert_struct_eq(i.get("лог"), Value::array(vec![Value::String("БАХ".into())]));
+    assert_eq!(i.get("зн"), Some(Value::String("восстановлен".into())));
     assert_eq!(i.get("гт"), Some(Value::Boolean(false)));
-    assert_eq!(i.get("дальше"), Some(Value::String("после".to_string())));
+    assert_eq!(i.get("дальше"), Some(Value::String("после".into())));
 }
 
 #[test]
@@ -746,7 +743,7 @@ fn generator_throw_in_finally_overrides_gen_return() {
         г.вернуть(99);
         "#,
     );
-    assert_eq!(err.thrown, Some(Box::new(Value::String("из-финалли".to_string()))));
+    assert_eq!(err.thrown, Some(Box::new(Value::String("из-финалли".into()))));
 }
 
 #[test]
@@ -767,7 +764,7 @@ fn generator_yield_delegate_return_value_captured_in_decl() {
         "#,
     );
     assert_eq!(i.get("первое"), Some(Value::Number(1.0)));
-    assert_eq!(i.get("второе"), Some(Value::String("итог".to_string())));
+    assert_eq!(i.get("второе"), Some(Value::String("итог".into())));
 }
 
 #[test]
@@ -854,7 +851,7 @@ fn async_generator_next_returns_promise() {
         гыы т = тип(ит.следующий());
         "#,
     );
-    assert_eq!(i.get("т"), Some(Value::String("обещание".to_string())));
+    assert_eq!(i.get("т"), Some(Value::String("обещание".into())));
 }
 
 #[test]
@@ -928,7 +925,7 @@ fn async_generator_error_propagates_to_consumer_catch() {
         потр();
         "#,
     );
-    assert_eq!(i.get("поймано"), Some(Value::String("бабах".to_string())));
+    assert_eq!(i.get("поймано"), Some(Value::String("бабах".into())));
 }
 
 #[test]
@@ -956,7 +953,7 @@ fn async_generator_break_runs_finally() {
     );
     match i.get("лог") {
         Some(Value::Array(a)) => {
-            assert_eq!(a.borrow().0, vec![Value::Number(1.0), Value::Number(2.0), Value::String("финал".to_string())]);
+            assert_eq!(a.borrow().0, vec![Value::Number(1.0), Value::Number(2.0), Value::String("финал".into())]);
         }
         other => panic!("Ожидался массив, получено {other:?}"),
     }

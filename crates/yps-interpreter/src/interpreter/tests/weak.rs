@@ -33,7 +33,7 @@ fn weak_map_english_aliases_and_pairs_constructor() {
         гыы удалён = карта.delete(ключ);
         "#,
     );
-    assert_eq!(i.get("значение"), Some(Value::String("пара".to_string())));
+    assert_eq!(i.get("значение"), Some(Value::String("пара".into())));
     assert_eq!(i.get("есть"), Some(Value::Boolean(true)));
     assert_eq!(i.get("удалён"), Some(Value::Boolean(true)));
 }
@@ -177,8 +177,8 @@ fn weak_globals_typeof_is_object() {
         гыы тс = чезажижан сс;
         "#,
     );
-    assert_eq!(i.get("тк"), Some(Value::String("объект".to_string())));
-    assert_eq!(i.get("тс"), Some(Value::String("объект".to_string())));
+    assert_eq!(i.get("тк"), Some(Value::String("объект".into())));
+    assert_eq!(i.get("тс"), Some(Value::String("объект".into())));
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn finalization_registry_fires_after_target_dies() {
     };
     let log = log.borrow();
     assert_eq!(log.len(), 1);
-    assert_eq!(log[0], Value::String("первый".to_string()));
+    assert_eq!(log[0], Value::String("первый".into()));
 }
 
 #[test]

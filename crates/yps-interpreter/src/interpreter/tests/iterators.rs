@@ -139,11 +139,7 @@ fn test_iterator_from_string() {
     );
     assert_struct_eq(
         interp.get("рез"),
-        Value::array(vec![
-            Value::String("a".to_string()),
-            Value::String("b".to_string()),
-            Value::String("c".to_string()),
-        ]),
+        Value::array(vec![Value::String("a".into()), Value::String("b".into()), Value::String("c".into())]),
     );
 }
 
@@ -170,7 +166,7 @@ fn test_iterator_for_of_yields_in_order_without_materializing() {
         }
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::String("11,21,31,".to_string())));
+    assert_eq!(interp.get("итог"), Some(Value::String("11,21,31,".into())));
 }
 
 #[test]
@@ -388,5 +384,5 @@ fn spread_user_iterator_next_throws_is_catchable() {
         }
         "#,
     );
-    assert_eq!(interp.get("поймали"), Some(Value::String("бум".to_string())));
+    assert_eq!(interp.get("поймали"), Some(Value::String("бум".into())));
 }

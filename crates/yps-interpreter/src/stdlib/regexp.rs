@@ -261,20 +261,20 @@ pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value 
     for (i, slot) in md.groups.iter().enumerate() {
         let key = i.to_string();
         match slot {
-            Some(g) => map.insert(key, Value::String(g.text.clone())),
+            Some(g) => map.insert(key, Value::String(g.text.clone().into())),
             None => map.insert(key, Value::Null),
         };
     }
     let whole = md.whole();
     map.insert("index".to_string(), Value::Number(char_index_at(s, whole.start) as f64));
-    map.insert("input".to_string(), Value::String(s.to_string()));
+    map.insert("input".to_string(), Value::String(s.to_string().into()));
 
     let mut groups: IndexMap<String, Value> = IndexMap::new();
     let mut has_named = false;
     for (name, slot) in &md.named {
         has_named = true;
         match slot {
-            Some(g) => groups.insert(name.clone(), Value::String(g.text.clone())),
+            Some(g) => groups.insert(name.clone(), Value::String(g.text.clone().into())),
             None => groups.insert(name.clone(), Value::Null),
         };
     }
@@ -375,7 +375,7 @@ pub fn match_all_global(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Va
         match re.captures_from_pos(s, pos, span)? {
             Some(md) => {
                 let whole = md.whole();
-                out.push(Value::String(whole.text.clone()));
+                out.push(Value::String(whole.text.clone().into()));
                 pos = if whole.end == whole.start { next_byte(s, whole.end) } else { whole.end };
             }
             None => break,
@@ -398,7 +398,7 @@ pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>
     if s.is_empty() {
         return match re.captures_from_pos(s, 0, span)? {
             Some(_) => Ok(Vec::new()),
-            None => Ok(vec![Value::String(String::new())]),
+            None => Ok(vec![Value::String(String::new().into())]),
         };
     }
     let mut out: Vec<Value> = Vec::new();
@@ -412,10 +412,10 @@ pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>
                     pos = next_byte(s, pos);
                     continue;
                 }
-                out.push(Value::String(s[last..whole.start].to_string()));
+                out.push(Value::String(s[last..whole.start].to_string().into()));
                 for slot in md.groups.iter().skip(1) {
                     match slot {
-                        Some(g) => out.push(Value::String(g.text.clone())),
+                        Some(g) => out.push(Value::String(g.text.clone().into())),
                         None => out.push(Value::Null),
                     }
                 }
@@ -425,7 +425,7 @@ pub fn split_string(re: &Rc<YopRegex>, s: &str, span: Span) -> Result<Vec<Value>
             None => break,
         }
     }
-    out.push(Value::String(s[last..].to_string()));
+    out.push(Value::String(s[last..].to_string().into()));
     Ok(out)
 }
 
@@ -478,20 +478,20 @@ pub fn replace_with_fn(
         let whole = md.whole();
         out.push_str(&s[last_end..whole.start]);
         let mut call_args: Vec<Value> = Vec::with_capacity(md.groups.len() + 2);
-        call_args.push(Value::String(whole.text.clone()));
+        call_args.push(Value::String(whole.text.clone().into()));
         for slot in md.groups.iter().skip(1) {
             match slot {
-                Some(g) => call_args.push(Value::String(g.text.clone())),
+                Some(g) => call_args.push(Value::String(g.text.clone().into())),
                 None => call_args.push(Value::Null),
             }
         }
         let char_offset = char_index_at(s, whole.start);
         call_args.push(Value::Number(char_offset as f64));
-        call_args.push(Value::String(s.to_string()));
+        call_args.push(Value::String(s.to_string().into()));
         let returned = interp.call_function(fn_val.clone(), call_args, span)?;
         let rep = match returned {
             Value::String(rs) => rs,
-            other => other.to_string(),
+            other => other.to_string().into(),
         };
         out.push_str(&rep);
         last_end = whole.end;
@@ -648,9 +648,9 @@ pub fn call(
             let s = as_string(&args[0], span, "regex.найти")?;
             exec_stateful(&compiled, &flags, &last_index, s, span)?
         }
-        "вСтроку" | "toString" => Value::String(format!("/{pattern}/{flags}")),
-        "источник" | "source" => Value::String(pattern.clone()),
-        "флаги" | "flags" => Value::String(flags.clone()),
+        "вСтроку" | "toString" => Value::String(format!("/{pattern}/{flags}").into()),
+        "источник" | "source" => Value::String(pattern.clone().into()),
+        "флаги" | "flags" => Value::String(flags.clone().into()),
         other => {
             return Err(RuntimeError::new(format!("У regex нет метода '{other}'"), span));
         }
@@ -664,8 +664,8 @@ pub fn member(receiver: &Value, property: &str) -> Option<Value> {
         _ => return None,
     };
     match property {
-        "источник" | "source" => Some(Value::String(pattern.clone())),
-        "флаги" | "flags" => Some(Value::String(flags.clone())),
+        "источник" | "source" => Some(Value::String(pattern.clone().into())),
+        "флаги" | "flags" => Some(Value::String(flags.clone().into())),
         "global" | "глобальный" => Some(Value::Boolean(flags.contains('g'))),
         "ignoreCase" | "игнорРегистр" => Some(Value::Boolean(flags.contains('i'))),
         "multiline" | "многострочный" => Some(Value::Boolean(flags.contains('m'))),

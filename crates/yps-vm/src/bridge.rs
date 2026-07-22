@@ -304,7 +304,7 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
     match value {
         Value::Number(n) => Ok(IValue::Number(*n)),
         Value::BigInt(n) => Ok(IValue::BigInt(*n)),
-        Value::Str(s) => Ok(IValue::String(s.to_string())),
+        Value::Str(s) => Ok(IValue::String(Rc::clone(s))),
         Value::Bool(b) => Ok(IValue::Boolean(*b)),
         Value::Null => Ok(IValue::Null),
         Value::Undefined => Ok(IValue::Undefined),
@@ -375,7 +375,7 @@ fn wrap_vm_callback(callee: Value) -> IValue {
             Ok(result) => vm_to_interp(&result, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span)),
             Err(e) => match &e.thrown {
                 Some(t) => {
-                    let it = vm_to_interp(t, span).unwrap_or(IValue::String(e.message.clone()));
+                    let it = vm_to_interp(t, span).unwrap_or(IValue::String(e.message.clone().into()));
                     Err(yps_interpreter::RuntimeError::thrown(it, span))
                 }
                 None => Err(yps_interpreter::RuntimeError::new(e.message, span)),
@@ -389,7 +389,7 @@ pub fn interp_to_vm(value: &IValue) -> Result<Value, String> {
     match value {
         IValue::Number(n) => Ok(Value::Number(*n)),
         IValue::BigInt(n) => Ok(Value::BigInt(*n)),
-        IValue::String(s) => Ok(Value::Str(Rc::from(s.as_str()))),
+        IValue::String(s) => Ok(Value::Str(Rc::clone(s))),
         IValue::Boolean(b) => Ok(Value::Bool(*b)),
         IValue::Null => Ok(Value::Null),
         IValue::Undefined => Ok(Value::Undefined),

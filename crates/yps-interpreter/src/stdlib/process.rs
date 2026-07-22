@@ -21,22 +21,22 @@ pub fn build_object() -> Value {
 }
 
 fn args_value() -> Value {
-    let argv: Vec<Value> = env::args().skip(1).map(Value::String).collect();
+    let argv: Vec<Value> = env::args().skip(1).map(Value::string).collect();
     Value::array(argv)
 }
 
 fn env_value() -> Value {
     let mut map = IndexMap::new();
     for (k, v) in env::vars() {
-        map.insert(k, Value::String(v));
+        map.insert(k, Value::String(v.into()));
     }
     Value::object(map)
 }
 
 fn cwd_value() -> Value {
     match env::current_dir() {
-        Ok(p) => Value::String(p.to_string_lossy().into_owned()),
-        Err(_) => Value::String(String::new()),
+        Ok(p) => Value::String(p.to_string_lossy().into_owned().into()),
+        Err(_) => Value::String(String::new().into()),
     }
 }
 
@@ -74,7 +74,7 @@ pub fn call_static(
                 Some(v) => as_string(v, span, "Процесс.перем")?,
                 None => return Err(RuntimeError::new("'Процесс.перем' требует имя", span)),
             };
-            Ok(env::var(name).map(Value::String).unwrap_or(Value::Null))
+            Ok(env::var(name).map(Value::string).unwrap_or(Value::Null))
         }
         _ => Err(RuntimeError::new(format!("У 'Процесс' нет метода '{method}'"), span)),
     }

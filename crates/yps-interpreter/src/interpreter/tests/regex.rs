@@ -12,7 +12,7 @@ fn regex_literal_test_and_find() {
         "#,
     );
     assert_eq!(interp.get("есть"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("первое"), Some(Value::String("123".to_string())));
+    assert_eq!(interp.get("первое"), Some(Value::String("123".into())));
     assert_eq!(interp.get("idx"), Some(Value::Number(4.0)));
 }
 
@@ -24,7 +24,7 @@ fn regex_str_match_no_g() {
         гыы m = r["0"];
         "#,
     );
-    assert_eq!(interp.get("m"), Some(Value::String("123".to_string())));
+    assert_eq!(interp.get("m"), Some(Value::String("123".into())));
 }
 
 #[test]
@@ -47,9 +47,9 @@ fn regex_str_match_global() {
         гыы c = r[2];
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("1".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("2".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("3".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("1".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("2".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("3".into())));
 }
 
 #[test]
@@ -66,8 +66,8 @@ fn regex_str_match_all() {
         }
         "#,
     );
-    assert_eq!(interp.get("first"), Some(Value::String("a1".to_string())));
-    assert_eq!(interp.get("second_g1"), Some(Value::String("b".to_string())));
+    assert_eq!(interp.get("first"), Some(Value::String("a1".into())));
+    assert_eq!(interp.get("second_g1"), Some(Value::String("b".into())));
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn regex_matchall_lazy_iterator() {
         }
         "#,
     );
-    assert_eq!(interp.get("out"), Some(Value::String("123".to_string())));
+    assert_eq!(interp.get("out"), Some(Value::String("123".into())));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn regex_matchall_returns_iterator_type() {
         гыы t = тип("x".найтиВсе(/x/g));
         "#,
     );
-    assert_eq!(interp.get("t"), Some(Value::String("итератор".to_string())));
+    assert_eq!(interp.get("t"), Some(Value::String("итератор".into())));
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn regex_str_replace() {
         гыы r = "hello world".заменить(/world/, "yopta");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("hello yopta".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("hello yopta".into())));
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn regex_str_replace_global() {
         гыы r = "a-b-c".заменить(/-/g, "_");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("a_b_c".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("a_b_c".into())));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn regex_str_replace_backref() {
         гыы r = "John Smith".заменить(/(\w+) (\w+)/, "$2 $1");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("Smith John".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("Smith John".into())));
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn regex_str_replace_dollar_escape() {
         гыы r = "abc".заменить(/b/, "$$");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("a$c".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("a$c".into())));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn regex_str_replace_named_backref() {
         гыы r = "John Smith".заменить(/(?<first>\w+) (?<last>\w+)/, "$<last> $<first>");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("Smith John".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("Smith John".into())));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn regex_replace_with_fn() {
         гыы r = "a1b2".заменить(/\d/g, (m) => число(m) * 10 + "");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("a10b20".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("a10b20".into())));
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn regex_replace_with_fn_groups() {
         гыы r = "foo bar".заменить(/(\w+) (\w+)/, (m, a, b) => b + " " + a);
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("bar foo".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("bar foo".into())));
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn regex_replace_with_fn_offset() {
         гыы r = "abc".заменить(/./g, (m, off) => off + "");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("012".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("012".into())));
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn regex_replace_with_fn_no_g_only_first() {
         гыы r = "a1b2c3".заменить(/\d/, (m) => "X");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("aXb2c3".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("aXb2c3".into())));
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn regex_replace_all_with_fn() {
         гыы r = "a1b2".заменитьВсе(/\d/g, (m) => число(m) + 1 + "");
         "#,
     );
-    assert_eq!(interp.get("r"), Some(Value::String("a2b3".to_string())));
+    assert_eq!(interp.get("r"), Some(Value::String("a2b3".into())));
 }
 
 #[test]
@@ -202,9 +202,9 @@ fn regex_str_replace_multi_digit_backref() {
         гыы c = "aZ".заменить(/(a)/, "$10");
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("cba".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("XjihY".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("a0Z".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("cba".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("XjihY".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("a0Z".into())));
 }
 
 #[test]
@@ -218,10 +218,10 @@ fn regex_str_split() {
         гыы d = r[3];
         "#,
     );
-    assert_eq!(interp.get("a"), Some(Value::String("a".to_string())));
-    assert_eq!(interp.get("b"), Some(Value::String("b".to_string())));
-    assert_eq!(interp.get("c"), Some(Value::String("c".to_string())));
-    assert_eq!(interp.get("d"), Some(Value::String("d".to_string())));
+    assert_eq!(interp.get("a"), Some(Value::String("a".into())));
+    assert_eq!(interp.get("b"), Some(Value::String("b".into())));
+    assert_eq!(interp.get("c"), Some(Value::String("c".into())));
+    assert_eq!(interp.get("d"), Some(Value::String("d".into())));
 }
 
 #[test]
@@ -248,10 +248,10 @@ fn regex_exec_object_shape() {
         гыы grp = r.groups;
         "#,
     );
-    assert_eq!(interp.get("whole"), Some(Value::String("hello".to_string())));
-    assert_eq!(interp.get("g1"), Some(Value::String("hello".to_string())));
+    assert_eq!(interp.get("whole"), Some(Value::String("hello".into())));
+    assert_eq!(interp.get("g1"), Some(Value::String("hello".into())));
     assert_eq!(interp.get("idx"), Some(Value::Number(0.0)));
-    assert_eq!(interp.get("inp"), Some(Value::String("hello".to_string())));
+    assert_eq!(interp.get("inp"), Some(Value::String("hello".into())));
     assert_eq!(interp.get("grp"), Some(Value::Null));
 }
 
@@ -263,7 +263,7 @@ fn regex_exec_named_groups() {
         гыы w = r.groups.word;
         "#,
     );
-    assert_eq!(interp.get("w"), Some(Value::String("hi".to_string())));
+    assert_eq!(interp.get("w"), Some(Value::String("hi".into())));
 }
 
 #[test]
@@ -306,7 +306,7 @@ fn regex_new_regexp_no_flags() {
         "#,
     );
     assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("fl"), Some(Value::String(String::new())));
+    assert_eq!(interp.get("fl"), Some(Value::String(String::new().into())));
 }
 
 #[test]
@@ -320,7 +320,7 @@ fn regex_new_regexp_from_regex_with_flags() {
         "#,
     );
     assert_eq!(interp.get("ok"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("fl"), Some(Value::String("i".to_string())));
+    assert_eq!(interp.get("fl"), Some(Value::String("i".into())));
 }
 
 #[test]
@@ -367,7 +367,7 @@ fn regex_lookahead_routes_fancy_and_matches() {
         гыы m = r["0"];
         "#,
     );
-    assert_eq!(interp.get("m"), Some(Value::String("слов".to_string())));
+    assert_eq!(interp.get("m"), Some(Value::String("слов".into())));
 }
 
 #[test]
@@ -389,8 +389,8 @@ fn regex_lookbehind_negative_and_backref_exec() {
         гыы brm = br["0"];
         "#,
     );
-    assert_eq!(interp.get("lb"), Some(Value::String("1,234".to_string())));
-    assert_eq!(interp.get("brm"), Some(Value::String("abab".to_string())));
+    assert_eq!(interp.get("lb"), Some(Value::String("1,234".into())));
+    assert_eq!(interp.get("brm"), Some(Value::String("abab".into())));
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn regex_sticky_match_at_position() {
         гыы li = re.последнийИндекс;
         "#,
     );
-    assert_eq!(interp.get("matched"), Some(Value::String("1".to_string())));
+    assert_eq!(interp.get("matched"), Some(Value::String("1".into())));
     assert_eq!(interp.get("li"), Some(Value::Number(2.0)));
 }
 
@@ -509,7 +509,7 @@ fn regex_lastindex_property_write() {
         гыы matched = r["0"];
         "#,
     );
-    assert_eq!(interp.get("matched"), Some(Value::String("2".to_string())));
+    assert_eq!(interp.get("matched"), Some(Value::String("2".into())));
 }
 
 #[test]
@@ -562,8 +562,8 @@ fn regex_source_and_flags_properties() {
         гыы fl = p.флаги;
         "#,
     );
-    assert_eq!(interp.get("src"), Some(Value::String("foo".to_string())));
-    assert_eq!(interp.get("fl"), Some(Value::String("gi".to_string())));
+    assert_eq!(interp.get("src"), Some(Value::String("foo".into())));
+    assert_eq!(interp.get("fl"), Some(Value::String("gi".into())));
 }
 
 #[test]
@@ -605,9 +605,9 @@ fn regex_stateful_exec_fancy_path() {
         гыы t2 = m2["0"];
         "#,
     );
-    assert_eq!(interp.get("t1"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("t1"), Some(Value::String("а".into())));
     assert_eq!(interp.get("li1"), Some(Value::Number(1.0)));
-    assert_eq!(interp.get("t2"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("t2"), Some(Value::String("а".into())));
     assert_eq!(interp.get("li2"), Some(Value::Number(4.0)));
     assert_eq!(interp.get("m3"), Some(Value::Null));
     assert_eq!(interp.get("li3"), Some(Value::Number(0.0)));
@@ -629,7 +629,7 @@ fn regex_sticky_fancy_path() {
     );
     assert_eq!(interp.get("r1"), Some(Value::Null));
     assert_eq!(interp.get("li1"), Some(Value::Number(0.0)));
-    assert_eq!(interp.get("matched"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("matched"), Some(Value::String("а".into())));
     assert_eq!(interp.get("li2"), Some(Value::Number(4.0)));
 }
 
@@ -658,9 +658,9 @@ fn regex_split_with_backref() {
         "#,
     );
     assert_eq!(interp.get("len"), Some(Value::Number(3.0)));
-    assert_eq!(interp.get("p0"), Some(Value::String("".to_string())));
-    assert_eq!(interp.get("p1"), Some(Value::String("а".to_string())));
-    assert_eq!(interp.get("p2"), Some(Value::String("X".to_string())));
+    assert_eq!(interp.get("p0"), Some(Value::String("".into())));
+    assert_eq!(interp.get("p1"), Some(Value::String("а".into())));
+    assert_eq!(interp.get("p2"), Some(Value::String("X".into())));
 }
 
 #[test]
@@ -695,7 +695,7 @@ fn regex_split_includes_capture_groups() {
         "#,
     );
     assert_eq!(interp.get("дл"), Some(Value::Number(5.0)));
-    assert_eq!(interp.get("стр"), Some(Value::String("a|x|b|x|c".to_string())));
+    assert_eq!(interp.get("стр"), Some(Value::String("a|x|b|x|c".into())));
 }
 
 #[test]
@@ -708,5 +708,5 @@ fn regex_split_empty_pattern_per_char() {
         "#,
     );
     assert_eq!(interp.get("дл"), Some(Value::Number(3.0)));
-    assert_eq!(interp.get("стр"), Some(Value::String("a|b|c".to_string())));
+    assert_eq!(interp.get("стр"), Some(Value::String("a|b|c".into())));
 }

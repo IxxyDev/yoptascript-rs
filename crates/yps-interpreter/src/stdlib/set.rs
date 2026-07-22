@@ -200,20 +200,20 @@ mod tests {
 
     #[test]
     fn set_keys_values_entries_are_iterators() {
-        assert_eq!(eval("тип(захуярить Набор().keys());"), crate::value::Value::String("итератор".to_string()));
-        assert_eq!(eval("тип(захуярить Набор().значения());"), crate::value::Value::String("итератор".to_string()));
-        assert_eq!(eval("тип(захуярить Набор().записи());"), crate::value::Value::String("итератор".to_string()));
+        assert_eq!(eval("тип(захуярить Набор().keys());"), crate::value::Value::String("итератор".into()));
+        assert_eq!(eval("тип(захуярить Набор().значения());"), crate::value::Value::String("итератор".into()));
+        assert_eq!(eval("тип(захуярить Набор().записи());"), crate::value::Value::String("итератор".into()));
     }
 
     #[test]
     fn set_keys_values_insertion_order() {
         assert_eq!(
             eval("гыы с = захуярить Набор([3, 1, 2]); [...с.keys()].join(\",\");"),
-            crate::value::Value::String("3,1,2".to_string())
+            crate::value::Value::String("3,1,2".into())
         );
         assert_eq!(
             eval("гыы с = захуярить Набор([3, 1, 2]); [...с.значения()].join(\",\");"),
-            crate::value::Value::String("3,1,2".to_string())
+            crate::value::Value::String("3,1,2".into())
         );
     }
 
@@ -221,7 +221,7 @@ mod tests {
     fn set_entries_pair_shape() {
         assert_eq!(
             eval("гыы с = захуярить Набор([10]); [...с.записи()][0].join(\",\");"),
-            crate::value::Value::String("10,10".to_string())
+            crate::value::Value::String("10,10".into())
         );
     }
 }

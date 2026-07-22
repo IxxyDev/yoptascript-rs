@@ -30,8 +30,8 @@ fn test_karta_get_or_insert_computed() {
         гыы б = м.getOrInsertComputed("привет", вычислить);
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::String("привет!".to_string())));
-    assert_eq!(interp.get("б"), Some(Value::String("привет!".to_string())));
+    assert_eq!(interp.get("а"), Some(Value::String("привет!".into())));
+    assert_eq!(interp.get("б"), Some(Value::String("привет!".into())));
     assert_eq!(interp.get("вызовов"), Some(Value::Number(1.0)));
 }
 
@@ -44,8 +44,8 @@ fn test_kosyak_construct() {
         гыы сообщ = е.message;
         "#,
     );
-    assert_eq!(interp.get("имя"), Some(Value::String("Косяк".to_string())));
-    assert_eq!(interp.get("сообщ"), Some(Value::String("плохо".to_string())));
+    assert_eq!(interp.get("имя"), Some(Value::String("Косяк".into())));
+    assert_eq!(interp.get("сообщ"), Some(Value::String("плохо".into())));
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn test_kosyak_without_new() {
         гыы имя = е.name;
         "#,
     );
-    assert_eq!(interp.get("имя"), Some(Value::String("Косяк".to_string())));
+    assert_eq!(interp.get("имя"), Some(Value::String("Косяк".into())));
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn test_kosyak_throw_catch() {
         }
         "#,
     );
-    assert_eq!(interp.get("пойман"), Some(Value::String("упало".to_string())));
+    assert_eq!(interp.get("пойман"), Some(Value::String("упало".into())));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn test_kosyak_with_cause() {
         гыы сообщ = причина.message;
         "#,
     );
-    assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".to_string())));
+    assert_eq!(interp.get("сообщ"), Some(Value::String("первая ошибка".into())));
 }
 
 #[test]
@@ -182,8 +182,8 @@ fn test_spread_map_into_array() {
     assert_struct_eq(
         interp.get("а"),
         Value::array(vec![
-            Value::array(vec![Value::String("а".to_string()), Value::Number(1.0)]),
-            Value::array(vec![Value::String("б".to_string()), Value::Number(2.0)]),
+            Value::array(vec![Value::String("а".into()), Value::Number(1.0)]),
+            Value::array(vec![Value::String("б".into()), Value::Number(2.0)]),
         ]),
     );
 }
@@ -197,11 +197,7 @@ fn test_spread_string_into_array() {
     );
     assert_struct_eq(
         interp.get("а"),
-        Value::array(vec![
-            Value::String("а".to_string()),
-            Value::String("б".to_string()),
-            Value::String("в".to_string()),
-        ]),
+        Value::array(vec![Value::String("а".into()), Value::String("б".into()), Value::String("в".into())]),
     );
 }
 
@@ -245,11 +241,7 @@ fn test_for_of_map_yields_pairs() {
     );
     assert_struct_eq(
         interp.get("ключи"),
-        Value::array(vec![
-            Value::String("а".to_string()),
-            Value::String("б".to_string()),
-            Value::String("в".to_string()),
-        ]),
+        Value::array(vec![Value::String("а".into()), Value::String("б".into()), Value::String("в".into())]),
     );
     assert_eq!(interp.get("суммаЗнч"), Some(Value::Number(6.0)));
 }
@@ -466,9 +458,9 @@ fn test_karta_keys_values_entries_preserve_insertion_order() {
     assert_struct_eq(
         interp.get("клч"),
         Value::array(vec![
-            Value::String("первый".to_string()),
-            Value::String("второй".to_string()),
-            Value::String("третий".to_string()),
+            Value::String("первый".into()),
+            Value::String("второй".into()),
+            Value::String("третий".into()),
         ]),
     );
     assert_struct_eq(interp.get("знч"), Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
@@ -524,8 +516,8 @@ fn test_karta_keys_supports_non_string() {
         гыы б = к.get(2);
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::String("один".to_string())));
-    assert_eq!(interp.get("б"), Some(Value::String("два".to_string())));
+    assert_eq!(interp.get("а"), Some(Value::String("один".into())));
+    assert_eq!(interp.get("б"), Some(Value::String("два".into())));
 }
 
 #[test]

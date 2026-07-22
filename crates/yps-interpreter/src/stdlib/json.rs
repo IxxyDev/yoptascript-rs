@@ -57,7 +57,7 @@ fn stringify(v: &Value, span: Span) -> Result<Value, RuntimeError> {
     let mut out = String::new();
     let mut seen: HashSet<*const ()> = HashSet::new();
     stringify_into(v, &mut out, span, &mut seen, 0)?;
-    Ok(Value::String(out))
+    Ok(Value::String(out.into()))
 }
 
 fn stringify_into(
@@ -265,7 +265,7 @@ impl<'a> JsonParser<'a> {
                 self.depth -= 1;
                 result
             }
-            Some(b'"') => self.parse_string(span).map(Value::String),
+            Some(b'"') => self.parse_string(span).map(Value::string),
             Some(b't') | Some(b'f') => self.parse_bool(span),
             Some(b'n') => self.parse_null(span),
             Some(b) if b == b'-' || b.is_ascii_digit() => self.parse_number(span),
@@ -464,12 +464,12 @@ mod tests {
     #[test]
     fn stringify_large_integer_does_not_saturate_to_i64() {
         let out = stringify(&Value::Number(1e300), Span { start: 0, end: 0 }).unwrap();
-        assert_eq!(out, Value::String("1e+300".to_string()));
+        assert_eq!(out, Value::String("1e+300".into()));
     }
 
     #[test]
     fn stringify_small_integer_has_no_fraction() {
         let out = stringify(&Value::Number(5.0), Span { start: 0, end: 0 }).unwrap();
-        assert_eq!(out, Value::String("5".to_string()));
+        assert_eq!(out, Value::String("5".into()));
     }
 }

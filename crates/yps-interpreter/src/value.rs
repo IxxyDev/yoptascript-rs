@@ -496,7 +496,7 @@ fn drain_value_tree(stack: &mut Vec<Value>) {
 pub enum Value {
     Number(f64),
     BigInt(i128),
-    String(String),
+    String(Rc<str>),
     Boolean(bool),
     Array(Rc<RefCell<ArrayStore>>),
     Object(Rc<RefCell<ObjectStore>>),
@@ -657,6 +657,10 @@ pub struct FinRegEntry {
 }
 
 impl Value {
+    pub fn string(s: impl Into<Rc<str>>) -> Value {
+        Value::String(s.into())
+    }
+
     pub fn array(items: Vec<Value>) -> Value {
         Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
     }

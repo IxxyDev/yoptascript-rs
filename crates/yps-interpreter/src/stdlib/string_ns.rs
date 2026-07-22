@@ -57,7 +57,7 @@ fn raw(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
             out.push_str(&sub.to_string());
         }
     }
-    Ok(Value::String(out))
+    Ok(Value::String(out.into()))
 }
 
 fn from_char_code(args: &[Value], span: Span) -> Result<Value, RuntimeError> {
@@ -66,7 +66,7 @@ fn from_char_code(args: &[Value], span: Span) -> Result<Value, RuntimeError> {
         let n = as_number(a, span, "Строка.изСимволов")?;
         units.push(n as u16);
     }
-    Ok(Value::String(String::from_utf16_lossy(&units)))
+    Ok(Value::String(String::from_utf16_lossy(&units).into()))
 }
 
 fn from_code_point(args: &[Value], span: Span) -> Result<Value, RuntimeError> {
@@ -81,5 +81,5 @@ fn from_code_point(args: &[Value], span: Span) -> Result<Value, RuntimeError> {
             None => return Err(RuntimeError::new(format!("Некорректная кодовая точка: {n}"), span)),
         }
     }
-    Ok(Value::String(out))
+    Ok(Value::String(out.into()))
 }

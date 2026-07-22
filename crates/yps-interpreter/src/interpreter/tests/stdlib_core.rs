@@ -250,7 +250,7 @@ fn test_stdlib_array_join_slice_reverse() {
         гыы пр = а.toReversed();
         "#,
     );
-    assert_eq!(interp.get("дж"), Some(Value::String("1-2-3".to_string())));
+    assert_eq!(interp.get("дж"), Some(Value::String("1-2-3".into())));
     assert_struct_eq(interp.get("ср"), Value::array(vec![Value::Number(2.0), Value::Number(3.0)]));
     assert_struct_eq(interp.get("пр"), Value::array(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)]));
 }
@@ -309,8 +309,8 @@ fn test_stdlib_string_basic() {
         гыы вкл = с.includes("Привет");
         "#,
     );
-    assert_eq!(interp.get("в"), Some(Value::String("ПРИВЕТ, МИР".to_string())));
-    assert_eq!(interp.get("н"), Some(Value::String("привет, мир".to_string())));
+    assert_eq!(interp.get("в"), Some(Value::String("ПРИВЕТ, МИР".into())));
+    assert_eq!(interp.get("н"), Some(Value::String("привет, мир".into())));
     assert_eq!(interp.get("и"), Some(Value::Number(8.0)));
     assert_eq!(interp.get("вкл"), Some(Value::Boolean(true)));
 }
@@ -325,16 +325,12 @@ fn test_stdlib_string_slice_trim_split() {
         гыы отр = "hello".slice(1, 4);
         "#,
     );
-    assert_eq!(interp.get("об"), Some(Value::String("привет".to_string())));
+    assert_eq!(interp.get("об"), Some(Value::String("привет".into())));
     assert_struct_eq(
         interp.get("сл"),
-        Value::array(vec![
-            Value::String("a".to_string()),
-            Value::String("b".to_string()),
-            Value::String("c".to_string()),
-        ]),
+        Value::array(vec![Value::String("a".into()), Value::String("b".into()), Value::String("c".into())]),
     );
-    assert_eq!(interp.get("отр"), Some(Value::String("ell".to_string())));
+    assert_eq!(interp.get("отр"), Some(Value::String("ell".into())));
 }
 
 #[test]
@@ -359,9 +355,9 @@ fn test_stdlib_string_repeat_pad() {
         гыы в = "5".padEnd(4, "-");
         "#,
     );
-    assert_eq!(interp.get("а"), Some(Value::String("abcabcabc".to_string())));
-    assert_eq!(interp.get("б"), Some(Value::String("005".to_string())));
-    assert_eq!(interp.get("в"), Some(Value::String("5---".to_string())));
+    assert_eq!(interp.get("а"), Some(Value::String("abcabcabc".into())));
+    assert_eq!(interp.get("б"), Some(Value::String("005".into())));
+    assert_eq!(interp.get("в"), Some(Value::String("5---".into())));
 }
 
 #[test]
@@ -376,7 +372,7 @@ fn test_stdlib_object_keys_values_entries() {
     if let Some(Value::Array(keys)) = interp.get("к") {
         let mut keys = keys.borrow().0.clone();
         keys.sort_by_key(|v| v.to_string());
-        assert_eq!(keys, vec![Value::String("а".to_string()), Value::String("б".to_string())]);
+        assert_eq!(keys, vec![Value::String("а".into()), Value::String("б".into())]);
     } else {
         panic!("Expected Array");
     }
@@ -401,7 +397,7 @@ fn test_stdlib_json_stringify_parse_roundtrip() {
         гыы активен = об.активен;
         "#,
     );
-    assert_eq!(interp.get("имя"), Some(Value::String("Саня".to_string())));
+    assert_eq!(interp.get("имя"), Some(Value::String("Саня".into())));
     assert_eq!(interp.get("возраст"), Some(Value::Number(25.0)));
     assert_eq!(interp.get("активен"), Some(Value::Boolean(true)));
 }

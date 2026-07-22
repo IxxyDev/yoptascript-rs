@@ -21,7 +21,7 @@ fn test_async_function_returns_promise() {
         гыы т = тип(p);
         "#,
     );
-    assert_eq!(interp.get("т"), Some(Value::String("обещание".to_string())));
+    assert_eq!(interp.get("т"), Some(Value::String("обещание".into())));
     match interp.get("p") {
         Some(Value::Promise { .. }) => {}
         other => panic!("Ожидался Promise, получено {other:?}"),
@@ -85,7 +85,7 @@ fn test_await_rejected_throws_catchable() {
         тест().потом((v) => { итог = v; });
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::String("поймал".to_string())));
+    assert_eq!(interp.get("итог"), Some(Value::String("поймал".into())));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn test_promise_catch_on_rejected() {
         СловоПацана.отвергнуть("ошибка").ловить((e) => { итог = e; });
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::String("ошибка".to_string())));
+    assert_eq!(interp.get("итог"), Some(Value::String("ошибка".into())));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn promise_catch_receives_thrown_object_from_then() {
             .ловить((е) => { тип_е = тип(е); код = е.код; });
         "#,
     );
-    assert_eq!(i.get("тип_е"), Some(Value::String("объект".to_string())));
+    assert_eq!(i.get("тип_е"), Some(Value::String("объект".into())));
     assert_eq!(i.get("код"), Some(Value::Number(7.0)));
 }
 
@@ -196,7 +196,7 @@ fn promise_rejects_engine_error_as_object_like_catch() {
             .ловить((е) => { имя = е.name; сообщение = е.message; });
         "#,
     );
-    assert_eq!(i.get("имя"), Some(Value::String("Косяк".to_string())));
+    assert_eq!(i.get("имя"), Some(Value::String("Косяк".into())));
     let msg = match i.get("сообщение") {
         Some(Value::String(s)) => s,
         other => panic!("ожидалась строка, получено {other:?}"),

@@ -16,7 +16,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::GET) {
-            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string()), proxy], span);
+            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into()), proxy], span);
         }
         if let Value::Array(arr) = target
             && let Ok(idx) = key.parse::<usize>()
@@ -36,8 +36,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::SET) {
-            let result =
-                self.call_function(trap, vec![target.clone(), Value::String(key.to_string()), value, proxy], span)?;
+            let result = self.call_function(
+                trap,
+                vec![target.clone(), Value::String(key.to_string().into()), value, proxy],
+                span,
+            )?;
             if !result.is_truthy() {
                 return Err(RuntimeError::new(
                     format!("Ловушка 'установить' посредника отвергла запись свойства '{key}'"),
@@ -79,7 +82,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::HAS) {
-            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string())], span)?;
+            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span)?;
             return Ok(result.is_truthy());
         }
         Ok(match target {
@@ -99,7 +102,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::DELETE) {
-            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string())], span)?;
+            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span)?;
             return Ok(result.is_truthy());
         }
         if let Value::Object(map) = target
@@ -145,7 +148,7 @@ impl Interpreter {
         if let Some(trap) = proxy::trap(handler, proxy::OWN_KEYS) {
             let result = self.call_function(trap, vec![target.clone()], span)?;
             return match result {
-                Value::Array(arr) => Ok(arr.borrow().0.iter().map(|k| Value::String(k.to_string())).collect()),
+                Value::Array(arr) => Ok(arr.borrow().0.iter().map(|k| Value::String(k.to_string().into())).collect()),
                 other => Err(RuntimeError::new(
                     format!(
                         "Ловушка 'собственныеКлючи' посредника должна вернуть массив, получено '{}'",
@@ -193,8 +196,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::DEFINE_PROPERTY) {
-            let result =
-                self.call_function(trap, vec![target.clone(), Value::String(key.to_string()), descriptor], span)?;
+            let result = self.call_function(
+                trap,
+                vec![target.clone(), Value::String(key.to_string().into()), descriptor],
+                span,
+            )?;
             return Ok(result.is_truthy());
         }
         if let Value::Object(map) = target {
@@ -212,7 +218,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::GET_OWN_PROPERTY_DESCRIPTOR) {
-            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string())], span);
+            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span);
         }
         if let Value::Object(map) = target {
             return Ok(crate::stdlib::object::describe_property_impl(&map.borrow(), key).unwrap_or(Value::Undefined));
@@ -259,11 +265,11 @@ fn default_own_keys(target: &Value) -> Vec<Value> {
             .borrow()
             .keys()
             .filter(|k| !crate::symbols::is_internal_key(k) && !k.starts_with('#'))
-            .map(|k| Value::String(k.clone()))
+            .map(|k| Value::String(k.clone().into()))
             .collect(),
         Value::Array(arr) => {
-            let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string())).collect();
-            keys.push(Value::String("length".to_string()));
+            let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string().into())).collect();
+            keys.push(Value::String("length".into()));
             keys
         }
         _ => Vec::new(),

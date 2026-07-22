@@ -121,9 +121,9 @@ fn import_json_with_type_attribute() {
         гыы первое = data.хобби[0];
     "#;
     let interp = run_with_data_file("d.json", json, main);
-    assert_eq!(interp.get("имя"), Some(Value::String("Вася".to_string())));
+    assert_eq!(interp.get("имя"), Some(Value::String("Вася".into())));
     assert_eq!(interp.get("возраст"), Some(Value::Number(25.0)));
-    assert_eq!(interp.get("первое"), Some(Value::String("а".to_string())));
+    assert_eq!(interp.get("первое"), Some(Value::String("а".into())));
 }
 
 fn run_with_files(files: &[(&str, &str)], entry: &str, main_src: &str) -> Interpreter {

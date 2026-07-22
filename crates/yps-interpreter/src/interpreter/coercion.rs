@@ -41,7 +41,7 @@ pub fn string_to_number(s: &str) -> f64 {
 
 pub(crate) fn to_ecma_string(value: &Value) -> String {
     match value {
-        Value::String(s) => s.clone(),
+        Value::String(s) => s.to_string(),
         Value::Number(n) => number_to_string(*n),
         Value::Boolean(b) => {
             if *b {
@@ -155,7 +155,7 @@ pub(crate) fn to_primitive_builtin(value: &Value) -> Value {
     if is_primitive(value) {
         return value.clone();
     }
-    Value::String(to_ecma_string(value))
+    Value::String(to_ecma_string(value).into())
 }
 
 #[cfg(test)]
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn to_number_string_one() {
-        assert_eq!(to_number(&Value::String("1".to_string())), 1.0);
+        assert_eq!(to_number(&Value::String("1".into())), 1.0);
     }
 
     #[test]
@@ -193,12 +193,12 @@ mod tests {
 
     #[test]
     fn to_number_empty_string_is_zero() {
-        assert_eq!(to_number(&Value::String("   ".to_string())), 0.0);
+        assert_eq!(to_number(&Value::String("   ".into())), 0.0);
     }
 
     #[test]
     fn to_number_garbage_is_nan() {
-        assert!(to_number(&Value::String("абв".to_string())).is_nan());
+        assert!(to_number(&Value::String("абв".into())).is_nan());
     }
 
     #[test]
@@ -279,6 +279,6 @@ mod tests {
     #[test]
     fn to_primitive_builtin_object_stringifies() {
         let obj = Value::Object(Rc::new(RefCell::new(ObjectStore::new(IndexMap::new()))));
-        assert_eq!(to_primitive_builtin(&obj), Value::String("[object Object]".to_string()));
+        assert_eq!(to_primitive_builtin(&obj), Value::String("[object Object]".into()));
     }
 }

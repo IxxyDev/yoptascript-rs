@@ -234,7 +234,7 @@ fn ta_typeof_is_kind_name() {
         гыы оп = тип(т);
         "#,
     );
-    assert_eq!(interp.get("оп"), Some(Value::String("Ц8Массив".to_string())));
+    assert_eq!(interp.get("оп"), Some(Value::String("Ц8Массив".into())));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn ta_json_serializes_as_array() {
         гыы с = Жсон.вСтроку(т);
         "#,
     );
-    assert_eq!(interp.get("с"), Some(Value::String("[1,2,3]".to_string())));
+    assert_eq!(interp.get("с"), Some(Value::String("[1,2,3]".into())));
 }
 
 #[test]

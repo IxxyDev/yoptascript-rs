@@ -51,7 +51,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             if args.len() != 1 {
                 return Err(RuntimeError::new("'тип' принимает 1 аргумент", span));
             }
-            Ok(Value::String(args[0].type_name().to_string()))
+            Ok(Value::String(args[0].type_name().to_string().into()))
         }
         "число" => {
             if args.len() != 1 {
@@ -84,7 +84,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
                 Value::Number(n) => crate::interpreter::coercion::number_to_string(*n),
                 other => other.to_string(),
             };
-            Ok(Value::String(text))
+            Ok(Value::String(text.into()))
         }
         "втолкнуть" => {
             if args.len() != 2 {
@@ -147,7 +147,7 @@ fn construct_regexp(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError>
     let second = it.next();
 
     let flags_override = match &second {
-        Some(Value::String(s)) => Some(s.clone()),
+        Some(Value::String(s)) => Some(s.to_string()),
         Some(Value::Undefined) | Some(Value::Null) | None => None,
         Some(other) => {
             return Err(RuntimeError::new(
@@ -161,7 +161,7 @@ fn construct_regexp(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError>
         Value::String(pattern) => {
             let flags = flags_override.unwrap_or_default();
             let compiled = regexp::compile(&pattern, &flags, span)?;
-            Ok(Value::RegExp { pattern, flags, compiled, last_index: Rc::new(RefCell::new(0)) })
+            Ok(Value::RegExp { pattern: pattern.to_string(), flags, compiled, last_index: Rc::new(RefCell::new(0)) })
         }
         Value::RegExp { pattern, flags, compiled, .. } => match flags_override {
             None => Ok(Value::RegExp {
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(chislo(Value::Number(3.5)), 3.5);
         assert_eq!(chislo(Value::String("42".into())), 42.0);
         assert_eq!(chislo(Value::String("  7  ".into())), 7.0);
-        assert_eq!(chislo(Value::String(String::new())), 0.0);
+        assert_eq!(chislo(Value::String(String::new().into())), 0.0);
         assert_eq!(chislo(Value::String("0x10".into())), 16.0);
         assert_eq!(chislo(Value::String("Infinity".into())), f64::INFINITY);
         assert!(chislo(Value::String("мусор".into())).is_nan());

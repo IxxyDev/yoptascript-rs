@@ -33,7 +33,7 @@ pub fn call_static(
         "прочитать" => {
             require_args(&args, 1, span, "ФС.прочитать")?;
             let path = as_string(&args[0], span, "ФС.прочитать")?;
-            fs::read_to_string(path).map(Value::String).map_err(|e| io_err("ФС.прочитать", path, e, span))
+            fs::read_to_string(path).map(Value::string).map_err(|e| io_err("ФС.прочитать", path, e, span))
         }
         "записать" => {
             require_args(&args, 2, span, "ФС.записать")?;
@@ -81,7 +81,7 @@ pub fn call_static(
             let mut out = Vec::new();
             for entry in entries {
                 let entry = entry.map_err(|e| io_err("ФС.список", path, e, span))?;
-                out.push(Value::String(entry.file_name().to_string_lossy().into_owned()));
+                out.push(Value::String(entry.file_name().to_string_lossy().into_owned().into()));
             }
             Ok(Value::array(out))
         }
@@ -123,30 +123,30 @@ mod tests {
     fn write_then_read_roundtrip() {
         let path = tmp_path("rw.txt");
         let _ = fs::remove_file(&path);
-        call("записать", vec![Value::String(path.clone()), Value::String("привет".into())]).unwrap();
-        let v = call("прочитать", vec![Value::String(path.clone())]).unwrap();
+        call("записать", vec![Value::String(path.clone().into()), Value::String("привет".into())]).unwrap();
+        let v = call("прочитать", vec![Value::String(path.clone().into())]).unwrap();
         assert_eq!(v, Value::String("привет".into()));
-        call("удалить", vec![Value::String(path)]).unwrap();
+        call("удалить", vec![Value::String(path.into())]).unwrap();
     }
 
     #[test]
     fn exists_true_and_false() {
         let path = tmp_path("ex.txt");
         let _ = fs::remove_file(&path);
-        assert_eq!(call("существует", vec![Value::String(path.clone())]).unwrap(), Value::Boolean(false));
-        call("записать", vec![Value::String(path.clone()), Value::String("".into())]).unwrap();
-        assert_eq!(call("существует", vec![Value::String(path.clone())]).unwrap(), Value::Boolean(true));
-        call("удалить", vec![Value::String(path)]).unwrap();
+        assert_eq!(call("существует", vec![Value::String(path.clone().into())]).unwrap(), Value::Boolean(false));
+        call("записать", vec![Value::String(path.clone().into()), Value::String("".into())]).unwrap();
+        assert_eq!(call("существует", vec![Value::String(path.clone().into())]).unwrap(), Value::Boolean(true));
+        call("удалить", vec![Value::String(path.into())]).unwrap();
     }
 
     #[test]
     fn list_returns_array() {
         let dir = tmp_path("list_dir");
         let _ = fs::remove_dir_all(&dir);
-        call("создатьПапку", vec![Value::String(dir.clone())]).unwrap();
+        call("создатьПапку", vec![Value::String(dir.clone().into())]).unwrap();
         let file_path = format!("{dir}/один.txt");
-        call("записать", vec![Value::String(file_path), Value::String("".into())]).unwrap();
-        let v = call("список", vec![Value::String(dir.clone())]).unwrap();
+        call("записать", vec![Value::String(file_path.into()), Value::String("".into())]).unwrap();
+        let v = call("список", vec![Value::String(dir.clone().into())]).unwrap();
         match v {
             Value::Array(items) => {
                 assert_eq!(items.borrow().len(), 1);
@@ -154,14 +154,14 @@ mod tests {
             }
             other => panic!("ожидался массив, получено {other:?}"),
         }
-        call("удалитьПапку", vec![Value::String(dir)]).unwrap();
+        call("удалитьПапку", vec![Value::String(dir.into())]).unwrap();
     }
 
     #[test]
     fn read_missing_errors() {
         let path = tmp_path("missing.txt");
         let _ = fs::remove_file(&path);
-        let err = call("прочитать", vec![Value::String(path)]).unwrap_err();
+        let err = call("прочитать", vec![Value::String(path.into())]).unwrap_err();
         assert!(err.message.contains("ФС.прочитать"), "msg: {}", err.message);
     }
 
@@ -169,10 +169,10 @@ mod tests {
     fn append_extends_file() {
         let path = tmp_path("app.txt");
         let _ = fs::remove_file(&path);
-        call("записать", vec![Value::String(path.clone()), Value::String("a".into())]).unwrap();
-        call("дописать", vec![Value::String(path.clone()), Value::String("b".into())]).unwrap();
-        let v = call("прочитать", vec![Value::String(path.clone())]).unwrap();
+        call("записать", vec![Value::String(path.clone().into()), Value::String("a".into())]).unwrap();
+        call("дописать", vec![Value::String(path.clone().into()), Value::String("b".into())]).unwrap();
+        let v = call("прочитать", vec![Value::String(path.clone().into())]).unwrap();
         assert_eq!(v, Value::String("ab".into()));
-        call("удалить", vec![Value::String(path)]).unwrap();
+        call("удалить", vec![Value::String(path.into())]).unwrap();
     }
 }

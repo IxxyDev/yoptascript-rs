@@ -307,7 +307,9 @@ impl Interpreter {
                 let i = *n as usize;
                 Ok(arr.borrow().get(i).cloned().unwrap_or(Value::Undefined))
             }
-            (Value::Object(map), Value::String(key)) => Ok(map.borrow().get(key).cloned().unwrap_or(Value::Undefined)),
+            (Value::Object(map), Value::String(key)) => {
+                Ok(map.borrow().get(key.as_ref()).cloned().unwrap_or(Value::Undefined))
+            }
             (Value::Object(map), Value::Number(n)) => {
                 Ok(map.borrow().get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
             }
@@ -322,7 +324,7 @@ impl Interpreter {
                 let i = *n as usize;
                 let units: Vec<u16> = s.encode_utf16().collect();
                 match units.get(i) {
-                    Some(unit) => Ok(Value::String(String::from_utf16_lossy(&[*unit]))),
+                    Some(unit) => Ok(Value::String(String::from_utf16_lossy(&[*unit]).into())),
                     None => Ok(Value::Undefined),
                 }
             }
@@ -356,7 +358,7 @@ impl Interpreter {
                 match val {
                     Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                     Value::Set(s) => values.extend(s.borrow().iter().map(|k| k.as_value().clone())),
-                    Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string()))),
+                    Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string().into()))),
                     Value::TypedArray { buffer, offset, length, kind } => {
                         values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
                     }

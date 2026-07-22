@@ -38,9 +38,10 @@
       just test
       just audit
   fuzz target="lexer" time="120":
-      cargo +nightly fuzz run {{target}} -- -max_total_time={{time}}
+      cargo +nightly fuzz run {{target}} -- -max_total_time={{time}} -timeout=10
 
   fuzz-all:
       just fuzz lexer
       just fuzz parser
       just fuzz fmt_roundtrip
+      just fuzz exec_diff
