@@ -185,7 +185,7 @@ impl Vm {
             self.frames[frame_idx].ip = ip + 1;
             let base = self.frames[frame_idx].base;
 
-            match self.exec_op(op, span, frame_idx, base, &closure, chunk) {
+            match self.exec_op(op, span, frame_idx, base, &closure, chunk, ip) {
                 Ok(Step::Continue) => {}
                 Ok(Step::Done) => return Ok(()),
                 Err(err) => {
@@ -220,6 +220,7 @@ impl Vm {
         base: usize,
         closure: &Rc<Closure>,
         chunk: &crate::chunk::Chunk,
+        ip: usize,
     ) -> Result<Step, VmError> {
         {
             match op {
@@ -817,16 +818,39 @@ impl Vm {
                     self.stack.push(value);
                 }
                 Op::GetProp(idx) => {
-                    let name = self.const_str(chunk, idx);
                     let obj = self.pop();
-                    let val = self.get_property(&obj, &name, span)?;
+                    let val = if let Value::Object(map) = &obj {
+                        let slot = &chunk.caches[ip];
+                        if let Some(cached) = ic_get(map, slot) {
+                            cached
+                        } else {
+                            let name = self.const_str(chunk, idx);
+                            let val = self.get_property(&obj, &name, span)?;
+                            Self::ic_fill_get(map, &name, slot);
+                            val
+                        }
+                    } else {
+                        let name = self.const_str(chunk, idx);
+                        self.get_property(&obj, &name, span)?
+                    };
                     self.stack.push(val);
                 }
                 Op::SetProp(idx) => {
-                    let name = self.const_str(chunk, idx);
                     let value = self.pop();
                     let obj = self.pop();
-                    self.set_property(&obj, &name, value, span)?;
+                    if let Value::Object(map) = &obj {
+                        let slot = &chunk.caches[ip];
+                        if ic_set(map, &value, slot) {
+                            self.stack.push(value);
+                        } else {
+                            let name = self.const_str(chunk, idx);
+                            self.set_property(&obj, &name, value, span)?;
+                            Self::ic_fill_set(map, &name, slot);
+                        }
+                    } else {
+                        let name = self.const_str(chunk, idx);
+                        self.set_property(&obj, &name, value, span)?;
+                    }
                 }
                 Op::DeleteProp(idx) => {
                     let name = self.const_str(chunk, idx);
@@ -1658,7 +1682,7 @@ impl Vm {
             self.frames[frame_idx].ip = ip + 1;
             let base = self.frames[frame_idx].base;
 
-            match self.exec_op(op, op_span, frame_idx, base, &closure, chunk) {
+            match self.exec_op(op, op_span, frame_idx, base, &closure, chunk, ip) {
                 Ok(Step::Continue) => {}
                 Ok(Step::Done) => {
                     let result = self.stack.pop().unwrap_or(Value::Undefined);
@@ -2709,6 +2733,44 @@ impl Vm {
         }
     }
 
+    fn ic_fill_get(map: &Rc<RefCell<ObjMap>>, name: &str, slot: &RefCell<crate::chunk::InlineCache>) {
+        let b = map.borrow();
+        if b.get(&crate::value::getter_key(name)).is_some() {
+            return;
+        }
+        if let Some(index) = b.index_of(name) {
+            *slot.borrow_mut() = crate::chunk::InlineCache::ObjProp {
+                obj_ptr: Rc::as_ptr(map) as usize,
+                obj: Rc::downgrade(map),
+                generation: b.generation(),
+                index: index as u32,
+            };
+        }
+    }
+
+    fn ic_fill_set(map: &Rc<RefCell<ObjMap>>, name: &str, slot: &RefCell<crate::chunk::InlineCache>) {
+        {
+            let b = map.borrow();
+            if b.frozen || b.get(&crate::value::setter_key(name)).is_some() {
+                return;
+            }
+        }
+        if let Some(cls) = Self::resolve_class(map)
+            && cls.find_setter(name).is_some()
+        {
+            return;
+        }
+        let b = map.borrow();
+        if let Some(index) = b.index_of(name) {
+            *slot.borrow_mut() = crate::chunk::InlineCache::ObjProp {
+                obj_ptr: Rc::as_ptr(map) as usize,
+                obj: Rc::downgrade(map),
+                generation: b.generation(),
+                index: index as u32,
+            };
+        }
+    }
+
     fn instance_of(&self, value: &Value, target: &Rc<ClassDef>) -> bool {
         if let Value::Object(map) = value
             && let Some(cls) = Self::resolve_class(map)
@@ -3207,6 +3269,36 @@ fn set_index(obj: &Value, index: &Value, value: Value, span: Span) -> Result<(),
         }
         other => Err(VmError::new(format!("нельзя индексировать тип '{}'", other.type_name()), span)),
     }
+}
+
+fn ic_get(map: &Rc<RefCell<ObjMap>>, slot: &RefCell<crate::chunk::InlineCache>) -> Option<Value> {
+    let cache = slot.borrow();
+    if let crate::chunk::InlineCache::ObjProp { obj_ptr, obj, generation, index } = &*cache
+        && *obj_ptr == Rc::as_ptr(map) as usize
+        && obj.upgrade().is_some_and(|s| Rc::ptr_eq(&s, map))
+    {
+        let b = map.borrow();
+        if b.generation() == *generation {
+            return b.value_at(*index as usize).cloned();
+        }
+    }
+    None
+}
+
+fn ic_set(map: &Rc<RefCell<ObjMap>>, value: &Value, slot: &RefCell<crate::chunk::InlineCache>) -> bool {
+    let cache = slot.borrow();
+    if let crate::chunk::InlineCache::ObjProp { obj_ptr, obj, generation, index } = &*cache
+        && *obj_ptr == Rc::as_ptr(map) as usize
+        && obj.upgrade().is_some_and(|s| Rc::ptr_eq(&s, map))
+    {
+        let mut b = map.borrow_mut();
+        let index = *index as usize;
+        if b.generation() == *generation && !b.frozen && index < b.len() {
+            b.overwrite_at(index, value.clone());
+            return true;
+        }
+    }
+    false
 }
 
 fn get_prop(obj: &Value, name: &str, span: Span) -> Result<Value, VmError> {

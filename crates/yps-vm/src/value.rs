@@ -209,6 +209,7 @@ impl ClassDef {
 #[derive(Debug)]
 pub struct ObjMap {
     entries: IndexMap<String, Value>,
+    generation: u32,
     pub frozen: bool,
     pub sealed: bool,
     pub extensible: bool,
@@ -216,7 +217,7 @@ pub struct ObjMap {
 
 impl Default for ObjMap {
     fn default() -> Self {
-        ObjMap { entries: IndexMap::new(), frozen: false, sealed: false, extensible: true }
+        ObjMap { entries: IndexMap::new(), generation: 0, frozen: false, sealed: false, extensible: true }
     }
 }
 
@@ -230,7 +231,9 @@ impl ObjMap {
     }
 
     pub fn insert(&mut self, key: String, value: Value) {
-        self.entries.insert(key, value);
+        if self.entries.insert(key, value).is_none() {
+            self.generation = self.generation.wrapping_add(1);
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
@@ -238,11 +241,39 @@ impl ObjMap {
     }
 
     pub fn remove(&mut self, key: &str) -> bool {
-        self.entries.shift_remove(key).is_some()
+        if self.entries.shift_remove(key).is_some() {
+            self.generation = self.generation.wrapping_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    pub(crate) fn index_of(&self, key: &str) -> Option<usize> {
+        self.entries.get_index_of(key)
+    }
+
+    pub(crate) fn value_at(&self, index: usize) -> Option<&Value> {
+        self.entries.get_index(index).map(|(_, v)| v)
+    }
+
+    pub(crate) fn overwrite_at(&mut self, index: usize, value: Value) {
+        if let Some((_, slot)) = self.entries.get_index_mut(index) {
+            *slot = value;
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
     }
 
     pub(crate) fn gc_clear(&mut self) {
         self.entries.clear();
+        self.generation = self.generation.wrapping_add(1);
     }
 
     pub fn contains_key(&self, key: &str) -> bool {

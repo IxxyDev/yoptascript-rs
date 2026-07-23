@@ -1,9 +1,24 @@
-use std::rc::Rc;
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
 
 use yps_lexer::Span;
 
+use crate::value::ObjMap;
+
 pub type ConstIdx = u32;
 pub type Slot = u32;
+
+#[derive(Debug, Default)]
+pub enum InlineCache {
+    #[default]
+    Empty,
+    ObjProp {
+        obj_ptr: usize,
+        obj: Weak<RefCell<ObjMap>>,
+        generation: u32,
+        index: u32,
+    },
+}
 
 #[derive(Debug, Clone)]
 pub enum Constant {
@@ -210,6 +225,7 @@ pub struct Chunk {
     pub code: Vec<Op>,
     pub spans: Vec<Span>,
     pub constants: Vec<Constant>,
+    pub caches: Vec<RefCell<InlineCache>>,
 }
 
 impl Chunk {
@@ -220,6 +236,7 @@ impl Chunk {
     pub fn push_op(&mut self, op: Op, span: Span) -> usize {
         self.code.push(op);
         self.spans.push(span);
+        self.caches.push(RefCell::new(InlineCache::Empty));
         self.code.len() - 1
     }
 
