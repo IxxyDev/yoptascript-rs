@@ -3,6 +3,7 @@ pub mod environment;
 pub mod error;
 pub mod host_callback;
 pub mod interpreter;
+mod resolver;
 pub mod stdlib;
 pub mod symbols;
 pub mod value;

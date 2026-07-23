@@ -120,6 +120,7 @@ mod proxy;
 mod ref_semantics;
 mod regex;
 mod repl;
+mod resolver_scopes;
 mod runtime_errors;
 mod stack_traces;
 mod stdlib_core;

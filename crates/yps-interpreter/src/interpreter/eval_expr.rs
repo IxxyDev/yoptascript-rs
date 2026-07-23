@@ -110,13 +110,12 @@ impl Interpreter {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
             Expr::Identifier(ident) => self
-                .env
-                .get(&ident.name)
+                .lookup_read(ident)
                 .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)),
             Expr::Unary { op, expr, span } => {
                 if *op == UnaryOp::Typeof {
                     if let Expr::Identifier(ident) = expr.as_ref() {
-                        let val = self.env.get(&ident.name).unwrap_or(Value::Undefined);
+                        let val = self.lookup_read(ident).unwrap_or(Value::Undefined);
                         return Ok(Value::String(val.typeof_str().to_string().into()));
                     }
                     let val = self.eval_expr(expr)?;
