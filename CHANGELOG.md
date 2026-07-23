@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-23
+
+### Changed
+
+- **Interpreter is measurably faster across the board** (criterion suite,
+  cumulative): strings ~−16%, objects ~−8%, closures ~−8%, fib ~−6%,
+  arrays ~−7%. Three changes: string values are interned `Rc<str>`
+  (clones no longer allocate), a post-parse resolver gives unshadowed
+  root-scope reads (builtins, top-level functions) a direct fast path,
+  and `Value` shrank from 64 to 32 bytes by consolidating fat variants
+  into shared payload structs.
+- **VM property access is ~2× faster** (objects benchmark −46%):
+  monomorphic inline caches validate via weak identity plus a structural
+  generation counter, skipping map lookups and the per-read getter
+  probe; getters, proxies and frozen checks always take the slow path.
+- **VM compiler folds constant expressions** using exact runtime f64 and
+  string semantics; BigInt and cross-type coercions stay at runtime.
+
+### Added
+
+- **Differential execution fuzzer** (`cargo +nightly fuzz run exec_diff`,
+  weekly in CI): runs valid programs through both backends and fails on
+  any output divergence. Its first session found five real parity gaps,
+  now tracked in the roadmap backlog with skip-list markers.
+- **ADR-0001**: the two backends keep separate `Value` representations
+  by design; parity is enforced by the conformance suites.
+
 ## [1.7.0] - 2026-07-21
 
 ### Added
