@@ -2,7 +2,7 @@
   "name": "yoptascript",
   "displayName": "YoptaScript",
   "description": "YoptaScript language support: syntax highlighting and language server (diagnostics, hover, completion, outline, formatting, go-to-definition, rename).",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "publisher": "ixxydev",
   "license": "MIT OR Apache-2.0",
   "repository": {
