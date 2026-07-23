@@ -8,7 +8,7 @@ use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, Temp
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, MethodDef, Value, to_int_n, to_uint_n};
+use crate::value::{ClassDef, FunctionData, MethodDef, RegExpData, Value, to_int_n, to_uint_n};
 
 use super::Interpreter;
 use super::call::RelOp;
@@ -55,9 +55,10 @@ impl Interpreter {
         arg_values: Vec<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        let (Value::Object(map), Value::Function { params, body, env, .. }) = (&obj, func) else {
+        let (Value::Object(map), Value::Function(fdata)) = (&obj, func) else {
             return self.call_function(func.clone(), arg_values, span);
         };
+        let (params, body, env) = (&fdata.params, &fdata.body, &fdata.env);
         let super_class = Self::resolve_class_for_object(map, &self.env)
             .and_then(|cls| Self::find_method_owner_parent(&cls, property));
         self.call_method_with_this_super(
@@ -80,9 +81,10 @@ impl Interpreter {
         arg_values: Vec<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
-        let (Value::Class(cls), Value::Function { params, body, env, .. }) = (&obj, func) else {
+        let (Value::Class(cls), Value::Function(fdata)) = (&obj, func) else {
             return self.call_function(func.clone(), arg_values, span);
         };
+        let (params, body, env) = (&fdata.params, &fdata.body, &fdata.env);
         let super_class = Self::find_static_method_owner_parent(cls, property);
         self.call_method_with_this_super(
             Rc::from(property),
@@ -303,39 +305,39 @@ impl Interpreter {
                 if cond.is_truthy() { self.eval_expr(then_expr) } else { self.eval_expr(else_expr) }
             }
             Expr::ArrowFunction { params, body, is_async, .. } => {
-                let func = Value::Function {
+                let func = Value::Function(Rc::new(FunctionData {
                     name: Rc::from(""),
                     params: params.clone(),
                     body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: false,
                     is_async: *is_async,
-                };
+                }));
                 Ok(func)
             }
             Expr::FunctionExpr { name, params, body, is_generator, is_async, .. } => match name {
                 Some(ident) => {
                     let mut fn_env = Environment::from_snapshot(self.env.snapshot(), self.env.registry());
                     fn_env.push_scope();
-                    let func = Value::Function {
+                    let func = Value::Function(Rc::new(FunctionData {
                         name: Rc::from(ident.name.as_str()),
                         params: params.clone(),
                         body: body.clone(),
                         env: fn_env.snapshot(),
                         is_generator: *is_generator,
                         is_async: *is_async,
-                    };
+                    }));
                     fn_env.define(ident.name.clone(), func.clone(), false);
                     Ok(func)
                 }
-                None => Ok(Value::Function {
+                None => Ok(Value::Function(Rc::new(FunctionData {
                     name: Rc::from(""),
                     params: params.clone(),
                     body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
-                }),
+                }))),
             },
             Expr::Await { argument, span } => {
                 let val = self.eval_expr(argument)?;
@@ -462,8 +464,10 @@ impl Interpreter {
                                 );
                             }
                             Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string().into()))),
-                            Value::TypedArray { buffer, offset, length, kind } => {
-                                values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
+                            Value::TypedArray(ta) => {
+                                values.extend(crate::stdlib::typed_array::ta_elements(
+                                    &ta.buffer, ta.offset, ta.length, ta.kind,
+                                ));
                             }
                             Value::Iterator(rc) => {
                                 values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);
@@ -528,26 +532,26 @@ impl Interpreter {
                         }
                         ObjectEntry::Getter { key, body, .. } => {
                             let key_str = self.eval_prop_key(key)?;
-                            let getter_fn = Value::Function {
+                            let getter_fn = Value::Function(Rc::new(FunctionData {
                                 name: Rc::from(format!("get {key_str}").as_str()),
                                 params: Rc::from([] as [Param; 0]),
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
                                 is_async: false,
-                            };
+                            }));
                             map.insert(symbols::getter_key(&key_str), getter_fn);
                         }
                         ObjectEntry::Setter { key, param, body, .. } => {
                             let key_str = self.eval_prop_key(key)?;
-                            let setter_fn = Value::Function {
+                            let setter_fn = Value::Function(Rc::new(FunctionData {
                                 name: Rc::from(format!("set {key_str}").as_str()),
                                 params: Rc::from([param.clone()]),
                                 body: Rc::new(body.clone()),
                                 env: self.env.snapshot(),
                                 is_generator: false,
                                 is_async: false,
-                            };
+                            }));
                             map.insert(symbols::setter_key(&key_str), setter_fn);
                         }
                     }
@@ -556,12 +560,12 @@ impl Interpreter {
             }
             Literal::RegExp { pattern, flags, span } => {
                 let compiled = crate::stdlib::regexp::compile(pattern, flags, *span)?;
-                Ok(Value::RegExp {
+                Ok(Value::RegExp(Rc::new(RegExpData {
                     pattern: pattern.clone(),
                     flags: flags.clone(),
                     compiled,
                     last_index: std::rc::Rc::new(std::cell::RefCell::new(0)),
-                })
+                })))
             }
         }
     }
@@ -861,10 +865,18 @@ impl Interpreter {
             return Ok(None);
         };
         let func = map.borrow().get(method).cloned();
-        let Some(Value::Function { name, params, body, env, .. }) = func else {
+        let Some(Value::Function(fdata)) = func else {
             return Ok(None);
         };
-        let res = self.call_method_with_this(name, &params, &body, &env, args, Some(receiver.clone()), span)?;
+        let res = self.call_method_with_this(
+            Rc::clone(&fdata.name),
+            &fdata.params,
+            &fdata.body,
+            &fdata.env,
+            args,
+            Some(receiver.clone()),
+            span,
+        )?;
         Ok(Some(res))
     }
 

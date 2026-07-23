@@ -8,7 +8,7 @@ use crate::builtins::call_builtin;
 use crate::environment::{EnvFrame, Environment};
 use crate::error::{Frame, RuntimeError};
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{ThenHandlerData, Value};
 
 use super::{ControlFlow, GcRoot, Interpreter, coercion};
 
@@ -92,7 +92,14 @@ impl Interpreter {
                 }
                 call_builtin(&name, args, span)
             }
-            Value::Function { name, params, body, env, is_generator, is_async } => {
+            Value::Function(func) => {
+                let name = Rc::clone(&func.name);
+                let params = Rc::clone(&func.params);
+                let body = Rc::clone(&func.body);
+                let env = Rc::clone(&func.env);
+                let is_generator = func.is_generator;
+                let is_async = func.is_async;
+                drop(func);
                 if self.call_stack.len() >= super::MAX_CALL_DEPTH {
                     return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
                 }
@@ -199,9 +206,10 @@ impl Interpreter {
                 Self::settle_promise(&state, kind, val, self, span)?;
                 Ok(Value::Undefined)
             }
-            Value::PromiseThenHandler { handler, resolve, reject, is_fulfill } => {
+            Value::PromiseThenHandler(data) => {
                 let val = args.into_iter().next().unwrap_or(Value::Undefined);
-                crate::stdlib::promise::invoke_handler(self, *handler, val, *resolve, *reject, is_fulfill, span)?;
+                let ThenHandlerData { handler, resolve, reject, is_fulfill } = *data;
+                crate::stdlib::promise::invoke_handler(self, handler, val, resolve, reject, is_fulfill, span)?;
                 Ok(Value::Undefined)
             }
             Value::PromiseFinallyHandler { cb, cap } => {
@@ -328,16 +336,16 @@ impl Interpreter {
                     None => Ok(Value::Undefined),
                 }
             }
-            (Value::TypedArray { buffer, offset, length, kind }, Value::Number(n)) => {
+            (Value::TypedArray(ta), Value::Number(n)) => {
                 if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
                     return Ok(Value::Undefined);
                 }
                 let i = *n as usize;
-                if i >= *length {
+                if i >= ta.length {
                     return Ok(Value::Undefined);
                 }
-                let bytes = buffer.borrow();
-                Ok(Value::Number(kind.read_le(&bytes, offset + i * kind.element_size())))
+                let bytes = ta.buffer.borrow();
+                Ok(Value::Number(ta.kind.read_le(&bytes, ta.offset + i * ta.kind.element_size())))
             }
             _ => Err(RuntimeError::new(
                 format!("Нельзя индексировать '{}' с помощью '{}'", obj.type_name(), index.type_name()),
@@ -359,8 +367,9 @@ impl Interpreter {
                     Value::Array(arr) => values.extend(arr.borrow().iter().cloned()),
                     Value::Set(s) => values.extend(s.borrow().iter().map(|k| k.as_value().clone())),
                     Value::String(s) => values.extend(s.chars().map(|c| Value::String(c.to_string().into()))),
-                    Value::TypedArray { buffer, offset, length, kind } => {
-                        values.extend(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind));
+                    Value::TypedArray(ta) => {
+                        values
+                            .extend(crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind));
                     }
                     Value::Iterator(rc) => {
                         values.extend(crate::stdlib::iterator::drain(self, &rc, *span)?);

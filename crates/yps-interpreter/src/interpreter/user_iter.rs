@@ -13,9 +13,15 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         match func {
-            Value::Function { name, params, body, env, .. } => {
-                self.call_method_with_this(name, &params, &body, &env, vec![], this, span)
-            }
+            Value::Function(fdata) => self.call_method_with_this(
+                fdata.name.clone(),
+                &fdata.params,
+                &fdata.body,
+                &fdata.env,
+                vec![],
+                this,
+                span,
+            ),
             other => self.call_function(other, vec![], span),
         }
     }

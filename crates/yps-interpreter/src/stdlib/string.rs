@@ -148,7 +148,8 @@ pub fn call(
             if let Some(0) = limit {
                 return Ok((Value::array(Vec::new()), None));
             }
-            if let Value::RegExp { compiled, .. } = &args[0] {
+            if let Value::RegExp(re) = &args[0] {
+                let compiled = &re.compiled;
                 let mut parts: Vec<Value> = regexp::split_string(compiled, &s, span)?;
                 if let Some(lim) = limit {
                     parts.truncate(lim);
@@ -168,7 +169,8 @@ pub fn call(
         }
         "replace" | "заменить" => {
             require_args(&args, 2, span, "replace")?;
-            if let Value::RegExp { compiled, flags, .. } = &args[0] {
+            if let Value::RegExp(re) = &args[0] {
+                let (compiled, flags) = (&re.compiled, &re.flags);
                 let compiled = compiled.clone();
                 let global = flags.contains('g');
                 match &args[1] {
@@ -179,7 +181,7 @@ pub fn call(
                             None,
                         ));
                     }
-                    Value::Function { .. } | Value::BuiltinFunction(_) => {
+                    Value::Function(_) | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
                         let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, global, span)?;
                         return Ok((Value::String(out.into()), None));
@@ -207,7 +209,8 @@ pub fn call(
         }
         "replaceAll" | "заменитьВсе" => {
             require_args(&args, 2, span, "replaceAll")?;
-            if let Value::RegExp { compiled, flags, .. } = &args[0] {
+            if let Value::RegExp(re) = &args[0] {
+                let (compiled, flags) = (&re.compiled, &re.flags);
                 if !flags.contains('g') {
                     return Err(RuntimeError::new("replaceAll с regex требует флаг 'g'", span));
                 }
@@ -220,7 +223,7 @@ pub fn call(
                             None,
                         ));
                     }
-                    Value::Function { .. } | Value::BuiltinFunction(_) => {
+                    Value::Function(_) | Value::BuiltinFunction(_) => {
                         let fn_val = args[1].clone();
                         let out = regexp::replace_with_fn(interp, &compiled, &s, fn_val, true, span)?;
                         return Ok((Value::String(out.into()), None));
@@ -255,7 +258,7 @@ pub fn call(
         "match" | "совпадает" => {
             require_args(&args, 1, span, "match")?;
             let (compiled, flags) = match &args[0] {
-                Value::RegExp { compiled, flags, .. } => (compiled, flags),
+                Value::RegExp(re) => (&re.compiled, &re.flags),
                 other => {
                     return Err(RuntimeError::new(
                         format!("'match' ожидает regex, получено '{}'", other.type_name()),
@@ -272,7 +275,7 @@ pub fn call(
         "matchAll" | "найтиВсе" => {
             require_args(&args, 1, span, "matchAll")?;
             let (compiled, flags) = match &args[0] {
-                Value::RegExp { compiled, flags, .. } => (compiled, flags),
+                Value::RegExp(re) => (&re.compiled, &re.flags),
                 other => {
                     return Err(RuntimeError::new(
                         format!("'matchAll' ожидает regex, получено '{}'", other.type_name()),
@@ -289,7 +292,7 @@ pub fn call(
         "search" | "найтиИндекс" => {
             require_args(&args, 1, span, "search")?;
             let compiled = match &args[0] {
-                Value::RegExp { compiled, .. } => compiled,
+                Value::RegExp(re) => &re.compiled,
                 other => {
                     return Err(RuntimeError::new(
                         format!("'search' ожидает regex, получено '{}'", other.type_name()),

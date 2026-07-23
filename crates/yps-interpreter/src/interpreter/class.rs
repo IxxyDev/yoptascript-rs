@@ -9,7 +9,7 @@ use yps_parser::ast::{Block, ClassMember, Expr, Param};
 use crate::environment::Environment;
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, MethodDef, Value};
+use crate::value::{ClassDef, FunctionData, MethodDef, Value};
 
 use super::{ControlFlow, Interpreter};
 
@@ -175,14 +175,14 @@ impl Interpreter {
                         Some(MethodDef { params: params.clone(), body: body.clone(), env: self.env.snapshot() });
                 }
                 ClassMember::Method { name: m_name, params, body, is_static, is_private, .. } => {
-                    let method_fn = Value::Function {
+                    let method_fn = Value::Function(Rc::new(FunctionData {
                         name: Rc::from(m_name.name.as_str()),
                         params: params.clone(),
                         body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
-                    };
+                    }));
                     let (decorated, inits) = self.apply_member_decorators(
                         method_fn,
                         dec_fns,
@@ -193,7 +193,11 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
+                        Value::Function(func) => MethodDef {
+                            params: func.params.clone(),
+                            body: Rc::clone(&func.body),
+                            env: Rc::clone(&func.env),
+                        },
                         _ => return Err(RuntimeError::new("Декоратор метода должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -205,14 +209,14 @@ impl Interpreter {
                     }
                 }
                 ClassMember::Getter { name: g_name, body, is_static, is_private, .. } => {
-                    let getter_fn = Value::Function {
+                    let getter_fn = Value::Function(Rc::new(FunctionData {
                         name: Rc::from(g_name.name.as_str()),
                         params: Rc::from([] as [Param; 0]),
                         body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
-                    };
+                    }));
                     let (decorated, inits) = self.apply_member_decorators(
                         getter_fn,
                         dec_fns,
@@ -223,7 +227,11 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
+                        Value::Function(func) => MethodDef {
+                            params: func.params.clone(),
+                            body: Rc::clone(&func.body),
+                            env: Rc::clone(&func.env),
+                        },
                         _ => return Err(RuntimeError::new("Декоратор геттера должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -235,14 +243,14 @@ impl Interpreter {
                     }
                 }
                 ClassMember::Setter { name: s_name, param, body, is_static, is_private, .. } => {
-                    let setter_fn = Value::Function {
+                    let setter_fn = Value::Function(Rc::new(FunctionData {
                         name: Rc::from(s_name.name.as_str()),
                         params: Rc::from([param.clone()]),
                         body: body.clone(),
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
-                    };
+                    }));
                     let (decorated, inits) = self.apply_member_decorators(
                         setter_fn,
                         dec_fns,
@@ -253,7 +261,11 @@ impl Interpreter {
                         span,
                     )?;
                     let entry = match decorated {
-                        Value::Function { params, body, env, .. } => MethodDef { params, body, env },
+                        Value::Function(func) => MethodDef {
+                            params: func.params.clone(),
+                            body: Rc::clone(&func.body),
+                            env: Rc::clone(&func.env),
+                        },
                         _ => return Err(RuntimeError::new("Декоратор сеттера должен вернуть функцию", span)),
                     };
                     if *is_static {
@@ -633,10 +645,10 @@ impl Interpreter {
     fn has_dispose_kind(value: &Value, env: &Environment, sym_id: u64, method_name: &str) -> bool {
         if let Value::Object(map) = value {
             let dispose_sym = symbols::symbol_key(sym_id);
-            if let Some(Value::Function { .. }) = map.borrow().get(&dispose_sym) {
+            if let Some(Value::Function(_)) = map.borrow().get(&dispose_sym) {
                 return true;
             }
-            if let Some(Value::Function { .. }) = map.borrow().get(method_name) {
+            if let Some(Value::Function(_)) = map.borrow().get(method_name) {
                 return true;
             }
             let class_name = match map.borrow().get(symbols::CLASS_TAG) {
@@ -674,8 +686,8 @@ impl Interpreter {
             let borrowed = map.borrow();
             borrowed.get(&dispose_sym).or_else(|| borrowed.get(method_name)).cloned()
         };
-        let callable = if let Some(Value::Function { params, body, env, .. }) = dispose_fn {
-            Some((params, body, env))
+        let callable = if let Some(Value::Function(func)) = dispose_fn {
+            Some((func.params.clone(), Rc::clone(&func.body), Rc::clone(&func.env)))
         } else {
             let class_tag = map.borrow().get(symbols::CLASS_TAG).cloned();
             if let Some(Value::String(class_name)) = class_tag

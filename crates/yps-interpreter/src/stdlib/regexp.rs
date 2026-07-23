@@ -631,9 +631,7 @@ pub fn call(
     span: Span,
 ) -> Result<(Value, Option<Value>), RuntimeError> {
     let (pattern, flags, compiled, last_index) = match &receiver {
-        Value::RegExp { pattern, flags, compiled, last_index } => {
-            (pattern.clone(), flags.clone(), Rc::clone(compiled), Rc::clone(last_index))
-        }
+        Value::RegExp(re) => (re.pattern.clone(), re.flags.clone(), Rc::clone(&re.compiled), Rc::clone(&re.last_index)),
         _ => return Err(RuntimeError::new("Ожидался regex", span)),
     };
 
@@ -660,7 +658,7 @@ pub fn call(
 
 pub fn member(receiver: &Value, property: &str) -> Option<Value> {
     let (pattern, flags, last_index) = match receiver {
-        Value::RegExp { pattern, flags, last_index, .. } => (pattern, flags, last_index),
+        Value::RegExp(re) => (&re.pattern, &re.flags, &re.last_index),
         _ => return None,
     };
     match property {

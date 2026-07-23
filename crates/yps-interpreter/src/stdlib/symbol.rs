@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use yps_lexer::Span;
 
@@ -38,14 +39,14 @@ pub fn well_known(property: &str) -> Option<Value> {
         "строковыйТег" => ("Symbol.toStringTag", TO_STRING_TAG_ID),
         _ => return None,
     };
-    Some(Value::Symbol { description: Some(desc.to_string()), id })
+    Some(Value::Symbol { description: Some(Rc::from(desc)), id })
 }
 
 pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
     let description = match args.into_iter().next() {
         Some(Value::Undefined) | None => None,
-        Some(Value::String(s)) => Some(s.to_string()),
-        Some(other) => Some(other.to_string()),
+        Some(Value::String(s)) => Some(s),
+        Some(other) => Some(Rc::from(other.to_string())),
     };
     Ok(Value::Symbol { description, id: fresh_id() })
 }
@@ -72,7 +73,7 @@ pub fn call_static(
                 map.insert(key.clone(), id);
                 id
             });
-            Ok(Value::Symbol { description: Some(key), id })
+            Ok(Value::Symbol { description: Some(Rc::from(key)), id })
         }
         "ключДля" => {
             let sym = args.into_iter().next();
@@ -113,7 +114,7 @@ pub fn member(receiver: &Value, property: &str) -> Option<Value> {
     let Value::Symbol { description, .. } = receiver else { return None };
     if property == "описание" {
         return Some(match description {
-            Some(d) => Value::String(d.clone().into()),
+            Some(d) => Value::String(d.clone()),
             None => Value::Undefined,
         });
     }

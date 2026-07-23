@@ -493,6 +493,39 @@ fn drain_value_tree(stack: &mut Vec<Value>) {
 }
 
 #[derive(Clone)]
+pub struct FunctionData {
+    pub name: Rc<str>,
+    pub params: Rc<[Param]>,
+    pub body: Rc<Block>,
+    pub env: Rc<RefCell<EnvFrame>>,
+    pub is_generator: bool,
+    pub is_async: bool,
+}
+
+pub struct RegExpData {
+    pub pattern: String,
+    pub flags: String,
+    pub compiled: Rc<crate::stdlib::regexp::YopRegex>,
+    pub last_index: Rc<RefCell<usize>>,
+}
+
+#[derive(Clone)]
+pub struct ThenHandlerData {
+    pub handler: Value,
+    pub resolve: Value,
+    pub reject: Value,
+    pub is_fulfill: bool,
+}
+
+#[derive(Clone)]
+pub struct TypedArrayData {
+    pub buffer: SharedBuffer,
+    pub offset: usize,
+    pub length: usize,
+    pub kind: TypedArrayKind,
+}
+
+#[derive(Clone)]
 pub enum Value {
     Number(f64),
     BigInt(i128),
@@ -502,91 +535,30 @@ pub enum Value {
     Object(Rc<RefCell<ObjectStore>>),
     Map(Rc<RefCell<MapStore>>),
     Set(Rc<RefCell<SetStore>>),
-    Function {
-        name: Rc<str>,
-        params: Rc<[Param]>,
-        body: Rc<Block>,
-        env: Rc<RefCell<EnvFrame>>,
-        is_generator: bool,
-        is_async: bool,
-    },
+    Function(Rc<FunctionData>),
     BuiltinFunction(String),
-    BoundMethod {
-        receiver: Box<Value>,
-        method: String,
-    },
+    BoundMethod { receiver: Box<Value>, method: Rc<str> },
     Class(Rc<ClassDef>),
     WeakClass(Weak<ClassDef>),
-    Symbol {
-        description: Option<String>,
-        id: u64,
-    },
-    Promise {
-        state: Rc<RefCell<PromiseState>>,
-    },
-    PromiseCapability {
-        state: Rc<RefCell<PromiseState>>,
-        kind: CapKind,
-    },
-    PromiseThenHandler {
-        handler: Box<Value>,
-        resolve: Box<Value>,
-        reject: Box<Value>,
-        is_fulfill: bool,
-    },
-    PromiseFinallyHandler {
-        cb: Box<Value>,
-        cap: Box<Value>,
-    },
-    PromiseAggregateHandler {
-        state: Rc<RefCell<AggregateState>>,
-        index: usize,
-        role: AggregateRole,
-    },
+    Symbol { description: Option<Rc<str>>, id: u64 },
+    Promise { state: Rc<RefCell<PromiseState>> },
+    PromiseCapability { state: Rc<RefCell<PromiseState>>, kind: CapKind },
+    PromiseThenHandler(Box<ThenHandlerData>),
+    PromiseFinallyHandler { cb: Box<Value>, cap: Box<Value> },
+    PromiseAggregateHandler { state: Rc<RefCell<AggregateState>>, index: usize, role: AggregateRole },
     Iterator(Rc<RefCell<IteratorState>>),
-    RegExp {
-        pattern: String,
-        flags: String,
-        compiled: Rc<crate::stdlib::regexp::YopRegex>,
-        last_index: Rc<RefCell<usize>>,
-    },
+    RegExp(Rc<RegExpData>),
     Date(Rc<Cell<f64>>),
-    AbortController {
-        state: Rc<RefCell<AbortState>>,
-    },
-    AbortSignal {
-        state: Rc<RefCell<AbortState>>,
-    },
-    AbortListener {
-        target: Weak<RefCell<AbortState>>,
-    },
-    AbortUnsubscribe {
-        state: Rc<RefCell<AbortState>>,
-        token: u64,
-    },
-    AbortCancelTimer {
-        timer_id: u64,
-    },
-    AbortRejectPromise {
-        reject_cap: Box<Value>,
-        reason_from_signal: bool,
-    },
+    AbortController { state: Rc<RefCell<AbortState>> },
+    AbortSignal { state: Rc<RefCell<AbortState>> },
+    AbortListener { target: Weak<RefCell<AbortState>> },
+    AbortUnsubscribe { state: Rc<RefCell<AbortState>>, token: u64 },
+    AbortCancelTimer { timer_id: u64 },
+    AbortRejectPromise { reject_cap: Box<Value>, reason_from_signal: bool },
     ArrayBuffer(SharedBuffer),
-    TypedArray {
-        buffer: SharedBuffer,
-        offset: usize,
-        length: usize,
-        kind: TypedArrayKind,
-    },
-    DataView {
-        buffer: SharedBuffer,
-        offset: usize,
-        length: usize,
-    },
-    Proxy {
-        target: Rc<Value>,
-        handler: Rc<Value>,
-    },
+    TypedArray(Rc<TypedArrayData>),
+    DataView { buffer: SharedBuffer, offset: usize, length: usize },
+    Proxy { target: Rc<Value>, handler: Rc<Value> },
     WeakMap(WeakMapStore),
     WeakSet(WeakSetStore),
     WeakRef(Rc<WeakKey>),
@@ -703,11 +675,11 @@ impl Value {
             Value::Boolean(_) => "булево",
             Value::Undefined => "неопределено",
             Value::Null => "объект",
-            Value::Function { .. }
+            Value::Function(_)
             | Value::BuiltinFunction(_)
             | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
-            | Value::PromiseThenHandler { .. }
+            | Value::PromiseThenHandler(_)
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Array(_)
@@ -718,10 +690,10 @@ impl Value {
             | Value::Set(_)
             | Value::Promise { .. }
             | Value::Iterator(_)
-            | Value::RegExp { .. }
+            | Value::RegExp(_)
             | Value::Date(_)
             | Value::ArrayBuffer(_)
-            | Value::TypedArray { .. }
+            | Value::TypedArray(_)
             | Value::DataView { .. }
             | Value::WeakMap(_)
             | Value::WeakSet(_)
@@ -741,11 +713,11 @@ impl Value {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Value::Function { .. }
+            Value::Function(_)
                 | Value::BuiltinFunction(_)
                 | Value::BoundMethod { .. }
                 | Value::PromiseCapability { .. }
-                | Value::PromiseThenHandler { .. }
+                | Value::PromiseThenHandler(_)
                 | Value::PromiseFinallyHandler { .. }
                 | Value::PromiseAggregateHandler { .. }
                 | Value::AbortUnsubscribe { .. }
@@ -764,21 +736,21 @@ impl Value {
             Value::Object(_) => "объект",
             Value::Map(_) => "карта",
             Value::Set(_) => "набор",
-            Value::Function { .. }
+            Value::Function(_)
             | Value::BuiltinFunction(_)
             | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
-            | Value::PromiseThenHandler { .. }
+            | Value::PromiseThenHandler(_)
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Class(_) | Value::WeakClass(_) => "класс",
             Value::Symbol { .. } => "символ",
             Value::Promise { .. } => "обещание",
             Value::Iterator(_) => "итератор",
-            Value::RegExp { .. } => "регэксп",
+            Value::RegExp(_) => "регэксп",
             Value::Date(_) => "дата",
             Value::ArrayBuffer(_) => "ОбластьБайтов",
-            Value::TypedArray { kind, .. } => kind.type_name(),
+            Value::TypedArray(ta) => ta.kind.type_name(),
             Value::DataView { .. } => "ОбзорБайтов",
             Value::AbortController { .. } => "контроллёрОтмены",
             Value::AbortSignal { .. } => "сигналОтмены",
@@ -814,9 +786,9 @@ impl fmt::Debug for Value {
                 let items: Vec<Value> = s.borrow().iter().map(|k| k.0.clone()).collect();
                 f.debug_tuple("Set").field(&items).finish()
             }
-            Value::Function { name, params, .. } => {
-                let param_names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();
-                write!(f, "Function {{ name: {name:?}, params: {param_names:?}, .. }}")
+            Value::Function(func) => {
+                let param_names: Vec<&str> = func.params.iter().map(|p| p.name.name.as_str()).collect();
+                write!(f, "Function {{ name: {:?}, params: {param_names:?}, .. }}", func.name)
             }
             Value::BuiltinFunction(name) => write!(f, "BuiltinFunction({name:?})"),
             Value::BoundMethod { receiver, method } => {
@@ -837,11 +809,11 @@ impl fmt::Debug for Value {
                 CapKind::Resolve => write!(f, "PromiseCapability(Resolve)"),
                 CapKind::Reject => write!(f, "PromiseCapability(Reject)"),
             },
-            Value::PromiseThenHandler { .. } => write!(f, "PromiseThenHandler"),
+            Value::PromiseThenHandler(_) => write!(f, "PromiseThenHandler"),
             Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
             Value::PromiseAggregateHandler { .. } => write!(f, "PromiseAggregateHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
-            Value::RegExp { pattern, flags, .. } => write!(f, "RegExp(/{pattern}/{flags})"),
+            Value::RegExp(re) => write!(f, "RegExp(/{}/{})", re.pattern, re.flags),
             Value::Date(cell) => write!(f, "Date({})", crate::stdlib::date::format_iso(cell.get())),
             Value::AbortController { state } => {
                 if state.borrow().aborted {
@@ -864,8 +836,8 @@ impl fmt::Debug for Value {
                 write!(f, "AbortRejectPromise(from_signal={reason_from_signal})")
             }
             Value::ArrayBuffer(buf) => write!(f, "ArrayBuffer({})", buf.borrow().len()),
-            Value::TypedArray { offset, length, kind, .. } => {
-                write!(f, "TypedArray({}, offset={offset}, length={length})", kind.type_name())
+            Value::TypedArray(ta) => {
+                write!(f, "TypedArray({}, offset={}, length={})", ta.kind.type_name(), ta.offset, ta.length)
             }
             Value::DataView { offset, length, .. } => write!(f, "DataView(offset={offset}, length={length})"),
             Value::Proxy { target, handler } => {
@@ -993,8 +965,8 @@ impl Value {
                 seen.remove(&ptr);
                 write!(f, ")")
             }
-            Value::Function { name, .. } if name.is_empty() => write!(f, "[анонимная функция]"),
-            Value::Function { name, .. } => write!(f, "[функция {name}]"),
+            Value::Function(func) if func.name.is_empty() => write!(f, "[анонимная функция]"),
+            Value::Function(func) => write!(f, "[функция {}]", func.name),
             Value::BuiltinFunction(name) => write!(f, "[встроенная {name}]"),
             Value::BoundMethod { method, .. } => write!(f, "[метод {method}]"),
             Value::Class(cls) => write!(f, "[класс {}]", cls.name),
@@ -1013,11 +985,11 @@ impl Value {
                 CapKind::Resolve => write!(f, "[капабилити решить]"),
                 CapKind::Reject => write!(f, "[капабилити отвергнуть]"),
             },
-            Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
+            Value::PromiseThenHandler(_) => write!(f, "[обработчик потом]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
             Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
-            Value::RegExp { pattern, flags, .. } => write!(f, "/{pattern}/{flags}"),
+            Value::RegExp(re) => write!(f, "/{}/{}", re.pattern, re.flags),
             Value::Date(cell) => write!(f, "{}", crate::stdlib::date::format_iso(cell.get())),
             Value::AbortController { state } => {
                 if state.borrow().aborted {
@@ -1034,7 +1006,8 @@ impl Value {
                 }
             }
             Value::ArrayBuffer(buf) => write!(f, "ОбластьБайтов({})", buf.borrow().len()),
-            Value::TypedArray { buffer, offset, length, kind } => {
+            Value::TypedArray(ta) => {
+                let TypedArrayData { buffer, offset, length, kind } = &**ta;
                 write!(f, "{}[", kind.type_name())?;
                 let bytes = buffer.borrow();
                 let size = kind.element_size();
@@ -1151,10 +1124,10 @@ impl Hash for MapKey {
                 4u8.hash(state);
                 id.hash(state);
             }
-            Value::RegExp { pattern, flags, .. } => {
+            Value::RegExp(re) => {
                 5u8.hash(state);
-                pattern.hash(state);
-                flags.hash(state);
+                re.pattern.hash(state);
+                re.flags.hash(state);
             }
             Value::Array(rc) => {
                 6u8.hash(state);
@@ -1192,7 +1165,8 @@ impl Hash for MapKey {
                 14u8.hash(state);
                 hash_rc_ptr(rc, state);
             }
-            Value::TypedArray { buffer, offset, length, kind } => {
+            Value::TypedArray(ta) => {
+                let TypedArrayData { buffer, offset, length, kind } = &**ta;
                 15u8.hash(state);
                 hash_rc_ptr(buffer, state);
                 offset.hash(state);
@@ -1245,9 +1219,9 @@ impl Hash for MapKey {
             }
             Value::Undefined => 22u8.hash(state),
             Value::Null => 23u8.hash(state),
-            Value::Function { env, .. } => {
+            Value::Function(func) => {
                 24u8.hash(state);
-                hash_rc_ptr(env, state);
+                hash_rc_ptr(&func.env, state);
             }
             Value::BuiltinFunction(name) => {
                 25u8.hash(state);
@@ -1278,9 +1252,7 @@ impl PartialEq for Value {
             (Value::Promise { state: a }, Value::Promise { state: b }) => Rc::ptr_eq(a, b),
             (Value::Iterator(a), Value::Iterator(b)) => Rc::ptr_eq(a, b),
             (Value::Date(a), Value::Date(b)) => Rc::ptr_eq(a, b),
-            (Value::RegExp { pattern: pa, flags: fa, .. }, Value::RegExp { pattern: pb, flags: fb, .. }) => {
-                pa == pb && fa == fb
-            }
+            (Value::RegExp(a), Value::RegExp(b)) => a.pattern == b.pattern && a.flags == b.flags,
             (Value::AbortController { state: a }, Value::AbortController { state: b }) => Rc::ptr_eq(a, b),
             (Value::AbortSignal { state: a }, Value::AbortSignal { state: b }) => Rc::ptr_eq(a, b),
             (Value::AbortListener { target: a }, Value::AbortListener { target: b }) => Weak::ptr_eq(a, b),
@@ -1288,10 +1260,9 @@ impl PartialEq for Value {
                 Rc::ptr_eq(a, b) && ta == tb
             }
             (Value::ArrayBuffer(a), Value::ArrayBuffer(b)) => Rc::ptr_eq(a, b),
-            (
-                Value::TypedArray { buffer: ba, offset: oa, length: la, kind: ka },
-                Value::TypedArray { buffer: bb, offset: ob, length: lb, kind: kb },
-            ) => Rc::ptr_eq(ba, bb) && oa == ob && la == lb && ka == kb,
+            (Value::TypedArray(a), Value::TypedArray(b)) => {
+                Rc::ptr_eq(&a.buffer, &b.buffer) && a.offset == b.offset && a.length == b.length && a.kind == b.kind
+            }
             (
                 Value::DataView { buffer: ba, offset: oa, length: la },
                 Value::DataView { buffer: bb, offset: ob, length: lb },

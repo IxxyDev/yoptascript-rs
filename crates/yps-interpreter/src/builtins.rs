@@ -8,7 +8,7 @@ use crate::interpreter::coercion::{BigIntOperand, bigint_from_operand};
 use crate::stdlib;
 use crate::stdlib::regexp;
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{RegExpData, Value};
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     if let Some(method) = name.strip_prefix("сказать.") {
@@ -33,7 +33,7 @@ pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, R
             match &args[0] {
                 Value::String(s) => Ok(Value::Number(s.chars().count() as f64)),
                 Value::Array(a) => Ok(Value::Number(a.borrow().len() as f64)),
-                Value::TypedArray { length, .. } => Ok(Value::Number(*length as f64)),
+                Value::TypedArray(ta) => Ok(Value::Number(ta.length as f64)),
                 Value::Object(map) => {
                     let len_val = {
                         let m = map.borrow();
@@ -161,25 +161,35 @@ fn construct_regexp(args: Vec<Value>, span: Span) -> Result<Value, RuntimeError>
         Value::String(pattern) => {
             let flags = flags_override.unwrap_or_default();
             let compiled = regexp::compile(&pattern, &flags, span)?;
-            Ok(Value::RegExp { pattern: pattern.to_string(), flags, compiled, last_index: Rc::new(RefCell::new(0)) })
-        }
-        Value::RegExp { pattern, flags, compiled, .. } => match flags_override {
-            None => Ok(Value::RegExp {
-                pattern,
+            Ok(Value::RegExp(Rc::new(RegExpData {
+                pattern: pattern.to_string(),
                 flags,
-                compiled: Rc::clone(&compiled),
+                compiled,
                 last_index: Rc::new(RefCell::new(0)),
-            }),
-            Some(new_flags) => {
-                let recompiled = regexp::compile(&pattern, &new_flags, span)?;
-                Ok(Value::RegExp {
+            })))
+        }
+        Value::RegExp(re) => {
+            let pattern = re.pattern.clone();
+            let flags = re.flags.clone();
+            let compiled = Rc::clone(&re.compiled);
+            match flags_override {
+                None => Ok(Value::RegExp(Rc::new(RegExpData {
                     pattern,
-                    flags: new_flags,
-                    compiled: recompiled,
+                    flags,
+                    compiled,
                     last_index: Rc::new(RefCell::new(0)),
-                })
+                }))),
+                Some(new_flags) => {
+                    let recompiled = regexp::compile(&pattern, &new_flags, span)?;
+                    Ok(Value::RegExp(Rc::new(RegExpData {
+                        pattern,
+                        flags: new_flags,
+                        compiled: recompiled,
+                        last_index: Rc::new(RefCell::new(0)),
+                    })))
+                }
             }
-        },
+        }
         other => Err(RuntimeError::new(
             format!("RegExp ожидает строку или regex как pattern, получено '{}'", other.type_name()),
             span,

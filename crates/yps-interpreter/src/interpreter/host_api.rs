@@ -77,18 +77,18 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            Value::TypedArray { buffer, offset, length, kind } => {
+            Value::TypedArray(ta) => {
                 let n = match index {
                     Value::Number(n) => *n,
                     other => crate::interpreter::coercion::to_number(other),
                 };
                 if n.is_finite() && n >= 0.0 && n.fract() == 0.0 {
                     let i = n as usize;
-                    if i < *length {
+                    if i < ta.length {
                         crate::stdlib::typed_array::write_element(
-                            buffer,
-                            *kind,
-                            *offset + i * kind.element_size(),
+                            &ta.buffer,
+                            ta.kind,
+                            ta.offset + i * ta.kind.element_size(),
                             &value,
                             span,
                         )?;
@@ -132,8 +132,8 @@ impl Interpreter {
     pub fn host_for_in_keys(&mut self, obj: &Value, span: Span) -> Result<Vec<Value>, RuntimeError> {
         match obj {
             Value::Array(elements) => Ok(elements.borrow().0.clone()),
-            Value::TypedArray { buffer, offset, length, kind } => {
-                Ok(crate::stdlib::typed_array::ta_elements(buffer, *offset, *length, *kind))
+            Value::TypedArray(ta) => {
+                Ok(crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind))
             }
             Value::Proxy { target, handler } => {
                 let (t, h) = ((**target).clone(), (**handler).clone());
@@ -156,8 +156,8 @@ impl Interpreter {
             Value::Map(entries) => {
                 Ok(entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect())
             }
-            Value::TypedArray { buffer, offset, length, kind } => {
-                Ok(crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind))
+            Value::TypedArray(ta) => {
+                Ok(crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind))
             }
             Value::Iterator(rc) => crate::stdlib::iterator::drain(self, &rc, span),
             other => Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span)),
