@@ -7,9 +7,11 @@ use yps_lexer::Span;
 use yps_parser::ast::Program;
 
 use crate::builtins::builtin_names;
-use crate::environment::Environment;
+use crate::environment::{EnvFrame, Environment};
 use crate::error::{Frame, MAX_STACK_DEPTH, RuntimeError};
+use crate::resolver::{self, RootResolution};
 use crate::value::{FinRegState, Value};
+use yps_parser::ast::Identifier;
 
 pub(crate) type MicrotaskFn = Box<dyn FnOnce(&mut Interpreter, Span) -> Result<(), RuntimeError>>;
 
@@ -62,6 +64,8 @@ pub struct Interpreter {
     pub(super) call_stack: Vec<Frame>,
     pub(super) coercion_depth: usize,
     pub(super) finalization_registries: Vec<std::rc::Weak<RefCell<FinRegState>>>,
+    pub(super) resolution: RootResolution,
+    pub(super) global_root: Rc<RefCell<EnvFrame>>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -89,6 +93,7 @@ impl Interpreter {
             env.define(name, value, true);
         }
         env.define("нихуя".to_string(), Value::Number(f64::NAN), true);
+        let global_root = env.snapshot();
         Self {
             env,
             pending_initializers: Vec::new(),
@@ -104,7 +109,19 @@ impl Interpreter {
             call_stack: Vec::new(),
             coercion_depth: 0,
             finalization_registries: Vec::new(),
+            resolution: RootResolution::default(),
+            global_root,
         }
+    }
+
+    pub(super) fn lookup_read(&self, ident: &Identifier) -> Option<Value> {
+        if !self.resolution.is_empty()
+            && self.resolution.is_root_read(ident.span.start)
+            && let Some(value) = self.global_root.borrow().get_local(&ident.name)
+        {
+            return Some(value);
+        }
+        self.env.get(&ident.name)
     }
 
     pub(crate) fn register_finalization_registry(&mut self, state: &Rc<RefCell<FinRegState>>) {
@@ -165,6 +182,7 @@ impl Interpreter {
 
     fn run_internal(&mut self, program: &Program, mode: RunMode) -> Result<Option<Value>, RuntimeError> {
         self.call_stack.clear();
+        self.resolution = if mode == RunMode::Script { resolver::resolve(program) } else { RootResolution::default() };
         self.hoist_functions(&program.items);
         let mut last: Option<Value> = None;
         let mut since_gc = 0usize;

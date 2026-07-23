@@ -31,6 +31,10 @@ impl EnvFrame {
     pub(crate) fn rebind(&mut self, name: String, value: Value) {
         self.bindings.insert(name, value);
     }
+
+    pub(crate) fn get_local(&self, name: &str) -> Option<Value> {
+        self.bindings.get(name).cloned()
+    }
 }
 
 #[derive(Debug)]
