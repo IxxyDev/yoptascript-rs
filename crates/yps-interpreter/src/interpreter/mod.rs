@@ -115,6 +115,9 @@ impl Interpreter {
     }
 
     pub(super) fn lookup_read(&self, ident: &Identifier) -> Option<Value> {
+        if let Some(value) = self.env.get_shallow(&ident.name) {
+            return Some(value);
+        }
         if !self.resolution.is_empty()
             && self.resolution.is_root_read(ident.span.start)
             && let Some(value) = self.global_root.borrow().get_local(&ident.name)
