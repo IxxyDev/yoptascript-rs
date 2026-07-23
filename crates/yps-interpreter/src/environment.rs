@@ -163,6 +163,10 @@ impl Environment {
         }
     }
 
+    pub(crate) fn get_shallow(&self, name: &str) -> Option<Value> {
+        self.current.borrow().get_local(name)
+    }
+
     pub fn get(&self, name: &str) -> Option<Value> {
         let mut frame_rc = Rc::clone(&self.current);
         loop {
