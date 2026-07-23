@@ -42,7 +42,7 @@ fn is_object_like(v: &Value) -> bool {
         v,
         Value::Object(_)
             | Value::Array(_)
-            | Value::Function { .. }
+            | Value::Function(_)
             | Value::BuiltinFunction(_)
             | Value::Class(_)
             | Value::Proxy { .. }

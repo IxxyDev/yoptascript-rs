@@ -8,7 +8,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::{GcRoot, Interpreter};
 use crate::stdlib::require_args;
-use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, Value};
+use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, ThenHandlerData, Value};
 
 pub fn construct(interp: &mut Interpreter, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     require_args(&args, 1, span, "СловоПацана")?;
@@ -378,18 +378,18 @@ fn chain_promise(
             );
         }
         PromiseState::Pending { .. } => {
-            let resolve_cb = Value::PromiseThenHandler {
-                handler: Box::new(on_fulfill),
-                resolve: Box::new(resolve_cap.clone()),
-                reject: Box::new(reject_cap.clone()),
+            let resolve_cb = Value::PromiseThenHandler(Box::new(ThenHandlerData {
+                handler: on_fulfill,
+                resolve: resolve_cap.clone(),
+                reject: reject_cap.clone(),
                 is_fulfill: true,
-            };
-            let reject_cb = Value::PromiseThenHandler {
-                handler: Box::new(on_reject),
-                resolve: Box::new(resolve_cap),
-                reject: Box::new(reject_cap),
+            }));
+            let reject_cb = Value::PromiseThenHandler(Box::new(ThenHandlerData {
+                handler: on_reject,
+                resolve: resolve_cap,
+                reject: reject_cap,
                 is_fulfill: false,
-            };
+            }));
             if let PromiseState::Pending { on_resolve, on_reject } = &mut *state.borrow_mut() {
                 on_resolve.push(resolve_cb);
                 on_reject.push(reject_cb);

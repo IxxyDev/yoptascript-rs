@@ -74,7 +74,8 @@ impl Interpreter {
                 }
                 if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex") {
                     let obj_val = self.eval_expr(object)?;
-                    if let Value::RegExp { last_index, .. } = &obj_val {
+                    if let Value::RegExp(re) = &obj_val {
+                        let last_index = &re.last_index;
                         let n = match &value {
                             Value::Number(n) => *n,
                             other => {
@@ -212,8 +213,8 @@ impl Interpreter {
             Value::Object(map) => {
                 let setter_key = symbols::setter_key(property);
                 let setter = match map.borrow().get(&setter_key) {
-                    Some(Value::Function { params, body, env, .. }) => {
-                        Some((params.clone(), Rc::clone(body), Rc::clone(env)))
+                    Some(Value::Function(func)) => {
+                        Some((func.params.clone(), Rc::clone(&func.body), Rc::clone(&func.env)))
                     }
                     _ => None,
                 };
@@ -416,17 +417,17 @@ impl Interpreter {
         let seg = &path[0];
         let is_last = path.len() == 1;
         match (seg, &target) {
-            (AccessSegment::Index(Value::Number(n)), Value::TypedArray { buffer, offset, length, kind }) => {
+            (AccessSegment::Index(Value::Number(n)), Value::TypedArray(ta)) => {
                 if !is_last {
                     return Err(RuntimeError::new("Нельзя индексировать элемент типизированного массива далее", span));
                 }
                 if n.is_finite() && *n >= 0.0 && n.fract() == 0.0 {
                     let i = *n as usize;
-                    if i < *length {
+                    if i < ta.length {
                         crate::stdlib::typed_array::write_element(
-                            buffer,
-                            *kind,
-                            *offset + i * kind.element_size(),
+                            &ta.buffer,
+                            ta.kind,
+                            ta.offset + i * ta.kind.element_size(),
                             &value,
                             span,
                         )?;
@@ -530,9 +531,7 @@ impl Interpreter {
 
     fn descend_set(child: Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {
         match &child {
-            Value::Array(_) | Value::Object(_) | Value::TypedArray { .. } => {
-                Self::set_at_path(child, path, value, span)
-            }
+            Value::Array(_) | Value::Object(_) | Value::TypedArray(_) => Self::set_at_path(child, path, value, span),
             other => Err(RuntimeError::new(format!("Нельзя индексировать '{}' далее", other.type_name()), span)),
         }
     }

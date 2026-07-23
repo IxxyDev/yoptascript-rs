@@ -6,7 +6,7 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::{ClassDef, MethodDef, Value};
+use crate::value::{ClassDef, FunctionData, MethodDef, Value};
 
 use super::Interpreter;
 
@@ -23,7 +23,7 @@ impl Interpreter {
                     return Ok(Value::Number(arr.borrow().len() as f64));
                 }
                 if crate::stdlib::array::method_exists(property) {
-                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: property.to_string() });
+                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: Rc::from(property) });
                 }
                 Ok(Value::Undefined)
             }
@@ -44,7 +44,7 @@ impl Interpreter {
                     return Ok(Value::Number(s.encode_utf16().count() as f64));
                 }
                 if crate::stdlib::string::method_exists(property) {
-                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: property.to_string() });
+                    return Ok(Value::BoundMethod { receiver: Box::new(obj.clone()), method: Rc::from(property) });
                 }
                 Ok(Value::Undefined)
             }
@@ -62,7 +62,7 @@ impl Interpreter {
                 }
                 Ok(Value::Undefined)
             }
-            Value::RegExp { .. } => {
+            Value::RegExp(_) => {
                 if let Some(v) = crate::stdlib::regexp::member(&obj, property) {
                     return Ok(v);
                 }
@@ -100,8 +100,8 @@ impl Interpreter {
 
                 let getter_key = symbols::getter_key(property);
                 let getter = match map.borrow().get(&getter_key) {
-                    Some(Value::Function { params, body, env, .. }) => {
-                        Some((params.clone(), Rc::clone(body), Rc::clone(env)))
+                    Some(Value::Function(func)) => {
+                        Some((func.params.clone(), Rc::clone(&func.body), Rc::clone(&func.env)))
                     }
                     _ => None,
                 };
@@ -147,14 +147,14 @@ impl Interpreter {
                         );
                     }
                     if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, property) {
-                        return Ok(Value::Function {
+                        return Ok(Value::Function(Rc::new(FunctionData {
                             name: Rc::from(property),
                             params: params.clone(),
                             body: Rc::clone(body),
                             env: Rc::clone(env),
                             is_generator: false,
                             is_async: false,
-                        });
+                        })));
                     }
                 }
                 let proto = map.borrow().get(symbols::PROTO).cloned();
@@ -177,14 +177,14 @@ impl Interpreter {
                     return Ok(val);
                 }
                 if let Some(MethodDef { params, body, env }) = Self::find_static_method_in_class(cls, property) {
-                    return Ok(Value::Function {
+                    return Ok(Value::Function(Rc::new(FunctionData {
                         name: Rc::from(property),
                         params: params.clone(),
                         body: Rc::clone(body),
                         env: Rc::clone(env),
                         is_generator: false,
                         is_async: false,
-                    });
+                    })));
                 }
                 Ok(Value::Undefined)
             }
@@ -195,11 +195,11 @@ impl Interpreter {
                 Ok(Value::Undefined)
             }
             Value::Date(_) => Ok(Value::Undefined),
-            Value::TypedArray { buffer, offset, length, kind } => match property {
-                "length" | "длина" => Ok(Value::Number(*length as f64)),
-                "byteLength" | "длинаБайт" => Ok(Value::Number((length * kind.element_size()) as f64)),
-                "byteOffset" | "смещениеБайт" => Ok(Value::Number(*offset as f64)),
-                "buffer" | "область" => Ok(Value::ArrayBuffer(std::rc::Rc::clone(buffer))),
+            Value::TypedArray(ta) => match property {
+                "length" | "длина" => Ok(Value::Number(ta.length as f64)),
+                "byteLength" | "длинаБайт" => Ok(Value::Number((ta.length * ta.kind.element_size()) as f64)),
+                "byteOffset" | "смещениеБайт" => Ok(Value::Number(ta.offset as f64)),
+                "buffer" | "область" => Ok(Value::ArrayBuffer(std::rc::Rc::clone(&ta.buffer))),
                 _ => Ok(Value::Undefined),
             },
             Value::ArrayBuffer(buffer) => match property {
@@ -247,13 +247,15 @@ impl Interpreter {
                 let mut current: Option<&ClassDef> = Some(cls);
                 while let Some(c) = current {
                     for (name, MethodDef { params, body, env }) in &c.methods {
-                        map.entry(name.clone()).or_insert_with(|| Value::Function {
-                            name: Rc::from(name.as_str()),
-                            params: params.clone(),
-                            body: Rc::clone(body),
-                            env: Rc::clone(env),
-                            is_generator: false,
-                            is_async: false,
+                        map.entry(name.clone()).or_insert_with(|| {
+                            Value::Function(Rc::new(FunctionData {
+                                name: Rc::from(name.as_str()),
+                                params: params.clone(),
+                                body: Rc::clone(body),
+                                env: Rc::clone(env),
+                                is_generator: false,
+                                is_async: false,
+                            }))
                         });
                     }
                     current = c.parent.as_deref();

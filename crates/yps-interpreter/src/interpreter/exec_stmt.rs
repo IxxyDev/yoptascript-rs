@@ -7,7 +7,7 @@ use yps_parser::ast::{Block, ExportKind, Expr, Identifier, ImportSpec, Pattern, 
 
 use crate::error::RuntimeError;
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{FunctionData, Value};
 
 use super::{ControlFlow, Interpreter, LoopOp};
 
@@ -101,14 +101,14 @@ impl Interpreter {
                 }
             }
             Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } => {
-                let func = Value::Function {
+                let func = Value::Function(Rc::new(FunctionData {
                     name: Rc::from(name.name.as_str()),
                     params: params.clone(),
                     body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
-                };
+                }));
                 self.env.define(name.name.clone(), func, false);
                 Ok(None)
             }
@@ -127,8 +127,8 @@ impl Interpreter {
                 let val = self.eval_expr(iterable)?;
                 let items: Vec<Value> = match val {
                     Value::Array(elements) => elements.borrow().0.clone(),
-                    Value::TypedArray { buffer, offset, length, kind } => {
-                        crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
+                    Value::TypedArray(ta) => {
+                        crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind)
                     }
                     Value::Proxy { target, handler } => self.proxy_own_keys(&target, &handler, *span)?,
                     Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone().into())).collect(),
@@ -383,14 +383,14 @@ impl Interpreter {
     pub(super) fn hoist_functions(&mut self, stmts: &[Stmt]) {
         for stmt in stmts {
             if let Stmt::FunctionDecl { name, params, body, is_generator, is_async, .. } = stmt {
-                let func = Value::Function {
+                let func = Value::Function(Rc::new(FunctionData {
                     name: Rc::from(name.name.as_str()),
                     params: params.clone(),
                     body: body.clone(),
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
-                };
+                }));
                 self.env.define(name.name.clone(), func, false);
             }
         }
@@ -553,9 +553,7 @@ impl Interpreter {
             Value::Map(entries) => {
                 entries.borrow().iter().map(|(k, v)| Value::array(vec![k.as_value().clone(), v.clone()])).collect()
             }
-            Value::TypedArray { buffer, offset, length, kind } => {
-                crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind)
-            }
+            Value::TypedArray(ta) => crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind),
             Value::Object(_) => {
                 if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
                     let next_method_name = "следующий";

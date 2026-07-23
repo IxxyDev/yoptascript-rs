@@ -491,7 +491,7 @@ fn step_block_stmt(
             let val = interp.eval_expr(iterable)?;
             let keys: Vec<Value> = match val {
                 Value::Array(arr) => (0..arr.borrow().len()).map(|i| Value::Number(i as f64)).collect(),
-                Value::TypedArray { length, .. } => (0..length).map(|i| Value::Number(i as f64)).collect(),
+                Value::TypedArray(ta) => (0..ta.length).map(|i| Value::Number(i as f64)).collect(),
                 Value::Proxy { target, handler } => interp.proxy_own_keys(&target, &handler, *fs)?,
                 Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone().into())).collect(),
                 other => {
@@ -809,8 +809,8 @@ fn value_to_iterator(val: Value, span: Span) -> Result<Rc<RefCell<IteratorState>
             entries: entries.borrow().iter().map(|(k, v)| (k.as_value().clone(), v.clone())).collect(),
             index: 0,
         },
-        Value::TypedArray { buffer, offset, length, kind } => IteratorState::Array {
-            values: crate::stdlib::typed_array::ta_elements(&buffer, offset, length, kind),
+        Value::TypedArray(ta) => IteratorState::Array {
+            values: crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind),
             index: 0,
         },
         other => {

@@ -49,8 +49,8 @@ pub fn call_method(
         Value::Date(_) => date::call_instance(interp, receiver, method, args, span),
         Value::Promise { .. } => promise::call(interp, receiver, method, args, span),
         Value::Iterator(_) => iterator::call(interp, receiver, method, args, span),
-        Value::RegExp { .. } => regexp::call(interp, receiver, method, args, span),
-        Value::TypedArray { .. } => typed_array::call(interp, receiver, method, args, span),
+        Value::RegExp(_) => regexp::call(interp, receiver, method, args, span),
+        Value::TypedArray(_) => typed_array::call(interp, receiver, method, args, span),
         Value::DataView { .. } => data_view::call(interp, receiver, method, args, span),
         Value::AbortController { .. } | Value::AbortSignal { .. } => abort::call(interp, receiver, method, args, span),
         Value::WeakMap(_) => weak::call_weak_map(receiver, method, args, span).map(|v| (v, None)),
@@ -73,8 +73,8 @@ pub(crate) fn has_builtin_methods(value: &Value) -> bool {
             | Value::Date(_)
             | Value::Promise { .. }
             | Value::Iterator(_)
-            | Value::RegExp { .. }
-            | Value::TypedArray { .. }
+            | Value::RegExp(_)
+            | Value::TypedArray(_)
             | Value::DataView { .. }
             | Value::AbortController { .. }
             | Value::AbortSignal { .. }

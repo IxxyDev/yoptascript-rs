@@ -4,7 +4,7 @@ use std::rc::Rc;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
-use crate::value::{SharedBuffer, TypedArrayKind, Value};
+use crate::value::{SharedBuffer, TypedArrayData, TypedArrayKind, Value};
 
 const MAX_BUFFER_BYTES: usize = 512 * 1024 * 1024;
 
@@ -66,7 +66,12 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
     let mut it = args.into_iter();
     let first = it.next();
     match first {
-        None => Ok(Value::TypedArray { buffer: Rc::new(RefCell::new(Vec::new())), offset: 0, length: 0, kind }),
+        None => Ok(Value::TypedArray(Rc::new(TypedArrayData {
+            buffer: Rc::new(RefCell::new(Vec::new())),
+            offset: 0,
+            length: 0,
+            kind,
+        }))),
         Some(Value::Number(n)) => {
             if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
                 return Err(RuntimeError::new(format!("'{name}' ожидает неотрицательную целую длину"), span));
@@ -74,7 +79,7 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
             let length = n as usize;
             let byte_len = checked_byte_len(length, size, span)?;
             let buffer = Rc::new(RefCell::new(vec![0u8; byte_len]));
-            Ok(Value::TypedArray { buffer, offset: 0, length, kind })
+            Ok(Value::TypedArray(Rc::new(TypedArrayData { buffer, offset: 0, length, kind })))
         }
         Some(Value::ArrayBuffer(buffer)) => {
             let byte_len = buffer.borrow().len();
@@ -123,7 +128,7 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
                     span,
                 ));
             }
-            Ok(Value::TypedArray { buffer, offset, length, kind })
+            Ok(Value::TypedArray(Rc::new(TypedArrayData { buffer, offset, length, kind })))
         }
         Some(Value::Array(arr)) => {
             let snapshot = arr.borrow().clone();
@@ -133,9 +138,13 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
             for (i, el) in snapshot.iter().enumerate() {
                 write_element(&buffer, kind, i * size, el, span)?;
             }
-            Ok(Value::TypedArray { buffer, offset: 0, length, kind })
+            Ok(Value::TypedArray(Rc::new(TypedArrayData { buffer, offset: 0, length, kind })))
         }
-        Some(Value::TypedArray { buffer: src, offset: src_off, length, kind: src_kind }) => {
+        Some(Value::TypedArray(src_ta)) => {
+            let src = src_ta.buffer.clone();
+            let src_off = src_ta.offset;
+            let length = src_ta.length;
+            let src_kind = src_ta.kind;
             let byte_len = checked_byte_len(length, size, span)?;
             let new_buffer = Rc::new(RefCell::new(vec![0u8; byte_len]));
             let src_size = src_kind.element_size();
@@ -146,7 +155,7 @@ pub fn construct(kind: TypedArrayKind, args: Vec<Value>, span: Span) -> Result<V
                 kind.write_le(&mut dst, i * size, num);
             }
             drop(dst);
-            Ok(Value::TypedArray { buffer: new_buffer, offset: 0, length, kind })
+            Ok(Value::TypedArray(Rc::new(TypedArrayData { buffer: new_buffer, offset: 0, length, kind })))
         }
         Some(other) => {
             Err(RuntimeError::new(format!("'{name}' нельзя построить из значения типа '{}'", other.type_name()), span))
@@ -206,13 +215,13 @@ pub fn call(
     args: Vec<Value>,
     span: Span,
 ) -> Result<(Value, Option<Value>), RuntimeError> {
-    let Value::TypedArray { buffer, offset, length, kind } = &receiver else {
+    let Value::TypedArray(ta) = &receiver else {
         return Err(RuntimeError::new("Метод вызван не на типизированном массиве", span));
     };
-    let buffer = buffer.clone();
-    let offset = *offset;
-    let length = *length;
-    let kind = *kind;
+    let buffer = ta.buffer.clone();
+    let offset = ta.offset;
+    let length = ta.length;
+    let kind = ta.kind;
     let size = kind.element_size();
     match method {
         "набор" | "set" => {
@@ -224,7 +233,7 @@ pub fn call(
             };
             let items: Vec<Value> = match source {
                 Value::Array(a) => a.borrow().0.clone(),
-                Value::TypedArray { buffer: sb, offset: so, length: sl, kind: sk } => ta_elements(&sb, so, sl, sk),
+                Value::TypedArray(ta) => ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind),
                 other => {
                     return Err(RuntimeError::new(
                         format!("'набор' ожидает массив или типизированный массив, получено '{}'", other.type_name()),
@@ -244,7 +253,15 @@ pub fn call(
             let begin = relative_index(args.first(), length, 0);
             let end = relative_index(args.get(1), length, length);
             let new_length = end.saturating_sub(begin);
-            Ok((Value::TypedArray { buffer, offset: offset + begin * size, length: new_length, kind }, None))
+            Ok((
+                Value::TypedArray(Rc::new(TypedArrayData {
+                    buffer,
+                    offset: offset + begin * size,
+                    length: new_length,
+                    kind,
+                })),
+                None,
+            ))
         }
         "срез" | "slice" => {
             let begin = relative_index(args.first(), length, 0);
@@ -256,7 +273,10 @@ pub fn call(
                 let end_byte = start_byte + new_length * size;
                 Rc::new(RefCell::new(src[start_byte..end_byte].to_vec()))
             };
-            Ok((Value::TypedArray { buffer: new_buffer, offset: 0, length: new_length, kind }, None))
+            Ok((
+                Value::TypedArray(Rc::new(TypedArrayData { buffer: new_buffer, offset: 0, length: new_length, kind })),
+                None,
+            ))
         }
         _ => Err(RuntimeError::new(format!("У типизированного массива нет метода '{method}'"), span)),
     }

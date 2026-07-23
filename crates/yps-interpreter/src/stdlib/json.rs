@@ -9,7 +9,7 @@ use crate::error::RuntimeError;
 use crate::interpreter::Interpreter;
 use crate::stdlib::{as_string, builtin, object_of, require_args};
 use crate::symbols;
-use crate::value::Value;
+use crate::value::{TypedArrayData, Value};
 
 pub fn build_object() -> Value {
     object_of(&[("разобрать", builtin("Жсон.разобрать")), ("вСтроку", builtin("Жсон.вСтроку"))])
@@ -111,7 +111,7 @@ fn stringify_into(
                 if symbols::is_internal_key(k) {
                     continue;
                 }
-                if matches!(val, Value::Function { .. } | Value::BuiltinFunction(_) | Value::Undefined) {
+                if matches!(val, Value::Function(_) | Value::BuiltinFunction(_) | Value::Undefined) {
                     continue;
                 }
                 if !first {
@@ -131,7 +131,7 @@ fn stringify_into(
                 span,
             ));
         }
-        Value::Function { .. }
+        Value::Function(_)
         | Value::BuiltinFunction(_)
         | Value::BoundMethod { .. }
         | Value::Class(_)
@@ -157,7 +157,7 @@ fn stringify_into(
                 span,
             ));
         }
-        Value::RegExp { .. }
+        Value::RegExp(_)
         | Value::WeakMap(_)
         | Value::WeakSet(_)
         | Value::WeakRef(_)
@@ -170,7 +170,8 @@ fn stringify_into(
                 out.push_str("null");
             }
         }
-        Value::TypedArray { buffer, offset, length, kind } => {
+        Value::TypedArray(ta) => {
+            let TypedArrayData { buffer, offset, length, kind } = &**ta;
             out.push('[');
             let bytes = buffer.borrow();
             let size = kind.element_size();

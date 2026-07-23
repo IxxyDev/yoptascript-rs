@@ -160,11 +160,11 @@ impl Marker {
             | Value::Boolean(_)
             | Value::BuiltinFunction(_)
             | Value::Symbol { .. }
-            | Value::RegExp { .. }
+            | Value::RegExp(_)
             | Value::Date(_)
             | Value::AbortCancelTimer { .. }
             | Value::ArrayBuffer(_)
-            | Value::TypedArray { .. }
+            | Value::TypedArray(_)
             | Value::DataView { .. }
             | Value::Undefined
             | Value::Null
@@ -198,16 +198,16 @@ impl Marker {
                     }
                 }
             }
-            Value::Function { env, .. } => self.work.push(Work::Frame(Rc::clone(env))),
+            Value::Function(func) => self.work.push(Work::Frame(Rc::clone(&func.env))),
             Value::BoundMethod { receiver, .. } => self.push_value(receiver),
             Value::Class(rc) => self.work.push(Work::Class(Rc::clone(rc))),
             Value::Promise { state } | Value::PromiseCapability { state, .. } => {
                 self.work.push(Work::Promise(Rc::clone(state)));
             }
-            Value::PromiseThenHandler { handler, resolve, reject, is_fulfill: _ } => {
-                self.push_value(handler);
-                self.push_value(resolve);
-                self.push_value(reject);
+            Value::PromiseThenHandler(data) => {
+                self.push_value(&data.handler);
+                self.push_value(&data.resolve);
+                self.push_value(&data.reject);
             }
             Value::PromiseFinallyHandler { cb, cap } => {
                 self.push_value(cb);
