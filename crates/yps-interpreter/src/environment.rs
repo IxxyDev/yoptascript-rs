@@ -163,6 +163,7 @@ impl Environment {
         }
     }
 
+    #[inline]
     pub(crate) fn get_shallow(&self, name: &str) -> Option<Value> {
         self.current.borrow().get_local(name)
     }

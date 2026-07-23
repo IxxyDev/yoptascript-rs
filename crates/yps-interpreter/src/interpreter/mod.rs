@@ -114,6 +114,7 @@ impl Interpreter {
         }
     }
 
+    #[inline]
     pub(super) fn lookup_read(&self, ident: &Identifier) -> Option<Value> {
         if let Some(value) = self.env.get_shallow(&ident.name) {
             return Some(value);
