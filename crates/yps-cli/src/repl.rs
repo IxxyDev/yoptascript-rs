@@ -1,15 +1,31 @@
 use std::env;
 use std::io::{self, BufRead, IsTerminal};
+use std::path::PathBuf;
 use std::process;
 
-use rustyline::DefaultEditor;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
+use rustyline::history::DefaultHistory;
 
 use yps_interpreter::Interpreter;
 use yps_lexer::{Lexer, SourceFile};
 use yps_parser::{Parser, Program};
 
+use crate::completion::YpsHelper;
 use crate::{print_diagnostics, print_runtime_error};
+
+type YpsEditor = Editor<YpsHelper, DefaultHistory>;
+
+fn history_path_from(env_override: Option<String>, home: Option<String>) -> Option<PathBuf> {
+    if let Some(p) = env_override {
+        return Some(PathBuf::from(p));
+    }
+    home.map(|home| PathBuf::from(home).join(".yps_history"))
+}
+
+fn history_path() -> Option<PathBuf> {
+    history_path_from(env::var("YPS_HISTORY_FILE").ok(), env::var("HOME").ok())
+}
 
 enum CheckOutcome {
     Ready(Program),
@@ -85,7 +101,7 @@ enum LineEvent {
 }
 
 enum InputSource {
-    Tty(Box<DefaultEditor>),
+    Tty(Box<YpsEditor>),
     Piped(io::Stdin),
 }
 
@@ -122,6 +138,30 @@ impl InputSource {
             }
         }
     }
+
+    fn record_declarations(&self, source_text: &str) {
+        if let InputSource::Tty(editor) = self
+            && let Some(helper) = editor.helper()
+        {
+            helper.record_declarations(source_text);
+        }
+    }
+
+    fn reset_locals(&self) {
+        if let InputSource::Tty(editor) = self
+            && let Some(helper) = editor.helper()
+        {
+            helper.reset_locals();
+        }
+    }
+
+    fn save_history(&mut self) {
+        if let InputSource::Tty(editor) = self
+            && let Some(path) = history_path()
+        {
+            let _ = editor.save_history(&path);
+        }
+    }
 }
 
 pub fn run_repl() {
@@ -138,8 +178,14 @@ pub fn run_repl() {
     }
 
     let mut input = if is_tty {
-        match DefaultEditor::new() {
-            Ok(editor) => InputSource::Tty(Box::new(editor)),
+        match YpsEditor::new() {
+            Ok(mut editor) => {
+                editor.set_helper(Some(YpsHelper::new()));
+                if let Some(path) = history_path() {
+                    let _ = editor.load_history(&path);
+                }
+                InputSource::Tty(Box::new(editor))
+            }
             Err(_) => InputSource::Piped(io::stdin()),
         }
     } else {
@@ -174,6 +220,7 @@ pub fn run_repl() {
                         if is_tty {
                             println!();
                         }
+                        input.save_history();
                         process::exit(0);
                     }
                     ReplCommand::History => {
@@ -185,6 +232,7 @@ pub fn run_repl() {
                         if let Ok(cwd) = env::current_dir() {
                             interpreter.set_base_path(cwd);
                         }
+                        input.reset_locals();
                         if is_tty {
                             println!("Состояние сброшено.");
                         }
@@ -231,6 +279,7 @@ pub fn run_repl() {
         };
 
         let completed_input = buffer.trim_end_matches('\n').to_string();
+        input.record_declarations(&completed_input);
         history.push(completed_input);
         buffer.clear();
 
@@ -242,6 +291,8 @@ pub fn run_repl() {
             }
         }
     }
+
+    input.save_history();
 
     if !buffer.is_empty() {
         let source = SourceFile::new("<repl>".to_string(), buffer.clone());
@@ -258,7 +309,52 @@ pub fn run_repl() {
 
 #[cfg(test)]
 mod tests {
+    use rustyline::history::History;
+
     use super::*;
+
+    #[test]
+    fn history_path_prefers_env_override() {
+        let path = history_path_from(Some("/tmp/custom_history".to_string()), Some("/home/user".to_string()));
+        assert_eq!(path, Some(PathBuf::from("/tmp/custom_history")));
+    }
+
+    #[test]
+    fn history_path_falls_back_to_home() {
+        let path = history_path_from(None, Some("/home/user".to_string()));
+        assert_eq!(path, Some(PathBuf::from("/home/user/.yps_history")));
+    }
+
+    #[test]
+    fn history_path_none_when_nothing_available() {
+        let path = history_path_from(None, None);
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn history_round_trip_persists_entries_across_editor_instances() {
+        let mut history_file = std::env::temp_dir();
+        history_file.push(format!("yps_repl_history_test_{}", process::id()));
+        let _ = std::fs::remove_file(&history_file);
+
+        {
+            let mut editor = YpsEditor::new().unwrap();
+            editor.add_history_entry("гыы а = 1;").unwrap();
+            editor.add_history_entry("сказать(а);").unwrap();
+            editor.save_history(&history_file).unwrap();
+        }
+
+        {
+            let mut editor = YpsEditor::new().unwrap();
+            editor.load_history(&history_file).unwrap();
+            let first = editor.history().get(0, rustyline::history::SearchDirection::Forward).unwrap().unwrap();
+            let second = editor.history().get(1, rustyline::history::SearchDirection::Forward).unwrap().unwrap();
+            assert_eq!(first.entry, "гыы а = 1;");
+            assert_eq!(second.entry, "сказать(а);");
+        }
+
+        let _ = std::fs::remove_file(&history_file);
+    }
 
     #[test]
     fn parse_cmd_exit() {

@@ -8,6 +8,7 @@ use yps_interpreter::{Interpreter, RuntimeError};
 use yps_lexer::{Diagnostic, Lexer, SourceFile};
 use yps_parser::{Parser, Program};
 
+mod completion;
 mod repl;
 
 const INTERNAL_ERROR_EXIT_CODE: i32 = 70;
@@ -31,6 +32,9 @@ pub(crate) fn print_runtime_error(source: &SourceFile, e: &RuntimeError, name: &
 const HELP_TEXT: &str = "Использование: yps [ФЛАГИ] [ФАЙЛ]
        yps repl
        yps fmt <файл.yopta> [--write|-w] [--check] [--source-map]
+       yps ast <файл.yopta>
+       yps disasm <файл.yopta>
+       yps lint <файл.yopta>
 
 Выполнение программы:
   yps ФАЙЛ                  выполнить файл на дереве интерпретации
@@ -45,6 +49,11 @@ const HELP_TEXT: &str = "Использование: yps [ФЛАГИ] [ФАЙЛ]
   yps fmt <файл.yopta> --write|-w   переписать файл на месте
   yps fmt <файл.yopta> --check      проверить, отформатирован ли файл (код выхода)
   yps fmt <файл.yopta> --source-map добавить source map к результату
+
+Отладка:
+  yps ast <файл.yopta>      напечатать дерево разбора (AST) файла
+  yps disasm <файл.yopta>   напечатать дизассемблированный байткод VM
+  yps lint <файл.yopta>     проверить файл линтером (код выхода 1 при находках)
 
 Прочее:
   -h, --help       показать эту справку
@@ -66,9 +75,82 @@ fn main() {
             println!("{HELP_TEXT}");
         }
         "fmt" => run_fmt(&args[2..]),
+        "ast" => run_ast(&args[2..]),
+        "disasm" => run_disasm(&args[2..]),
+        "lint" => run_lint(&args[2..]),
         "repl" => repl::run_repl(),
         _ => run_program(&args[1..]),
     }
+}
+
+fn single_file_arg(subcommand: &str, args: &[String]) -> String {
+    let mut file: Option<String> = None;
+    for arg in args {
+        if arg.starts_with('-') {
+            eprintln!("Неизвестный флаг: {arg}");
+            process::exit(1);
+        }
+        if file.is_some() {
+            eprintln!("Указан более чем один файл: {arg}");
+            process::exit(1);
+        }
+        file = Some(arg.clone());
+    }
+    match file {
+        Some(f) => f,
+        None => {
+            eprintln!("Использование: yps {subcommand} <файл.yopta>");
+            process::exit(1);
+        }
+    }
+}
+
+fn run_ast(args: &[String]) {
+    let filename = single_file_arg("ast", args);
+    let (_source, program) = load_program(&filename);
+    println!("{program:#?}");
+}
+
+fn run_disasm(args: &[String]) {
+    let filename = single_file_arg("disasm", args);
+    let (source, program) = load_program(&filename);
+    match yps_vm::compile_program(&program) {
+        Ok(proto) => println!("{}", yps_vm::disassemble(&proto)),
+        Err(e) => {
+            let (line, col) = source.position(e.span.start);
+            eprintln!("{}:{line}:{col}: {e}", source.name);
+            process::exit(1);
+        }
+    }
+}
+
+fn run_lint(args: &[String]) {
+    let filename = single_file_arg("lint", args);
+    let code = match fs::read_to_string(&filename) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Не удалось прочитать файл '{filename}': {e}");
+            process::exit(1);
+        }
+    };
+
+    let result = yps_lint::lint_source(&code);
+    let source = SourceFile::new(filename.clone(), code);
+
+    if !result.parse_errors.is_empty() {
+        print_diagnostics(&source, &result.parse_errors, &filename);
+        process::exit(1);
+    }
+
+    if result.diagnostics.is_empty() {
+        return;
+    }
+
+    for d in &result.diagnostics {
+        let (line, col) = source.position(d.span.start);
+        println!("{filename}:{line}:{col}: {:?} [{}]: {}", d.severity, d.rule.code(), d.message);
+    }
+    process::exit(1);
 }
 
 fn run_program(args: &[String]) {
