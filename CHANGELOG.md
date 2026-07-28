@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-07-28
+
+### Added
+
+- **Linter** — new `yps-lint` crate and `yps lint <file>` subcommand
+  (exit code 1 on findings). Three rules: unused variables and
+  parameters (ESLint-style after-used semantics; closures, template
+  interpolation, destructuring and `_`-prefixed names are respected),
+  unreachable code after `отвечаю`/`кидай`/`харэ`/`двигай` (function
+  declarations are hoisted and stay reachable), and declarations that
+  shadow an outer binding (builtins are not treated as outer scope).
+- **Language server: navigation and highlighting** — find references
+  (built on the rename resolver), semantic tokens with UTF-16-correct
+  delta encoding for Cyrillic identifiers, and signature help for both
+  user-defined functions and builtins (active parameter tracks nested
+  calls).
+- **Language server: lint integration** — lint findings are published as
+  diagnostics (source `yps-lint`) with quick fixes: rename an unused
+  binding to its `_`-prefixed form across all occurrences, or delete an
+  unreachable statement.
+- **CLI introspection** — `yps ast <file>` dumps the parse tree and
+  `yps disasm <file>` prints the disassembled VM bytecode, including
+  nested function prototypes.
+- **REPL quality of life** — history persists across sessions
+  (`$YPS_HISTORY_FILE` or `~/.yps_history`) and Tab completes keywords,
+  builtins and identifiers declared in the current session.
+- **VS Code extension 1.9.0** — the LSP binary is resolved from the
+  `yoptascript.server.path` setting, then from a binary bundled inside
+  the extension, then from `PATH`; `npm run package:local` builds
+  `yps-lsp` and packages a platform vsix with the binary included.
+
 ## [1.8.0] - 2026-07-23
 
 ### Changed
