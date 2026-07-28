@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn clean_source_has_no_diagnostics() {
-        let diags = crate::analyze("ясенХуй x = 1;\n").diagnostics;
+        let diags = crate::analyze("ясенХуй x = 1;\nсказать(x);\n").diagnostics;
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
     }
 
