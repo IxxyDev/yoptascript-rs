@@ -1,16 +1,38 @@
 import * as vscode from "vscode";
+import { existsSync } from "node:fs";
 import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
   TransportKind
 } from "vscode-languageclient/node";
+import { resolveServerPath } from "./serverResolver.js";
 
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration("yoptascript");
-  const serverPath = config.get<string>("server.path")?.trim() || "yps-lsp";
+  const configuredPath = config.get<string>("server.path");
+
+  const resolved = resolveServerPath({
+    extensionPath: context.extensionPath,
+    configuredPath,
+    platform: process.platform,
+    arch: process.arch,
+    pathEnv: process.env.PATH,
+    fileExists: existsSync
+  });
+
+  if (!resolved) {
+    void vscode.window.showErrorMessage(
+      "YoptaScript: не найден языковой сервер yps-lsp. Укажите путь к бинарю в настройке " +
+        "yoptascript.server.path, либо соберите его из исходников " +
+        "(cargo build --release -p yps-lsp) и добавьте в PATH."
+    );
+    return;
+  }
+
+  const serverPath = resolved.path;
 
   const serverOptions: ServerOptions = {
     run: { command: serverPath, transport: TransportKind.stdio },

@@ -1,6 +1,7 @@
 .vscode/**
 .omc/**
 src/**
+scripts/**
 *.vsix
 package-lock.json
 test/**
