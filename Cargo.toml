@@ -5,6 +5,7 @@ members = [
     "crates/yps-fmt",
     "crates/yps-interpreter",
     "crates/yps-lexer",
+    "crates/yps-lint",
     "crates/yps-lsp",
     "crates/yps-parser",
     "crates/yps-vm",
@@ -24,6 +25,7 @@ yps-cli = { path = "crates/yps-cli" }
 yps-fmt = { path = "crates/yps-fmt" }
 yps-interpreter = { path = "crates/yps-interpreter" }
 yps-lexer = { path = "crates/yps-lexer" }
+yps-lint = { path = "crates/yps-lint" }
 yps-lsp = { path = "crates/yps-lsp" }
 yps-parser = { path = "crates/yps-parser" }
 yps-vm = { path = "crates/yps-vm" }

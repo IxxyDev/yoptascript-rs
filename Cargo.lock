@@ -1465,6 +1465,7 @@ dependencies = [
  "yps-fmt",
  "yps-interpreter",
  "yps-lexer",
+ "yps-lint",
  "yps-parser",
  "yps-vm",
 ]
@@ -1495,6 +1496,14 @@ name = "yps-lexer"
 version = "1.8.0"
 
 [[package]]
+name = "yps-lint"
+version = "1.8.0"
+dependencies = [
+ "yps-lexer",
+ "yps-parser",
+]
+
+[[package]]
 name = "yps-lsp"
 version = "1.8.0"
 dependencies = [
@@ -1503,6 +1512,7 @@ dependencies = [
  "yps-fmt",
  "yps-interpreter",
  "yps-lexer",
+ "yps-lint",
  "yps-parser",
 ]
 
