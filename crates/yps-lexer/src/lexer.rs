@@ -380,12 +380,17 @@ impl<'src> Lexer<'src> {
             if let Some(radix) = radix {
                 self.advance();
                 self.advance();
-                self.consume_digit_run(radix);
+                let digits = self.consume_digit_run(radix);
                 if self.current_char() == 'n' {
                     self.advance();
                 }
                 let end = self.position;
-                return Token { kind: TokenKind::Number, span: Span { start, end } };
+                let span = Span { start, end };
+                if digits == 0 {
+                    let raw = self.source.slice(span);
+                    self.error(span, format!("Невалидное число: '{raw}'"));
+                }
+                return Token { kind: TokenKind::Number, span };
             }
         }
 
@@ -774,10 +779,15 @@ impl<'src> Lexer<'src> {
         self.diagnostics.push(Diagnostic { severity: Severity::Error, message: message.into(), span });
     }
 
-    fn consume_digit_run(&mut self, radix: u32) {
+    fn consume_digit_run(&mut self, radix: u32) -> usize {
+        let mut digits = 0;
         while self.current_char().is_digit(radix) || self.current_char() == '_' {
+            if self.current_char() != '_' {
+                digits += 1;
+            }
             self.advance();
         }
+        digits
     }
 
     fn skip_whitespace(&mut self) {
@@ -1016,6 +1026,18 @@ mod tests {
         assert_eq!(lex_single_number("0O17"), "0O17");
         assert_eq!(lex_single_number("0b101"), "0b101");
         assert_eq!(lex_single_number("0B101"), "0B101");
+    }
+
+    #[test]
+    fn number_radix_prefix_without_digits_is_error() {
+        for src in ["0x", "0X", "0o", "0O", "0b", "0B", "0x_", "0O;", "0xn"] {
+            let source = SourceFile::new("test".to_string(), (*src).to_string());
+            let (_, diags) = Lexer::new(&source).tokenize();
+            assert!(
+                diags.iter().any(|d| d.message.contains("Невалидное число")),
+                "'{src}' produced no diagnostic: {diags:?}"
+            );
+        }
     }
 
     #[test]
