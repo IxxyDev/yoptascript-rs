@@ -17,3 +17,4 @@ yps-lexer.workspace = true
 yps-parser.workspace = true
 yps-interpreter.workspace = true
 yps-fmt.workspace = true
+yps-lint.workspace = true

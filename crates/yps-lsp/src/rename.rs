@@ -473,13 +473,18 @@ pub fn prepare(text: &str, byte_pos: usize) -> Option<Span> {
 }
 
 #[must_use]
-pub fn rename_edits(text: &str, byte_pos: usize, new_name: &str) -> Option<Vec<Span>> {
+pub fn occurrences_at(text: &str, byte_pos: usize) -> Option<Vec<Span>> {
     identifier_token_at(text, byte_pos)?;
+    let resolver = Resolver::build(text);
+    resolver.binding_occurrences_at(byte_pos)
+}
+
+#[must_use]
+pub fn rename_edits(text: &str, byte_pos: usize, new_name: &str) -> Option<Vec<Span>> {
     if !is_valid_new_name(new_name) {
         return None;
     }
-    let resolver = Resolver::build(text);
-    resolver.binding_occurrences_at(byte_pos)
+    occurrences_at(text, byte_pos)
 }
 
 #[cfg(test)]

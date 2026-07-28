@@ -6,12 +6,17 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use yps_lsp::builtins::builtin_doc;
+use yps_lsp::code_actions::quick_fix;
 use yps_lsp::completion::completion_items;
 use yps_lsp::definition::goto_definition;
 use yps_lsp::format::format_document;
 use yps_lsp::hover::keyword_hover;
+use yps_lsp::lint;
 use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
+use yps_lsp::references::references;
 use yps_lsp::rename::{prepare, rename_edits};
+use yps_lsp::semantic_tokens::semantic_tokens_full;
+use yps_lsp::signature_help::signature_help;
 use yps_lsp::types::{member_doc, type_doc};
 use yps_lsp::{Analyzed, analyze};
 
@@ -145,6 +150,87 @@ impl LanguageServer for Backend {
         let mut changes = HashMap::new();
         changes.insert(uri, edits);
         Ok(Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        let pos = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        let Some(analyzed) = self.get_document(&uri).await else {
+            return Ok(None);
+        };
+
+        let byte_pos = pos_to_byte(&analyzed.text, pos);
+        let Some(spans) = references(&analyzed.text, byte_pos, include_declaration) else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            spans
+                .into_iter()
+                .map(|span| Location { uri: uri.clone(), range: span_to_range(&analyzed.text, span) })
+                .collect(),
+        ))
+    }
+
+    async fn semantic_tokens_full(&self, params: SemanticTokensParams) -> Result<Option<SemanticTokensResult>> {
+        let Some(analyzed) = self.get_document(&params.text_document.uri).await else {
+            return Ok(None);
+        };
+
+        let data = semantic_tokens_full(&analyzed.text);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens { result_id: None, data })))
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        let Some(analyzed) = self.get_document(uri).await else {
+            return Ok(None);
+        };
+
+        let byte_pos = pos_to_byte(&analyzed.text, pos);
+        Ok(signature_help(&analyzed.text, byte_pos))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri.clone();
+
+        let Some(analyzed) = self.get_document(&uri).await else {
+            return Ok(None);
+        };
+
+        let mut actions = Vec::new();
+        for lsp_diag in &params.context.diagnostics {
+            if lsp_diag.source.as_deref() != Some(lint::SOURCE) {
+                continue;
+            }
+
+            let Some(lint_diag) =
+                analyzed.lint.diagnostics.iter().find(|d| span_to_range(&analyzed.text, d.span) == lsp_diag.range)
+            else {
+                continue;
+            };
+
+            let Some((title, edits)) = quick_fix(&analyzed.text, lint_diag) else {
+                continue;
+            };
+
+            let mut changes = HashMap::new();
+            changes.insert(uri.clone(), edits);
+
+            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title,
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![lsp_diag.clone()]),
+                edit: Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }),
+                ..Default::default()
+            }));
+        }
+
+        Ok((!actions.is_empty()).then_some(actions))
     }
 }
 
