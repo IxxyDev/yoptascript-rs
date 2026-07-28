@@ -1,5 +1,7 @@
 # yoptascript-rs
 
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/ixxydev.yoptascript?label=VS%20Code%20Marketplace&color=007ACC)](https://marketplace.visualstudio.com/items?itemName=IxxyDev.yoptascript)
+
 A Rust implementation of [YoptaScript](https://github.com/samgozman/YoptaScript) — a Russian joke programming language whose keywords are slang words instead of standard JS tokens (`if` → `вилкойвглаз`, `function` → `йопта`, `return` → `отвечаю`, etc.).
 
 While the original [samgozman/YoptaScript](https://github.com/samgozman/YoptaScript) (2.2k★) is a JS-based transpiler, **yoptascript-rs** is a from-scratch reimplementation in Rust with its own lexer, parser, AST, tree-walking interpreter and bytecode VM — built as a hands-on exercise in language implementation and Rust workspace design.
@@ -18,7 +20,7 @@ I was contributing to [Biome](https://github.com/biomejs/biome) (a Rust-based li
 
 ## Architecture
 
-A Cargo workspace with seven crates:
+A Cargo workspace with eight crates:
 
 ```
 crates/
@@ -27,17 +29,20 @@ crates/
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
 ├── yps-vm           # Bytecode compiler + stack VM (parity backend)
 ├── yps-fmt          # AST-based formatter with round-trip self-check
-├── yps-lsp          # Language server (diagnostics, hover, completion, symbols, formatting, go-to-definition)
-└── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt)
+├── yps-lsp          # Language server (diagnostics, hover, completion, symbols, formatting, navigation, code actions)
+├── yps-lint         # Linter: unused variables, unreachable code, shadowed declarations
+└── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt, lint, ast, disasm)
 ```
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
 
 The formatter (`yps fmt`) pretty-prints a `.yopta` file to canonical style. It restores parentheses from the same precedence table the parser uses and refuses to emit output unless `parse(fmt(x)) ≡ parse(x)` holds, so it can never silently change semantics or lose comments.
 
-The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics, hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt` (`textDocument/formatting`) and go-to-definition for functions, classes, variables and parameters (`textDocument/definition`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
+The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics (parser errors plus `yps-lint` warnings), hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt`, go-to-definition, find references, scope-aware rename, semantic highlighting (`textDocument/semanticTokens`), signature help and quick fixes for lint findings (`textDocument/codeAction`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
-A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yopta` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. See its [README](editors/vscode/README.md) to build and run it.
+The linter (`yps-lint`, also `yps lint`) walks the AST with a scope stack and reports unused variables and parameters (ESLint-style after-used semantics), unreachable statements after `отвечаю`/`кидай`/`харэ`/`двигай`, and declarations that shadow an outer binding.
+
+A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yopta` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. It is published on the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=IxxyDev.yoptascript) — install it from the Extensions view by searching for "YoptaScript" or with `code --install-extension ixxydev.yoptascript`. See its [README](editors/vscode/README.md) to build it from source.
 
 Built on Rust 2024 edition with `resolver = "3"`. Tooling: clippy, rustfmt, cargo-deny, pre-commit hooks, GitHub Actions CI, Justfile for task automation.
 
