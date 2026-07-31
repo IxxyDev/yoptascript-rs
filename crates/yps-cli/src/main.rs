@@ -35,6 +35,7 @@ const HELP_TEXT: &str = "Использование: yps [ФЛАГИ] [ФАЙЛ]
        yps ast <файл.yopta>
        yps disasm <файл.yopta>
        yps lint <файл.yopta>
+       yps transpile <файл.yopta> [-o файл.js]
 
 Выполнение программы:
   yps ФАЙЛ                  выполнить файл на дереве интерпретации
@@ -54,6 +55,10 @@ const HELP_TEXT: &str = "Использование: yps [ФЛАГИ] [ФАЙЛ]
   yps ast <файл.yopta>      напечатать дерево разбора (AST) файла
   yps disasm <файл.yopta>   напечатать дизассемблированный байткод VM
   yps lint <файл.yopta>     проверить файл линтером (код выхода 1 при находках)
+
+Транспиляция:
+  yps transpile <файл.yopta>             напечатать JS в stdout
+  yps transpile <файл.yopta> -o файл.js  записать JS в файл
 
 Прочее:
   -h, --help       показать эту справку
@@ -78,6 +83,7 @@ fn main() {
         "ast" => run_ast(&args[2..]),
         "disasm" => run_disasm(&args[2..]),
         "lint" => run_lint(&args[2..]),
+        "transpile" => run_transpile(&args[2..]),
         "repl" => repl::run_repl(),
         _ => run_program(&args[1..]),
     }
@@ -151,6 +157,71 @@ fn run_lint(args: &[String]) {
         println!("{filename}:{line}:{col}: {:?} [{}]: {}", d.severity, d.rule.code(), d.message);
     }
     process::exit(1);
+}
+
+fn run_transpile(args: &[String]) {
+    const USAGE: &str = "Использование: yps transpile <файл.yopta> [-o файл.js]";
+
+    let mut filename: Option<String> = None;
+    let mut out_path: Option<String> = None;
+
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "-o" | "--output" => match rest.next() {
+                Some(path) => out_path = Some(path.clone()),
+                None => {
+                    eprintln!("Флаг -o требует путь к файлу");
+                    process::exit(1);
+                }
+            },
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return;
+            }
+            other if other.starts_with('-') => {
+                eprintln!("Неизвестный флаг: {other}");
+                process::exit(1);
+            }
+            other => {
+                if filename.is_some() {
+                    eprintln!("Указан более чем один файл: {other}");
+                    process::exit(1);
+                }
+                filename = Some(other.to_string());
+            }
+        }
+    }
+
+    let Some(filename) = filename else {
+        eprintln!("{USAGE}");
+        process::exit(1);
+    };
+
+    let (source, program) = load_program(&filename);
+    let js = match yps_jsgen::transpile(&program) {
+        Ok(js) => js,
+        Err(e) => {
+            let (line, col) = source.position(e.span.start);
+            eprintln!("{filename}:{line}:{col}: {e}");
+            process::exit(1);
+        }
+    };
+
+    match out_path {
+        Some(path) => {
+            if let Err(e) = fs::write(&path, js.as_bytes()) {
+                eprintln!("Не удалось записать файл '{path}': {e}");
+                process::exit(1);
+            }
+        }
+        None => {
+            if let Err(e) = io::stdout().lock().write_all(js.as_bytes()) {
+                eprintln!("Ошибка записи в stdout: {e}");
+                process::exit(1);
+            }
+        }
+    }
 }
 
 fn run_program(args: &[String]) {
