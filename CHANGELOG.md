@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-07-31
+
+### Added
+
+- **JS transpiler** — new `yps-jsgen` crate and `yps transpile <file>
+  [-o out.js]` subcommand. Full statement/expression syntax transpiles
+  1:1 to modern JS; the free builtins (`сказать`, `длина`, `число`,
+  timers, ...) map to native JS or a small `__yps*` prelude shim
+  emitted only when used. Stdlib namespace globals (`Матан`,
+  `Помойка`, `Карта`, typed arrays, ...) and Russian instance-method
+  names are deliberately out of scope — referencing one is a
+  compile-time diagnostic with a span, never silently-wrong JS.
+- **Debug Adapter Protocol server** — new `yps-dap` crate/binary
+  speaking DAP over stdio: breakpoints, step over/in/out, call-stack
+  and variable inspection, driven through an additive debug hook on
+  the interpreter (zero behavior change when unused). Statement-level
+  stepping; VS Code editor wiring is a separate, deferred step.
+- **WASM playground** — new `yps-wasm` crate (`run_yopta`) plus a
+  static browser page (`crates/yps-wasm/www/`, plain ES modules) to
+  try the language without installing the Rust toolchain. Output
+  capture uses an additive output-sink hook on the interpreter, same
+  zero-cost-when-unused design as the debug hook. Live hosting is a
+  separate, deferred decision.
+- **Binary releases** — tag push (`v*.*.*`) now builds `yps`/`yps-lsp`
+  for linux/macos/windows via `.github/workflows/release.yml` and
+  publishes them to a GitHub Release with checksums.
+
+### Changed
+
+- `yps-lexer` and `yps-parser` are now publishable to crates.io
+  (`publish = true` + metadata); every other crate stays unpublished.
+
 ## [1.9.0] - 2026-07-28
 
 ### Added

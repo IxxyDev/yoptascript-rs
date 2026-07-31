@@ -16,7 +16,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "1.9.0"
+version = "1.10.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
@@ -29,7 +29,7 @@ yps-dap = { path = "crates/yps-dap" }
 yps-fmt = { path = "crates/yps-fmt" }
 yps-interpreter = { path = "crates/yps-interpreter" }
 yps-jsgen = { path = "crates/yps-jsgen" }
-yps-lexer = { path = "crates/yps-lexer", version = "1.9.0" }
+yps-lexer = { path = "crates/yps-lexer", version = "1.10.0" }
 yps-lint = { path = "crates/yps-lint" }
 yps-lsp = { path = "crates/yps-lsp" }
 yps-parser = { path = "crates/yps-parser" }
