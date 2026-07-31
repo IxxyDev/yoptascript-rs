@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  RUST_MIN_STACK: 16777216
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - run: cargo build --release --locked -p yps-cli -p yps-lsp --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=$(mktemp -d)
+          cp "target/${{ matrix.target }}/release/yps-cli" "$stage/yps"
+          cp "target/${{ matrix.target }}/release/yps-lsp" "$stage/yps-lsp"
+          chmod +x "$stage/yps" "$stage/yps-lsp"
+          archive="yps-${{ matrix.target }}.tar.gz"
+          tar -C "$stage" -czf "$archive" yps yps-lsp
+          shasum -a 256 "$archive" > "$archive.sha256"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "stage")
+          Copy-Item "target/${{ matrix.target }}/release/yps-cli.exe" (Join-Path $stage "yps.exe")
+          Copy-Item "target/${{ matrix.target }}/release/yps-lsp.exe" (Join-Path $stage "yps-lsp.exe")
+          $archive = "yps-${{ matrix.target }}.zip"
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File -Encoding ascii "$archive.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yps-${{ matrix.target }}
+          path: |
+            yps-${{ matrix.target }}.tar.gz
+            yps-${{ matrix.target }}.tar.gz.sha256
+            yps-${{ matrix.target }}.zip
+            yps-${{ matrix.target }}.zip.sha256
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
