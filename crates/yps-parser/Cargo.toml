@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+description = "Recursive descent parser for YoptaScript, an esoteric language with Russian slang keywords"
+repository = "https://github.com/IxxyDev/yoptascript-rs"
+publish = true
 
 [dependencies]
 yps-lexer.workspace = true
