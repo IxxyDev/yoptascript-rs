@@ -21,6 +21,9 @@ cargo test -p yps-lexer  # Run lexer tests only
 cargo test -p yps-parser # Run parser tests only
 cargo test -p yps-interpreter # Run interpreter tests only
 cargo test -p yps-fmt  # Run formatter tests only
+cargo test -p yps-jsgen  # Run JS transpiler tests only
+cargo test -p yps-dap  # Run DAP debug-adapter tests only
+cargo test -p yps-wasm  # Run WASM playground bindings tests (native target)
 cargo clippy --workspace --all-targets --all-features -- -D warnings  # Lint (matches CI)
 cargo fmt --all --check  # Format check (matches CI)
 ```
@@ -33,9 +36,13 @@ Run the REPL: `cargo run -p yps-cli` or `cargo run -p yps-cli -- repl`
 
 Format a `.yopta` file: `cargo run -p yps-cli -- fmt examples/hello.yopta [--write|-w] [--check]`
 
+Transpile a `.yopta` file to JS: `cargo run -p yps-cli -- transpile examples/hello.yopta [-o out.js]`
+
+Run the debug adapter (speaks DAP over stdin/stdout, driven by a DAP client, not by hand): `cargo run -p yps-dap`
+
 ## Architecture
 
-Cargo workspace with five crates:
+Cargo workspace with eight crates:
 
 - **yps-lexer** (`crates/yps-lexer/`) — Tokenizer. Handles UTF-8 Russian keywords, produces `Token` (with `TokenKind` + `Span`), and emits `Diagnostic` for errors. Entry point: `Lexer::new(&source).tokenize()` → `(Vec<Token>, Vec<Diagnostic>)`.
 
@@ -45,7 +52,13 @@ Cargo workspace with five crates:
 
 - **yps-fmt** (`crates/yps-fmt/`) — AST-based source formatter (no direct external deps; transitively pulls `stacker` via `yps-parser`). Entry point: `format_source(&source)` → `Result<FormatOutcome, FormatError>`. Pretty-prints the `Program` with canonical style, restores parentheses from the precedence table exported by `yps-parser` (`binary_precedence` / `UNARY_PRECEDENCE` / `TERNARY_PRECEDENCE` / `binary_is_right_assoc`), and guards correctness with a round-trip self-check (`parse(fmt(x)) ≡ parse(x)` via `normalize`). Comments are preserved via the lexer's additive `tokenize_with_trivia()` plus an attach pass (`comments.rs`); an unrecognized comment position (dangling) yields `FormatError::CommentRefused` rather than silent loss.
 
-- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yopta` files; also exposes the `fmt` subcommand (`yps fmt <file> [--write|-w] [--check]`) backed by `yps-fmt`.
+- **yps-jsgen** (`crates/yps-jsgen/`) — AST → JavaScript transpiler. Entry point: `transpile(&program)` → `Result<String, TranspileError>`. Prints every `Stmt`/`Expr` as the equivalent modern-JS construct (`|>` is desugared to a direct call; `базарпо`/switch is lowered to an if/else-if chain over a hidden temp, not a JS `switch`, so `харэ` inside a case still breaks the enclosing loop instead of the switch), rewrites the free builtins (`сказать` → `console.log`, `число` → `Number`, timers → `setTimeout`/…) and emits `__yps*` prelude shims only for the helpers actually used. Deliberately NOT full stdlib parity: referencing a stdlib namespace global (`Матан`, `Помойка`, `Карта`, typed arrays, …) is a `TranspileError` with a span rather than silently broken JS; Russian instance-method names are left untouched. Shadowing is a best-effort whole-program name collection (`scope.rs`), not real lexical resolution.
+
+- **yps-dap** (`crates/yps-dap/`) — Debug Adapter Protocol server over stdio (`yps-dap` binary; entry point `serve(input, &mut output)`). Drives the tree-walking interpreter through the additive `DebugHook` exported by `yps-interpreter` (`set_debug_hook` / `set_debug_resume` / `debug_call_stack` / `debug_visible_locals`): the interpreter runs on its own thread, the protocol loop on the main one, connected by two `mpsc` channels. Supports initialize/launch/setBreakpoints/configurationDone/threads/stackTrace/scopes/variables/continue/next/stepIn/stepOut/pause/disconnect/terminate. Breakpoint lines resolve to the first statement line at or after the request (`breakpoints::resolve_line`); step granularity is per-statement, driven by `call_stack` depth comparisons. Scope boundary and known limitations (stdout passthrough, only the innermost frame has locals, flat variable rendering, VS Code wiring deferred) are in the crate doc comment.
+
+- **yps-wasm** (`crates/yps-wasm/`) — cdylib bindings for the browser playground. Exports one wasm-bindgen function `run_yopta(code) -> String` that lexes → parses → interprets and returns everything `сказать` printed, or throws a yps-cli-style Russian diagnostic (`песочница:строка:колонка: …`). Output capture uses the additive `OutputSink` trait exported by `yps-interpreter` (`set_output_sink`; `None` by default, so every other caller keeps writing to real stdout/stderr — only `сказать`/`сказать.*` are routed). Static page in `crates/yps-wasm/www/` (plain ES modules, no bundler): build with `cd crates/yps-wasm && npx --yes wasm-pack build --target web --out-dir www/pkg`, serve with `python3 -m http.server 8000 --directory crates/yps-wasm/www`. `www/pkg/` is a build artifact and is gitignored. Browser limits (ФС/Сеть surface as catchable runtime errors; system clock, timers and `сказать.время` are unsupported and abort the call) are in the crate README and doc comment. Live deployment is a deliberately deferred, separate decision.
+
+- **yps-cli** (`crates/yps-cli/`) — CLI that chains lex → parse → interpret on `.yopta` files; also exposes the `fmt` subcommand (`yps fmt <file> [--write|-w] [--check]`) backed by `yps-fmt` and the `transpile` subcommand (`yps transpile <file> [-o out.js]`) backed by `yps-jsgen`.
 
 ## Language Keywords Mapping
 
