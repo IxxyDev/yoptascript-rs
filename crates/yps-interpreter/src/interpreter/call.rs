@@ -90,7 +90,14 @@ impl Interpreter {
                 if let Some(res) = crate::stdlib::call_static_namespaced(self, &name, args.clone(), span) {
                     return res;
                 }
-                call_builtin(&name, args, span)
+                match self.output_sink.take() {
+                    Some(mut sink) => {
+                        let result = crate::builtins::call_builtin_with_sink(&mut *sink, &name, args, span);
+                        self.output_sink = Some(sink);
+                        result
+                    }
+                    None => call_builtin(&name, args, span),
+                }
             }
             Value::Function(func) => {
                 let name = Rc::clone(&func.name);

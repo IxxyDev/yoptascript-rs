@@ -30,6 +30,7 @@ mod assign;
 mod call;
 mod class;
 pub mod coercion;
+pub mod debug;
 mod delete;
 mod eval_expr;
 mod event_loop;
@@ -66,6 +67,13 @@ pub struct Interpreter {
     pub(super) finalization_registries: Vec<std::rc::Weak<RefCell<FinRegState>>>,
     pub(super) resolution: RootResolution,
     pub(super) global_root: Rc<RefCell<EnvFrame>>,
+    /// `None` for every non-debug caller; the hot path costs exactly one `Option` check per statement.
+    pub(super) debug_hook: Option<Box<dyn debug::DebugHook>>,
+    pub(super) debug_action: debug::DebugAction,
+    pub(super) debug_depth: usize,
+    pub(super) debug_globals_baseline: std::collections::HashSet<String>,
+    /// `None` keeps `сказать` on real stdout/stderr; hosts without a console (WASM) install a sink.
+    pub(super) output_sink: Option<Box<dyn crate::output::OutputSink>>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -111,7 +119,16 @@ impl Interpreter {
             finalization_registries: Vec::new(),
             resolution: RootResolution::default(),
             global_root,
+            debug_hook: None,
+            debug_action: debug::DebugAction::Continue,
+            debug_depth: 0,
+            debug_globals_baseline: std::collections::HashSet::new(),
+            output_sink: None,
         }
+    }
+
+    pub fn set_output_sink(&mut self, sink: Box<dyn crate::output::OutputSink>) {
+        self.output_sink = Some(sink);
     }
 
     #[inline]

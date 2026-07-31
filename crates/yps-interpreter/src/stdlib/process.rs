@@ -25,6 +25,14 @@ fn args_value() -> Value {
     Value::array(argv)
 }
 
+/// `std::env::vars()` паникует на wasm32-unknown-unknown, а объект `Процесс` строится
+/// при создании интерпретатора, поэтому в браузере набор переменных просто пуст.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn env_value() -> Value {
+    Value::object(IndexMap::new())
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn env_value() -> Value {
     let mut map = IndexMap::new();
     for (k, v) in env::vars() {

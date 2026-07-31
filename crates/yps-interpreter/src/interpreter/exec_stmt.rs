@@ -17,6 +17,9 @@ impl Interpreter {
     }
 
     fn exec_stmt_inner(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
+        if self.debug_hook.is_some() {
+            self.debug_before_stmt(stmt.span())?;
+        }
         let incoming_label = self.pending_label.take();
         match stmt {
             Stmt::VarDecl { pattern, init, is_const, span } => {
