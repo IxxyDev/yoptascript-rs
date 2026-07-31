@@ -1,0 +1,91 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 1rem 1.5rem 2rem;
+  max-width: 68rem;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.25rem;
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+header p {
+  margin: 0 0 1rem;
+  opacity: 0.75;
+}
+
+main {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+#status {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+button {
+  padding: 0.35rem 1rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+textarea,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+  padding: 0.75rem;
+  background: rgba(128, 128, 128, 0.08);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 22rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+pre {
+  margin: 0;
+  min-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+pre.error {
+  color: #b3261e;
+  border-color: #b3261e;
+}

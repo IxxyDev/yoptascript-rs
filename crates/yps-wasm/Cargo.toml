@@ -1,0 +1,17 @@
+[package]
+name = "yps-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+yps-lexer.workspace = true
+yps-parser.workspace = true
+yps-interpreter.workspace = true
+wasm-bindgen.workspace = true
+console_error_panic_hook.workspace = true
