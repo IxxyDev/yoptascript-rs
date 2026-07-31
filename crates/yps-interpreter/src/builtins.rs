@@ -5,25 +5,33 @@ use yps_lexer::Span;
 
 use crate::error::RuntimeError;
 use crate::interpreter::coercion::{BigIntOperand, bigint_from_operand};
+use crate::output::{OutputSink, StdoutSink};
 use crate::stdlib;
 use crate::stdlib::regexp;
 use crate::symbols;
 use crate::value::{RegExpData, Value};
 
 pub fn call_builtin(name: &str, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    call_builtin_with_sink(&mut StdoutSink, name, args, span)
+}
+
+/// Console builtins are the only ones whose output is observable, so the sink stops here;
+/// everything else falls through to the plain dispatch table.
+pub fn call_builtin_with_sink(
+    sink: &mut dyn OutputSink,
+    name: &str,
+    args: Vec<Value>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
     if let Some(method) = name.strip_prefix("сказать.") {
-        return stdlib::console::dispatch(method, args, span);
+        return stdlib::console::dispatch(sink, method, args, span);
     }
     match name {
+        "сказать" => stdlib::console::say(sink, &args),
         s if s == symbols::ERROR_NAME => stdlib::error::construct(args, span),
         "этоКосяк" => is_kosyak(args, span),
         "RegExp" => construct_regexp(args, span),
         "Дата" => crate::stdlib::date::construct(args, span),
-        "сказать" => {
-            let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-            println!("{}", parts.join(" "));
-            Ok(Value::Undefined)
-        }
         "прочестьСтроку" => stdlib::stdio::read_line(span),
         "прочестьВсё" => stdlib::stdio::read_all(span),
         "длина" => {

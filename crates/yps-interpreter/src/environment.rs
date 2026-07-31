@@ -35,6 +35,16 @@ impl EnvFrame {
     pub(crate) fn get_local(&self, name: &str) -> Option<Value> {
         self.bindings.get(name).cloned()
     }
+
+    pub fn debug_bindings(&self) -> Vec<(String, Value)> {
+        let mut out: Vec<(String, Value)> = self.bindings.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    pub fn debug_parent(&self) -> Option<Rc<RefCell<EnvFrame>>> {
+        self.parent.clone()
+    }
 }
 
 #[derive(Debug)]

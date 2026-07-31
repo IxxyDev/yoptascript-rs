@@ -115,6 +115,7 @@ mod iterators;
 mod limits;
 mod modules;
 mod operators;
+mod output_sink;
 mod proto;
 mod proxy;
 mod ref_semantics;
