@@ -198,6 +198,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "criterion"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1464,10 +1474,21 @@ dependencies = [
  "rustyline",
  "yps-fmt",
  "yps-interpreter",
+ "yps-jsgen",
  "yps-lexer",
  "yps-lint",
  "yps-parser",
  "yps-vm",
+]
+
+[[package]]
+name = "yps-dap"
+version = "1.9.0"
+dependencies = [
+ "serde_json",
+ "yps-interpreter",
+ "yps-lexer",
+ "yps-parser",
 ]
 
 [[package]]
@@ -1487,6 +1508,14 @@ dependencies = [
  "regex",
  "stacker",
  "unicode-normalization",
+ "yps-lexer",
+ "yps-parser",
+]
+
+[[package]]
+name = "yps-jsgen"
+version = "1.9.0"
+dependencies = [
  "yps-lexer",
  "yps-parser",
 ]
@@ -1531,6 +1560,17 @@ dependencies = [
  "indexmap",
  "stacker",
  "unicode-normalization",
+ "yps-interpreter",
+ "yps-lexer",
+ "yps-parser",
+]
+
+[[package]]
+name = "yps-wasm"
+version = "1.9.0"
+dependencies = [
+ "console_error_panic_hook",
+ "wasm-bindgen",
  "yps-interpreter",
  "yps-lexer",
  "yps-parser",

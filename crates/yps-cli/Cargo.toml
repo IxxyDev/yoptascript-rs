@@ -10,6 +10,7 @@ publish.workspace = true
 rustyline.workspace = true
 yps-fmt.workspace = true
 yps-interpreter.workspace = true
+yps-jsgen.workspace = true
 yps-lexer.workspace = true
 yps-lint.workspace = true
 yps-parser.workspace = true
