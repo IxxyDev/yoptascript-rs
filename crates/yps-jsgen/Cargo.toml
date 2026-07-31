@@ -1,0 +1,11 @@
+[package]
+name = "yps-jsgen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+yps-lexer.workspace = true
+yps-parser.workspace = true
