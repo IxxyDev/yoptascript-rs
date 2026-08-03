@@ -305,7 +305,7 @@ fn set_at_path_missing_intermediate_errors() {
         о.нет.глубже = 1;
         "#,
     );
-    assert!(!err.message.is_empty());
+    assert!(err.message.contains("нет"), "получено: {}", err.message);
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn test_structural_eq_helper_handles_cycles() {
     let a = interp.get("а").unwrap();
     let b = interp.get("б").unwrap();
     assert!(structural_eq(&a, &a));
-    let _ = structural_eq(&a, &b);
+    assert!(structural_eq(&a, &b));
 }
 
 #[test]

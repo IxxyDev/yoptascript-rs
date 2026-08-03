@@ -10,8 +10,8 @@ use crate::chunk::{ClassBlueprint, Constant, FnProto, MemberKind, Op};
 use crate::error::VmError;
 use crate::promise::{MacrotaskQueue, Microtask};
 use crate::value::{
-    CapKind, ClassDef, ClassMembers, Closure, GenState, MethodDef, ObjMap, Upvalue, UpvalueState, Value, abstract_eq,
-    strict_eq, to_int32, to_uint32,
+    CapKind, ClassDef, ClassMembers, Closure, GenState, MethodDef, ObjMap, PromiseState, Upvalue, UpvalueState, Value,
+    abstract_eq, strict_eq, to_int32, to_uint32,
 };
 
 const MAX_CALL_DEPTH: usize = 1000;
@@ -33,6 +33,7 @@ enum Step {
     Done,
     Throw(Value),
     Yield(Value),
+    Await(Value),
     YieldDelegate(Value),
 }
 
@@ -49,9 +50,16 @@ enum GenOutcome {
 
 enum GenRun {
     Yielded(Value),
+    Awaited(Value),
     Done(Value),
     Threw(Value),
     Delegate(Value),
+}
+
+enum CoOutcome {
+    Yielded(Value),
+    Awaited(Value),
+    Done(Value),
 }
 
 enum PendingInject {
@@ -90,6 +98,7 @@ pub struct Vm {
     open_upvalues: Vec<Upvalue>,
     handlers: Vec<Handler>,
     region_floor: usize,
+    coroutine_depth: usize,
     gen_yield: Option<Value>,
     disposables: Vec<(Value, bool)>,
     base_path: Option<std::path::PathBuf>,
@@ -122,6 +131,7 @@ impl Vm {
             open_upvalues: Vec::new(),
             handlers: Vec::new(),
             region_floor: 0,
+            coroutine_depth: 0,
             gen_yield: None,
             disposables: Vec::new(),
             base_path: None,
@@ -206,6 +216,9 @@ impl Vm {
                 }
                 Ok(Step::Yield(_) | Step::YieldDelegate(_)) => {
                     return Err(VmError::new("'поебалу' вне генератора", span));
+                }
+                Ok(Step::Await(_)) => {
+                    return Err(VmError::new("'сидетьНахуй' вне асинхронной функции", span));
                 }
             }
         }
@@ -628,6 +641,9 @@ impl Vm {
                 }
                 Op::Await => {
                     let value = self.pop();
+                    if self.coroutine_depth > 0 {
+                        return Ok(Step::Await(value));
+                    }
                     match self.do_await(value, span) {
                         Ok(v) => self.stack.push(v),
                         Err(e) => {
@@ -1228,28 +1244,81 @@ impl Vm {
             Value::Promise { state } => Rc::clone(state),
             _ => unreachable!(),
         };
-        let mut roots = vec![promise.clone(), Value::Function(Rc::clone(&closure))];
-        if let Some(this) = &this {
-            roots.push(this.clone());
+        let coroutine = Rc::new(RefCell::new(GenState {
+            closure,
+            owner,
+            started: false,
+            completed: false,
+            stack: Vec::new(),
+            frames: Vec::new(),
+            handlers: Vec::new(),
+            open_upvalues: Vec::new(),
+            this: this.unwrap_or(Value::Undefined),
+            args,
+            delegate: None,
+        }));
+        let span = Span { start: 0, end: 0 };
+        if let Err(e) = self.drive_async(&coroutine, &outer_state, GenInput::Send(Value::Undefined), span) {
+            let value = match e.thrown {
+                Some(val) => *val,
+                None => self.error_to_value(VmError::new(e.message, span)),
+            };
+            let _ = Vm::settle_promise(&outer_state, CapKind::Reject, value, self, span);
         }
-        if let Some(owner) = &owner {
-            roots.push(Value::Class(Rc::clone(owner)));
-        }
-        roots.extend(args.iter().cloned());
-        self.enqueue_microtask(
-            roots,
-            Box::new(move |vm, sp| {
-                let (kind, value) = match vm.call_closure_sync(closure, this, owner, &args, sp) {
-                    Ok(val) => (CapKind::Resolve, val),
-                    Err(e) => match e.thrown {
-                        Some(val) => (CapKind::Reject, *val),
-                        None => (CapKind::Reject, vm.error_to_value(VmError::new(e.message, sp))),
-                    },
-                };
-                Vm::settle_promise(&outer_state, kind, value, vm, sp)
-            }),
-        );
         promise
+    }
+
+    fn drive_async(
+        &mut self,
+        coroutine: &Rc<RefCell<GenState>>,
+        outer: &Rc<RefCell<PromiseState>>,
+        input: GenInput,
+        span: Span,
+    ) -> Result<(), VmError> {
+        match self.step_coroutine(coroutine, input, span) {
+            Ok(CoOutcome::Awaited(value)) => {
+                self.schedule_async_resume(coroutine, outer, &value);
+                Ok(())
+            }
+            Ok(CoOutcome::Yielded(value) | CoOutcome::Done(value)) => {
+                Vm::settle_promise(outer, CapKind::Resolve, value, self, span)
+            }
+            Err(e) => match e.thrown {
+                Some(value) => Vm::settle_promise(outer, CapKind::Reject, *value, self, span),
+                None => Err(e),
+            },
+        }
+    }
+
+    fn schedule_async_resume(
+        &mut self,
+        coroutine: &Rc<RefCell<GenState>>,
+        outer: &Rc<RefCell<PromiseState>>,
+        awaited: &Value,
+    ) {
+        let make = |is_throw| Value::AsyncResume { coroutine: Rc::clone(coroutine), outer: Rc::clone(outer), is_throw };
+        let Value::Promise { state } = awaited else {
+            self.enqueue_resume(make(false), awaited.clone());
+            return;
+        };
+        let snapshot = state.borrow().clone();
+        match snapshot {
+            PromiseState::Fulfilled(value) => self.enqueue_resume(make(false), value),
+            PromiseState::Rejected(value) => self.enqueue_resume(make(true), value),
+            PromiseState::Pending { .. } => {
+                if let PromiseState::Pending { on_resolve, on_reject } = &mut *state.borrow_mut() {
+                    on_resolve.push(make(false));
+                    on_reject.push(make(true));
+                }
+            }
+        }
+    }
+
+    fn enqueue_resume(&mut self, resume: Value, value: Value) {
+        self.enqueue_microtask(
+            vec![resume.clone(), value.clone()],
+            Box::new(move |vm, sp| vm.call_value(resume, None, &[value], sp).map(|_| ())),
+        );
     }
 
     pub(crate) fn error_object(&self, message: String) -> Value {
@@ -1558,8 +1627,33 @@ impl Vm {
         input: GenInput,
         span: Span,
     ) -> Result<GenOutcome, VmError> {
+        let mut input = input;
+        loop {
+            match self.step_coroutine(genrc, input, span)? {
+                CoOutcome::Awaited(value) => match self.do_await(value, span) {
+                    Ok(v) => input = GenInput::Send(v),
+                    Err(e) => match e.thrown {
+                        Some(thrown) => input = GenInput::Throw(*thrown),
+                        None => return Err(e),
+                    },
+                },
+                CoOutcome::Yielded(v) => return Ok(GenOutcome::Yielded(v)),
+                CoOutcome::Done(v) => return Ok(GenOutcome::Done(v)),
+            }
+        }
+    }
+
+    fn step_coroutine(
+        &mut self,
+        genrc: &Rc<RefCell<GenState>>,
+        input: GenInput,
+        span: Span,
+    ) -> Result<CoOutcome, VmError> {
         if genrc.borrow().delegate.is_some() {
-            return self.step_delegate(genrc, input, span);
+            return self.step_delegate(genrc, input, span).map(|o| match o {
+                GenOutcome::Yielded(v) => CoOutcome::Yielded(v),
+                GenOutcome::Done(v) => CoOutcome::Done(v),
+            });
         }
 
         let saved_stack = std::mem::take(&mut self.stack);
@@ -1604,7 +1698,9 @@ impl Vm {
         }
 
         self.region_floor = 0;
+        self.coroutine_depth += 1;
         let outcome = self.run_generator(&mut pending, span);
+        self.coroutine_depth -= 1;
 
         {
             let mut g = genrc.borrow_mut();
@@ -1616,10 +1712,11 @@ impl Vm {
         self.restore_main(saved_stack, saved_frames, saved_handlers, saved_upvalues, saved_floor, saved_yield);
 
         match outcome {
-            Ok(GenRun::Yielded(v)) => Ok(GenOutcome::Yielded(v)),
+            Ok(GenRun::Yielded(v)) => Ok(CoOutcome::Yielded(v)),
+            Ok(GenRun::Awaited(v)) => Ok(CoOutcome::Awaited(v)),
             Ok(GenRun::Done(v)) => {
                 genrc.borrow_mut().completed = true;
-                Ok(GenOutcome::Done(v))
+                Ok(CoOutcome::Done(v))
             }
             Ok(GenRun::Threw(v)) => {
                 genrc.borrow_mut().completed = true;
@@ -1628,7 +1725,10 @@ impl Vm {
             Ok(GenRun::Delegate(iterable)) => {
                 genrc.borrow_mut().completed = false;
                 self.begin_delegate(genrc, iterable, span)?;
-                self.step_delegate(genrc, GenInput::Send(Value::Undefined), span)
+                self.step_delegate(genrc, GenInput::Send(Value::Undefined), span).map(|o| match o {
+                    GenOutcome::Yielded(v) => CoOutcome::Yielded(v),
+                    GenOutcome::Done(v) => CoOutcome::Done(v),
+                })
             }
             Err(e) => {
                 genrc.borrow_mut().completed = true;
@@ -1689,6 +1789,7 @@ impl Vm {
                     return Ok(GenRun::Done(result));
                 }
                 Ok(Step::Yield(v)) => return Ok(GenRun::Yielded(v)),
+                Ok(Step::Await(v)) => return Ok(GenRun::Awaited(v)),
                 Ok(Step::YieldDelegate(it)) => return Ok(GenRun::Delegate(it)),
                 Ok(Step::Throw(value)) => {
                     if let Some(ret) = as_return_token(&value) {
@@ -2139,6 +2240,12 @@ impl Vm {
                 Vm::settle_promise(&state, kind, val, self, span)?;
                 Ok(Value::Undefined)
             }
+            Value::AsyncResume { coroutine, outer, is_throw } => {
+                let val = args.first().cloned().unwrap_or(Value::Undefined);
+                let input = if is_throw { GenInput::Throw(val) } else { GenInput::Send(val) };
+                self.drive_async(&coroutine, &outer, input, span)?;
+                Ok(Value::Undefined)
+            }
             Value::PromiseThenHandler { handler, resolve, reject, is_fulfill } => {
                 let val = args.first().cloned().unwrap_or(Value::Undefined);
                 crate::promise::invoke_handler(self, *handler, val, *resolve, *reject, is_fulfill, span)?;
@@ -2146,8 +2253,7 @@ impl Vm {
             }
             Value::PromiseFinallyHandler { cb, cap } => {
                 let val = args.first().cloned().unwrap_or(Value::Undefined);
-                self.call_value(*cb, None, &[], span)?;
-                self.call_value(*cap, None, &[val], span)?;
+                crate::promise::run_finally(self, *cb, *cap, val, span)?;
                 Ok(Value::Undefined)
             }
             Value::PromiseAggregateHandler { state, index, role } => {

@@ -397,6 +397,27 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
     }
 }
 
+pub(crate) fn lexical_declarations(stmts: &[Stmt]) -> Vec<String> {
+    let mut out = HashSet::new();
+    for stmt in stmts {
+        match stmt {
+            Stmt::VarDecl { pattern, .. } => collect_pattern_names(pattern, &mut out),
+            Stmt::ClassDecl { name, .. } | Stmt::Using { name, .. } => {
+                out.insert(name.name.clone());
+            }
+            Stmt::Export { kind: ExportKind::Declaration(decl), .. } => match decl.as_ref() {
+                Stmt::VarDecl { pattern, .. } => collect_pattern_names(pattern, &mut out),
+                Stmt::ClassDecl { name, .. } => {
+                    out.insert(name.name.clone());
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    out.into_iter().collect()
+}
+
 fn collect_block_locals(block: &Block, out: &mut HashSet<String>) {
     for stmt in &block.stmts {
         collect_stmt_locals(stmt, out);

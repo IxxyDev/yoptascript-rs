@@ -63,8 +63,17 @@ fn json_parse_deeply_nested_returns_error_instead_of_crash() {
 #[test]
 fn json_nesting_within_limit_parses() {
     let depth = 100;
-    let src = format!("гыы рез = Жсон.разобрать(\"{}1{}\");", "[".repeat(depth), "]".repeat(depth));
-    run_code(&src);
+    let src = format!("гыы рез = Жсон.разобрать(\"{}1{}\");\nгыы глуб = 0;", "[".repeat(depth), "]".repeat(depth));
+    let i = run_code(&src);
+    let mut current = i.get("рез").expect("рез должен быть определён");
+    for _ in 0..depth {
+        let Value::Array(items) = current else {
+            panic!("ожидался массив, получено {current:?}")
+        };
+        let inner = items.borrow()[0].clone();
+        current = inner;
+    }
+    assert_eq!(current, Value::Number(1.0));
 }
 
 #[test]

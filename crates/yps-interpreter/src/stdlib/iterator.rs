@@ -101,7 +101,7 @@ pub fn call(
             let mut state_borrow = borrow_iter_mut(&rc, span)?;
             if let IteratorState::Generator(gen_state) = &mut *state_borrow {
                 let is_async = gen_state.is_async;
-                let outcome = crate::interpreter::generator::step_generator(
+                let outcome = crate::interpreter::generator::step_generator_awaiting(
                     interp,
                     gen_state,
                     crate::interpreter::generator::GenInput::Send(sent),
@@ -111,8 +111,8 @@ pub fn call(
                     Ok((async_gen_result(outcome)?, None))
                 } else {
                     match outcome? {
-                        crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                        crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                        crate::interpreter::generator::SyncStep::Yielded(v) => Ok((make_result(v, false), None)),
+                        crate::interpreter::generator::SyncStep::Done(v) => Ok((make_result(v, true), None)),
                     }
                 }
             } else {
@@ -132,7 +132,7 @@ pub fn call(
                         let done = make_result(arg, true);
                         return Ok((if is_async { Interpreter::make_fulfilled_promise(done) } else { done }, None));
                     }
-                    let outcome = crate::interpreter::generator::step_generator(
+                    let outcome = crate::interpreter::generator::step_generator_awaiting(
                         interp,
                         gen_state,
                         crate::interpreter::generator::GenInput::Return(arg),
@@ -142,8 +142,8 @@ pub fn call(
                         Ok((async_gen_result(outcome)?, None))
                     } else {
                         match outcome? {
-                            crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                            crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                            crate::interpreter::generator::SyncStep::Yielded(v) => Ok((make_result(v, false), None)),
+                            crate::interpreter::generator::SyncStep::Done(v) => Ok((make_result(v, true), None)),
                         }
                     }
                 }
@@ -163,7 +163,7 @@ pub fn call(
                         }
                         return Err(RuntimeError::thrown(arg, span));
                     }
-                    let outcome = crate::interpreter::generator::step_generator(
+                    let outcome = crate::interpreter::generator::step_generator_awaiting(
                         interp,
                         gen_state,
                         crate::interpreter::generator::GenInput::Throw(arg),
@@ -173,8 +173,8 @@ pub fn call(
                         Ok((async_gen_result(outcome)?, None))
                     } else {
                         match outcome? {
-                            crate::interpreter::generator::StepOutcome::Yielded(v) => Ok((make_result(v, false), None)),
-                            crate::interpreter::generator::StepOutcome::Done(v) => Ok((make_result(v, true), None)),
+                            crate::interpreter::generator::SyncStep::Yielded(v) => Ok((make_result(v, false), None)),
+                            crate::interpreter::generator::SyncStep::Done(v) => Ok((make_result(v, true), None)),
                         }
                     }
                 }
@@ -371,7 +371,7 @@ pub fn close(interp: &mut Interpreter, state: &mut IteratorState, span: Span) ->
     match state {
         IteratorState::Generator(gen_state) => {
             if !gen_state.completed {
-                crate::interpreter::generator::step_generator(
+                crate::interpreter::generator::step_generator_awaiting(
                     interp,
                     gen_state,
                     crate::interpreter::generator::GenInput::Return(Value::Undefined),
@@ -522,15 +522,15 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
                     span,
                 ));
             }
-            let result = crate::interpreter::generator::step_generator(
+            let result = crate::interpreter::generator::step_generator_awaiting(
                 interp,
                 gen_state,
                 crate::interpreter::generator::GenInput::Send(Value::Undefined),
                 span,
             )?;
             match result {
-                crate::interpreter::generator::StepOutcome::Yielded(v) => Ok(Some(v)),
-                crate::interpreter::generator::StepOutcome::Done(_) => Ok(None),
+                crate::interpreter::generator::SyncStep::Yielded(v) => Ok(Some(v)),
+                crate::interpreter::generator::SyncStep::Done(_) => Ok(None),
             }
         }
     }
@@ -564,12 +564,12 @@ fn expect_count(value: &Value, span: Span, method: &str) -> Result<usize, Runtim
 }
 
 fn async_gen_result(
-    outcome: Result<crate::interpreter::generator::StepOutcome, RuntimeError>,
+    outcome: Result<crate::interpreter::generator::SyncStep, RuntimeError>,
 ) -> Result<Value, RuntimeError> {
-    use crate::interpreter::generator::StepOutcome;
+    use crate::interpreter::generator::SyncStep;
     match outcome {
-        Ok(StepOutcome::Yielded(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, false))),
-        Ok(StepOutcome::Done(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, true))),
+        Ok(SyncStep::Yielded(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, false))),
+        Ok(SyncStep::Done(v)) => Ok(Interpreter::make_fulfilled_promise(make_result(v, true))),
         Err(e) => match e.thrown {
             Some(val) => Ok(Interpreter::make_rejected_promise(*val)),
             None => Err(e),

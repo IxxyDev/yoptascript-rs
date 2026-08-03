@@ -82,6 +82,27 @@ fn format_components(c: &Components) -> String {
     )
 }
 
+#[cfg(unix)]
+fn gmtoff_to_minutes(seconds: impl Into<i64>) -> i64 {
+    seconds.into() / 60
+}
+
+#[cfg(unix)]
+pub(crate) fn local_utc_offset_minutes_at(epoch_ms: f64) -> i64 {
+    let seconds = if epoch_ms.is_finite() { (epoch_ms / 1000.0).floor() } else { 0.0 };
+    let instant = seconds as libc::time_t;
+    let mut broken = std::mem::MaybeUninit::<libc::tm>::uninit();
+    if unsafe { libc::localtime_r(&instant, broken.as_mut_ptr()) }.is_null() {
+        return 0;
+    }
+    gmtoff_to_minutes(unsafe { broken.assume_init() }.tm_gmtoff)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn local_utc_offset_minutes_at(_epoch_ms: f64) -> i64 {
+    0
+}
+
 fn parse_iso(s: &str) -> f64 {
     parse_iso_opt(s.trim()).unwrap_or(f64::NAN)
 }
@@ -114,8 +135,10 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
     let day = read_uint(bytes, &mut pos, 2)?;
 
     let (mut hour, mut minute, mut second, mut millis) = (0u64, 0u64, 0u64, 0u64);
-    let mut offset_minutes = 0i64;
+    let mut explicit_offset: Option<i64> = None;
+    let mut has_time = false;
     if pos < bytes.len() {
+        has_time = true;
         if bytes[pos] != b'T' {
             return None;
         }
@@ -138,7 +161,10 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
         }
         if pos < bytes.len() {
             match bytes[pos] {
-                b'Z' => pos += 1,
+                b'Z' => {
+                    pos += 1;
+                    explicit_offset = Some(0);
+                }
                 b'+' | b'-' => {
                     let sign = if bytes[pos] == b'-' { -1 } else { 1 };
                     pos += 1;
@@ -148,7 +174,7 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
                     if oh > 23 || om > 59 {
                         return None;
                     }
-                    offset_minutes = sign * (oh as i64 * 60 + om as i64);
+                    explicit_offset = Some(sign * (oh as i64 * 60 + om as i64));
                 }
                 _ => {}
             }
@@ -165,12 +191,17 @@ fn parse_iso_opt(s: &str) -> Option<f64> {
     }
 
     let days = days_from_civil(year, month as i64, day as i64);
-    let ms = days as f64 * 86_400_000.0
+    let naive_ms = days as f64 * 86_400_000.0
         + hour as f64 * 3_600_000.0
         + minute as f64 * 60_000.0
         + second as f64 * 1000.0
-        + millis as f64
-        - offset_minutes as f64 * 60_000.0;
+        + millis as f64;
+    let offset_minutes = match explicit_offset {
+        Some(offset) => offset,
+        None if has_time => local_utc_offset_minutes_at(naive_ms),
+        None => 0,
+    };
+    let ms = naive_ms - offset_minutes as f64 * 60_000.0;
     if !ms.is_finite() || ms.abs() > MAX_TIME {
         return None;
     }
@@ -339,7 +370,9 @@ pub fn call_instance(
         "миллисекунды" | "миллисекундыUTC" => {
             Value::Number(comp.as_ref().map_or(f64::NAN, |c| c.millis as f64))
         }
-        "смещениеЧасовогоПояса" => Value::Number(comp.as_ref().map_or(f64::NAN, |_| 0.0)),
+        "смещениеЧасовогоПояса" => {
+            Value::Number(comp.as_ref().map_or(f64::NAN, |_| -local_utc_offset_minutes_at(ms) as f64))
+        }
         "вИСО" | "вСтроку" => Value::String(match &comp {
             Some(c) => format_components(c).into(),
             None => "Invalid Date".into(),
@@ -450,7 +483,6 @@ mod tests {
     #[test]
     fn mutability_via_cell() {
         let cell = Cell::new(0.0);
-        assert_eq!(format_iso(cell.get()), "1970-01-01T00:00:00.000Z");
         cell.set(86_400_000.0);
         assert_eq!(format_iso(cell.get()), "1970-01-02T00:00:00.000Z");
     }
@@ -460,8 +492,34 @@ mod tests {
     }
 
     #[test]
-    fn parse_without_z_is_utc() {
-        assert_eq!(parse_iso("2026-07-19T12:00:00"), parse_iso("2026-07-19T12:00:00Z"));
+    fn parse_date_only_is_utc() {
+        assert_eq!(parse_iso("2026-07-19"), parse_iso("2026-07-19T00:00:00Z"));
+        assert_eq!(parse_iso("1970-01-01"), 0.0);
+    }
+
+    #[test]
+    fn parse_datetime_without_offset_uses_runtime_local_zone() {
+        for stamp in ["2026-07-19T12:00:00", "2026-01-19T12:00:00"] {
+            let utc = parse_iso(&format!("{stamp}Z"));
+            let offset = local_utc_offset_minutes_at(utc);
+            assert!((-14 * 60..=14 * 60).contains(&offset), "нереальное смещение пояса: {offset}");
+            assert_eq!(offset % 15, 0, "смещение пояса не кратно 15 минутам: {offset}");
+            assert_eq!(parse_iso(stamp), utc - offset as f64 * 60_000.0);
+        }
+    }
+
+    #[test]
+    fn timezone_offset_accessor_is_minutes_west_of_utc() {
+        let mut interp = Interpreter::new();
+        for instant in [0.0, 1_720_000_000_000.0] {
+            let date = Value::Date(Rc::new(Cell::new(instant)));
+            let (v, _) = call_instance(&mut interp, date, "смещениеЧасовогоПояса", Vec::new(), span()).unwrap();
+            let Value::Number(minutes) = v else { panic!("ожидалось число, получено {v:?}") };
+            assert_eq!(minutes, -local_utc_offset_minutes_at(instant) as f64, "знак должен быть западнее UTC");
+            assert!(minutes.fract() == 0.0, "смещение должно быть целым числом минут: {minutes}");
+            assert!(minutes.abs() <= 840.0, "смещение вне диапазона ±14ч: {minutes}");
+            assert!(minutes % 15.0 == 0.0, "смещение не кратно 15 минутам: {minutes}");
+        }
     }
 
     #[test]

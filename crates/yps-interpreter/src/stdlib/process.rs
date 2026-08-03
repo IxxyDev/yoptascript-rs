@@ -91,21 +91,27 @@ pub fn call_static(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn args_is_array() {
-        match args_value() {
-            Value::Array(_) => {}
-            other => panic!("ожидался массив, получено {other:?}"),
-        }
+    fn args_matches_process_argv_without_program_name() {
+        let Value::Array(items) = args_value() else { panic!("ожидался массив") };
+        let expected: Vec<String> = env::args().skip(1).collect();
+        let got: Vec<String> = items.borrow().iter().map(|v| v.to_string()).collect();
+        assert_eq!(got, expected);
     }
 
     #[test]
-    fn env_is_object() {
-        match env_value() {
-            Value::Object(_) => {}
-            other => panic!("ожидался объект, получено {other:?}"),
+    fn env_contains_a_set_variable() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe {
+            env::set_var("YPS_TEST_ENV_OBJ", "значение-объекта");
         }
+        let Value::Object(map) = env_value() else { panic!("ожидался объект") };
+        let got = map.borrow().get("YPS_TEST_ENV_OBJ").cloned();
+        assert_eq!(got, Some(Value::String("значение-объекта".into())));
     }
 
     #[test]
@@ -123,6 +129,7 @@ mod tests {
 
     #[test]
     fn perem_existing_returns_string() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             env::set_var("YPS_TEST_VAR_X", "значение");
         }

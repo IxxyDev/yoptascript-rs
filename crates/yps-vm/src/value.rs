@@ -330,6 +330,7 @@ pub enum Value {
     Promise { state: Rc<RefCell<PromiseState>> },
     PromiseCapability { state: Rc<RefCell<PromiseState>>, kind: CapKind },
     PromiseThenHandler { handler: Box<Value>, resolve: Box<Value>, reject: Box<Value>, is_fulfill: bool },
+    AsyncResume { coroutine: Rc<RefCell<GenState>>, outer: Rc<RefCell<PromiseState>>, is_throw: bool },
     PromiseFinallyHandler { cb: Box<Value>, cap: Box<Value> },
     PromiseAggregateHandler { state: Rc<RefCell<AggregateState>>, index: usize, role: AggregateRole },
     Host(yps_interpreter::value::Value),
@@ -426,6 +427,7 @@ impl Value {
             Value::Generator(_) | Value::ForIter(_) => "итератор",
             Value::Promise { .. } => "обещание",
             Value::PromiseCapability { .. }
+            | Value::AsyncResume { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
@@ -445,6 +447,7 @@ impl Value {
             Value::Null => "объект",
             Value::Function(_) | Value::Builtin(_) | Value::BoundMethod { .. } | Value::Class(_) => "функция",
             Value::PromiseCapability { .. }
+            | Value::AsyncResume { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
@@ -493,6 +496,7 @@ impl Value {
             Value::Generator(_) | Value::ForIter(_) => "[итератор]".to_string(),
             Value::Promise { .. }
             | Value::PromiseCapability { .. }
+            | Value::AsyncResume { .. }
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => self.to_string(),
@@ -581,6 +585,7 @@ impl Value {
                 CapKind::Reject => write!(f, "[капабилити отвергнуть]"),
             },
             Value::PromiseThenHandler { .. } => write!(f, "[обработчик потом]"),
+            Value::AsyncResume { .. } => write!(f, "[продолжение ассо]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
             Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Host(iv) => write!(f, "{iv}"),

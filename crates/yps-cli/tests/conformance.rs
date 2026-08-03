@@ -13,6 +13,7 @@ fn run_case(case_path: &Path) -> String {
     let bin = cli_binary();
     let output = Command::new(&bin)
         .arg(case_path)
+        .env("TZ", "UTC")
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap_or_else(|e| panic!("не удалось запустить {}: {e}", bin.display()));

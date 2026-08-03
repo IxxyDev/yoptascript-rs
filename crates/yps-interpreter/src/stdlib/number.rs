@@ -47,11 +47,11 @@ pub fn call_static(
             };
             let radix = if args.len() > 1 {
                 match &args[1] {
-                    Value::Number(n) => *n as u32,
-                    _ => 10,
+                    Value::Number(n) if n.is_finite() => *n as i64,
+                    _ => 0,
                 }
             } else {
-                10
+                0
             };
             Ok(parse_int(&s, radix))
         }
@@ -72,8 +72,8 @@ fn coerce_to_f64(v: &Value) -> Option<f64> {
     crate::interpreter::coercion::coerce_to_f64_opt(v)
 }
 
-fn parse_int(s: &str, radix: u32) -> Value {
-    if !(2..=36).contains(&radix) {
+fn parse_int(s: &str, radix: i64) -> Value {
+    if radix != 0 && !(2..=36).contains(&radix) {
         return Value::Number(f64::NAN);
     }
     let trimmed = s.trim_start();
@@ -84,6 +84,14 @@ fn parse_int(s: &str, radix: u32) -> Value {
         Some('+') => (1.0, &trimmed[1..]),
         Some('-') => (-1.0, &trimmed[1..]),
         _ => (1.0, trimmed),
+    };
+    let strip_hex = (radix == 0 || radix == 16) && (rest.starts_with("0x") || rest.starts_with("0X"));
+    let (radix, rest) = if strip_hex {
+        (16u32, &rest[2..])
+    } else if radix == 0 {
+        (10u32, rest)
+    } else {
+        (radix as u32, rest)
     };
     let mut chars = rest.chars();
     let mut value: f64 = 0.0;
@@ -178,9 +186,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_int_rejects_radix_below_2() {
+    fn parse_int_rejects_radix_below_2_but_nonzero() {
         assert!(matches!(parse_int("1", 1), Value::Number(n) if n.is_nan()));
-        assert!(matches!(parse_int("1", 0), Value::Number(n) if n.is_nan()));
+        assert!(matches!(parse_int("1", -5), Value::Number(n) if n.is_nan()));
+    }
+
+    #[test]
+    fn parse_int_radix_zero_means_unspecified() {
+        assert_eq!(parse_int("1", 0), Value::Number(1.0));
+        assert_eq!(parse_int("42", 0), Value::Number(42.0));
+        assert_eq!(parse_int("0x1f", 0), Value::Number(31.0));
+        assert_eq!(parse_int("-0X10", 0), Value::Number(-16.0));
+    }
+
+    #[test]
+    fn parse_int_radix_16_accepts_hex_prefix() {
+        assert_eq!(parse_int("0xff", 16), Value::Number(255.0));
     }
 
     #[test]

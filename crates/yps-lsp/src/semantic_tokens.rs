@@ -440,6 +440,15 @@ mod tests {
     fn legend_matches_minimum_required_types() {
         let l = legend();
         assert_eq!(l.token_types.len(), 9);
+        assert_eq!(l.token_types[FUNCTION as usize], SemanticTokenType::FUNCTION);
+        assert_eq!(l.token_types[VARIABLE as usize], SemanticTokenType::VARIABLE);
+        assert_eq!(l.token_types[PARAMETER as usize], SemanticTokenType::PARAMETER);
+        assert_eq!(l.token_types[PROPERTY as usize], SemanticTokenType::PROPERTY);
+        assert_eq!(l.token_types[STRING as usize], SemanticTokenType::STRING);
+        assert_eq!(l.token_types[NUMBER as usize], SemanticTokenType::NUMBER);
+        assert_eq!(l.token_types[KEYWORD as usize], SemanticTokenType::KEYWORD);
+        assert_eq!(l.token_types[COMMENT as usize], SemanticTokenType::COMMENT);
+        assert_eq!(l.token_types[OPERATOR as usize], SemanticTokenType::OPERATOR);
         assert!(l.token_modifiers.contains(&SemanticTokenModifier::DECLARATION));
         assert!(l.token_modifiers.contains(&SemanticTokenModifier::READONLY));
     }

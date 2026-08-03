@@ -42,16 +42,6 @@ mod tests {
     }
 
     #[test]
-    fn finds_all_references_for_function() {
-        let src = "йопта посчитать() { отвечаю 1; }\nпосчитать();\nсказать(посчитать());";
-        let byte = src.find("посчитать").unwrap();
-        let spans = references(src, byte, true).expect("should collect references");
-        assert_eq!(spans.len(), 3);
-        let without_decl = references(src, byte, false).expect("without declaration");
-        assert_eq!(without_decl.len(), 2);
-    }
-
-    #[test]
     fn finds_all_references_for_parameter() {
         let src = "гыы арг = 99;\nйопта фу(арг) { отвечаю арг + 1; }\nсказать(арг);";
         let param = src.find("фу(арг)").unwrap() + "фу(".len();

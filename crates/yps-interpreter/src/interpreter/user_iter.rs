@@ -74,6 +74,25 @@ impl Interpreter {
         Ok(Some(self.call_value_with_this(func, Some(aiter.clone()), span)?))
     }
 
+    pub(super) fn async_iter_next_pending(&mut self, aiter: &Value, span: Span) -> Result<Value, RuntimeError> {
+        match self.call_async_iter_method(aiter, "следующий", span)? {
+            Some(result) => Ok(result),
+            None => Err(RuntimeError::new("У асинхронного итератора нет метода 'следующий'", span)),
+        }
+    }
+
+    pub(super) fn async_iter_unpack(result: &Value) -> (bool, Value) {
+        match result {
+            Value::Object(r) => {
+                let b = r.borrow();
+                let done = matches!(b.get(crate::symbols::ITER_DONE), Some(Value::Boolean(true)));
+                let value = b.get(crate::symbols::ITER_VALUE).cloned().unwrap_or(Value::Undefined);
+                (done, value)
+            }
+            _ => (true, Value::Undefined),
+        }
+    }
+
     pub(super) fn async_iter_next(&mut self, aiter: &Value, span: Span) -> Result<(bool, Value), RuntimeError> {
         let result = match self.call_async_iter_method(aiter, "следующий", span)? {
             Some(result) => result,

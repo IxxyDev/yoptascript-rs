@@ -8,8 +8,15 @@ use crate::value::Value;
 pub struct EnvFrame {
     bindings: HashMap<String, Value>,
     constants: HashSet<String>,
+    tdz: HashSet<String>,
     disposables: Vec<(Value, bool)>,
     parent: Option<Rc<RefCell<EnvFrame>>>,
+}
+
+pub(crate) enum Lookup {
+    Found(Value),
+    Tdz,
+    Missing,
 }
 
 impl EnvFrame {
@@ -24,6 +31,7 @@ impl EnvFrame {
     pub(crate) fn gc_clear(&mut self) {
         self.bindings.clear();
         self.constants.clear();
+        self.tdz.clear();
         self.disposables.clear();
         self.parent = None;
     }
@@ -97,6 +105,7 @@ impl Environment {
         let current = Rc::new(RefCell::new(EnvFrame {
             bindings: HashMap::new(),
             constants: HashSet::new(),
+            tdz: HashSet::new(),
             disposables: Vec::new(),
             parent: None,
         }));
@@ -108,6 +117,7 @@ impl Environment {
         let new_frame = EnvFrame {
             bindings: HashMap::new(),
             constants: HashSet::new(),
+            tdz: HashSet::new(),
             disposables: Vec::new(),
             parent: Some(Rc::clone(&self.current)),
         };
@@ -128,6 +138,7 @@ impl Environment {
             EnvFrame {
                 bindings: frame.bindings.clone(),
                 constants: frame.constants.clone(),
+                tdz: frame.tdz.clone(),
                 disposables: Vec::new(),
                 parent: frame.parent.clone(),
             }
@@ -153,7 +164,39 @@ impl Environment {
         if is_const {
             frame.constants.insert(name.clone());
         }
+        if !frame.tdz.is_empty() {
+            frame.tdz.remove(&name);
+        }
         frame.bindings.insert(name, value);
+    }
+
+    pub(crate) fn mark_tdz(&mut self, names: impl IntoIterator<Item = String>) {
+        let mut frame = self.current.borrow_mut();
+        for name in names {
+            if !frame.bindings.contains_key(&name) {
+                frame.tdz.insert(name);
+            }
+        }
+    }
+
+    pub(crate) fn lookup_read(&self, name: &str) -> Lookup {
+        let mut frame_rc = Rc::clone(&self.current);
+        loop {
+            let parent = {
+                let frame = frame_rc.borrow();
+                if let Some(value) = frame.bindings.get(name) {
+                    return Lookup::Found(value.clone());
+                }
+                if frame.tdz.contains(name) {
+                    return Lookup::Tdz;
+                }
+                frame.parent.clone()
+            };
+            match parent {
+                Some(p) => frame_rc = p,
+                None => return Lookup::Missing,
+            }
+        }
     }
 
     pub fn is_const(&self, name: &str) -> bool {

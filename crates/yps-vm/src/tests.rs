@@ -26,6 +26,15 @@ fn run_err(src: &str) -> String {
     }
 }
 
+fn run_interp(src: &str) -> String {
+    let program = parse(src);
+    let sink = yps_interpreter::BufferSink::new();
+    let mut interp = yps_interpreter::Interpreter::new();
+    interp.set_output_sink(Box::new(sink.clone()));
+    interp.run(&program).expect("выполнение интерпретатора");
+    sink.take()
+}
+
 #[test]
 fn arithmetic_and_precedence() {
     assert_eq!(run("сказать(1 + 2 * 3);"), "7\n");
@@ -37,6 +46,10 @@ fn arithmetic_and_precedence() {
 
 #[test]
 fn number_formatting_matches_interpreter() {
+    for src in ["сказать(-0);", r#"сказать(число("абв"));"#, "сказать(0.5);", "сказать(9007199254740992);"]
+    {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
     assert_eq!(run("сказать(-0);"), "-0\n");
     assert_eq!(run(r#"сказать(число("абв"));"#), "NaN\n");
     assert_eq!(run("сказать(0.5);"), "0.5\n");
@@ -324,6 +337,10 @@ fn console_family() {
 
 #[test]
 fn number_division_by_zero_matches_interpreter() {
+    for src in ["сказать(1 / 0);", "сказать(-1 / 0);", "сказать(0 / 0);", "сказать(5 % 0);"]
+    {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
     assert_eq!(run("сказать(1 / 0);"), "Infinity\n");
     assert_eq!(run("сказать(-1 / 0);"), "-Infinity\n");
     assert_eq!(run("сказать(0 / 0);"), "NaN\n");
@@ -340,6 +357,16 @@ fn bigint_division_by_zero_is_error() {
 
 #[test]
 fn relational_coerces_like_interpreter() {
+    for src in [
+        r#"сказать("a" < "b");"#,
+        r#"сказать("10" < "9");"#,
+        r#"сказать("5" > 3);"#,
+        "сказать(правда < 2);",
+        "сказать(ноль < 1);",
+        r#"сказать(2 > "10");"#,
+    ] {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
     assert_eq!(run(r#"сказать("a" < "b");"#), "true\n");
     assert_eq!(run(r#"сказать("10" < "9");"#), "true\n");
     assert_eq!(run(r#"сказать("5" > 3);"#), "true\n");
@@ -726,9 +753,13 @@ fn throw_caught_across_call_frames() {
 
 #[test]
 fn disassembler_runs() {
-    let proto = compile_program(&parse("сказать(1 + 2);")).unwrap();
+    let proto = compile_program(&parse("гыы а = 1; гыы б = 2; сказать(а + б);")).unwrap();
     let text = crate::disassemble(&proto);
-    assert!(text.contains("proto"));
+    assert!(text.contains("== proto"), "заголовок диза: {text}");
+    assert!(text.contains("Constant(0)"), "константа 1: {text}");
+    assert!(text.contains("Constant(2)"), "константа 2: {text}");
+    assert!(text.contains("Add"), "сложение: {text}");
+    assert!(text.contains("Call(1)"), "вызов: {text}");
 }
 
 #[test]
@@ -962,7 +993,9 @@ fn microtask_ordering_matches() {
 
 #[test]
 fn dynamic_import_compiles() {
-    assert!(compile_program(&parse("гыы м = спиздить(\"./x\");")).is_ok());
+    let proto = compile_program(&parse("гыы м = спиздить(\"./x\");")).expect("компиляция");
+    let text = crate::disassemble(&proto);
+    assert!(text.contains("DynamicImport"), "диз: {text}");
 }
 
 #[test]
@@ -1717,9 +1750,25 @@ fn gc_preserves_suspended_generator_captures() {
     assert_eq!(run(src), "11\n22\n33\n");
 }
 
+struct SharedWriter(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl std::io::Write for SharedWriter {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(b);
+        Ok(b.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[test]
 fn gc_manual_collect_preserves_async_pending_roots() {
-    let src = r#"
+    let buf = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let mut vm = Vm::with_writer(Box::new(SharedWriter(std::rc::Rc::clone(&buf))));
+
+    let setup = r#"
         ясенХуй п = СловоПацана.сРешалками();
         йопта мусор() {
             гыы а = {};
@@ -1727,18 +1776,26 @@ fn gc_manual_collect_preserves_async_pending_roots() {
             а.друг = б;
             б.друг = а;
         }
-        п.обещание.потом((з) => { сказать(з); });
+        йопта настройка() {
+            гыы секрет = { значение: 777 };
+            п.обещание.потом((з) => { сказать(секрет.значение, з); });
+        }
+        настройка();
         го (гыы и = 0; и < 200; и = и + 1) { мусор(); }
-        п.решить(777);
     "#;
-    assert_eq!(run(src), "777\n");
+    vm.run(compile_program(&parse(setup)).expect("компиляция")).expect("выполнение VM");
+
+    vm.collect_cycles();
+
+    vm.run(compile_program(&parse("п.решить(777);")).expect("компиляция")).expect("выполнение VM");
+    drop(vm);
+
+    let out = String::from_utf8_lossy(&buf.borrow()).into_owned();
+    assert_eq!(out, "777 777\n");
 }
 
 #[test]
 fn const_fold_float_edge_cases_match_runtime() {
-    assert_eq!(run("сказать(1 / 0);"), "Infinity\n");
-    assert_eq!(run("сказать(-1 / 0);"), "-Infinity\n");
-    assert_eq!(run("сказать(0 / 0);"), "NaN\n");
     assert_eq!(run("сказать(-0.0);"), run("гыы н = -0.0; сказать(н);"));
     assert_eq!(run("сказать(0.1 + 0.2);"), run("гыы а = 0.1; гыы б = 0.2; сказать(а + б);"));
 }
@@ -1767,7 +1824,8 @@ fn const_fold_does_not_touch_partial_short_circuit() {
 #[test]
 fn const_fold_bigint_left_to_runtime() {
     assert_eq!(run("сказать(3n + 4n);"), run("гыы а = 3n; сказать(а + 4n);"));
-    run_err("сказать(1n + 1);");
+    let msg = run_err("сказать(1n + 1);");
+    assert!(msg.contains("смешивать"), "сообщение: {msg}");
 }
 
 #[test]

@@ -78,6 +78,9 @@ fn transpile_reports_parse_errors() {
     let output =
         Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Неожиданный токен"), "stderr: {stderr}");
+    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
     let _ = fs::remove_file(&path);
 }
 
@@ -112,11 +115,9 @@ fn assert_node_matches_interpreter(name: &str, source: &str) {
 }
 
 #[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
 fn switch_break_inside_loop_matches_interpreter_under_node() {
-    if !node_available() {
-        eprintln!("node не найден — сверка вывода пропущена");
-        return;
-    }
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
     assert_node_matches_interpreter(
         "switch_break",
         "го (гыы и = 0; и < 4; и++) { базарпо (и) { тема 2: { харэ; } нуичо { сказать(и); } } }\nсказать(\"конец\");\n",
@@ -128,11 +129,9 @@ fn switch_break_inside_loop_matches_interpreter_under_node() {
 }
 
 #[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
 fn typeof_of_a_class_matches_interpreter_under_node() {
-    if !node_available() {
-        eprintln!("node не найден — сверка вывода пропущена");
-        return;
-    }
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
     assert_node_matches_interpreter(
         "typeof_class",
         "клёво К {}\nйопта ф() {}\nсказать(тип(К));\nсказать(тип(ф));\nсказать(тип(Косяк));\n",
@@ -152,11 +151,9 @@ fn transpile_reports_date_used_as_a_namespace() {
 }
 
 #[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
 fn transpiled_examples_match_interpreter_output_under_node() {
-    if !node_available() {
-        eprintln!("node не найден — сверка вывода пропущена");
-        return;
-    }
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
 
     for name in EXAMPLES {
         assert_node_matches_interpreter_file(name, &examples_dir().join(format!("{name}.yopta")));

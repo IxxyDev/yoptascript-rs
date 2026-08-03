@@ -14,3 +14,6 @@ stacker.workspace = true
 indexmap.workspace = true
 fancy-regex.workspace = true
 unicode-normalization.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

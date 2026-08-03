@@ -8,7 +8,7 @@ use yps_lexer::Span;
 use crate::error::RuntimeError;
 use crate::interpreter::{GcRoot, Interpreter};
 use crate::stdlib::require_args;
-use crate::value::{AggregateKind, AggregateRole, AggregateState, PromiseState, ThenHandlerData, Value};
+use crate::value::{AggregateKind, AggregateRole, AggregateState, CapKind, PromiseState, ThenHandlerData, Value};
 
 pub fn construct(interp: &mut Interpreter, args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
     require_args(&args, 1, span, "СловоПацана")?;
@@ -399,6 +399,23 @@ fn chain_promise(
     Ok(new_promise)
 }
 
+pub(crate) fn run_finally(
+    interp: &mut Interpreter,
+    cb: Value,
+    cap: Value,
+    value: Value,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    match interp.call_function(cb, vec![], span) {
+        Ok(_) => interp.call_function(cap, vec![value], span).map(|_| ()),
+        Err(e) => {
+            let Value::PromiseCapability { state, .. } = &cap else { return Err(e) };
+            let state = Rc::clone(state);
+            Interpreter::settle_promise(&state, CapKind::Reject, rejection_reason(e), interp, span)
+        }
+    }
+}
+
 fn finally_promise(
     interp: &mut Interpreter,
     state: &Rc<RefCell<PromiseState>>,
@@ -411,21 +428,13 @@ fn finally_promise(
         PromiseState::Fulfilled(v) => {
             interp.enqueue_microtask(
                 vec![GcRoot::Value(cb.clone()), GcRoot::Value(resolve_cap.clone()), GcRoot::Value(v.clone())],
-                Box::new(move |interp, span| {
-                    interp.call_function(cb, vec![], span)?;
-                    interp.call_function(resolve_cap, vec![v], span)?;
-                    Ok(())
-                }),
+                Box::new(move |interp, span| run_finally(interp, cb, resolve_cap, v, span)),
             );
         }
         PromiseState::Rejected(v) => {
             interp.enqueue_microtask(
                 vec![GcRoot::Value(cb.clone()), GcRoot::Value(reject_cap.clone()), GcRoot::Value(v.clone())],
-                Box::new(move |interp, span| {
-                    interp.call_function(cb, vec![], span)?;
-                    interp.call_function(reject_cap, vec![v], span)?;
-                    Ok(())
-                }),
+                Box::new(move |interp, span| run_finally(interp, cb, reject_cap, v, span)),
             );
         }
         PromiseState::Pending { .. } => {

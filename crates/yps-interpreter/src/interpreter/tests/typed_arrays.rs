@@ -279,7 +279,7 @@ fn ta_u8clamped_clamps() {
 }
 
 #[test]
-fn typed_array_ptr_eq_same_view() {
+fn typed_array_equality_is_reference_identity() {
     let interp = run_code(
         r#"
         гыы об = захуярить ОбластьБайтов(4);
@@ -295,7 +295,7 @@ fn typed_array_ptr_eq_same_view() {
         "#,
     );
     assert_eq!(interp.get("равноСебе"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("равноДругойВьюхе"), Some(Value::Boolean(true)));
+    assert_eq!(interp.get("равноДругойВьюхе"), Some(Value::Boolean(false)));
     assert_eq!(interp.get("разныеОбласти"), Some(Value::Boolean(false)));
     assert_eq!(interp.get("разныеВиды"), Some(Value::Boolean(false)));
 }
@@ -527,29 +527,26 @@ fn dv_set_get_int8() {
 }
 
 #[test]
-fn dv_set_get_uint32_big_endian() {
+fn dv_uint32_writes_known_byte_pattern_per_endianness() {
     let interp = run_code(
         r#"
-        гыы б = захуярить ОбластьБайтов(4);
+        гыы б = захуярить ОбластьБайтов(8);
         гыы в = захуярить ОбзорБайтов(б);
         в.задатьЦ32(0, 16909060);
-        гыы р = в.взятьЦ32(0);
+        в.задатьЦ32(4, 16909060, правда);
+        гыы байты = захуярить Ц8Массив(б);
+        гыы бе = [байты[0], байты[1], байты[2], байты[3]];
+        гыы ле = [байты[4], байты[5], байты[6], байты[7]];
         "#,
     );
-    assert_eq!(interp.get("р"), Some(Value::Number(16909060.0)));
-}
-
-#[test]
-fn dv_set_get_uint32_little_endian() {
-    let interp = run_code(
-        r#"
-        гыы б = захуярить ОбластьБайтов(4);
-        гыы в = захуярить ОбзорБайтов(б);
-        в.задатьЦ32(0, 16909060, правда);
-        гыы р = в.взятьЦ32(0, правда);
-        "#,
+    assert_struct_eq(
+        interp.get("бе"),
+        Value::array(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]),
     );
-    assert_eq!(interp.get("р"), Some(Value::Number(16909060.0)));
+    assert_struct_eq(
+        interp.get("ле"),
+        Value::array(vec![Value::Number(4.0), Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)]),
+    );
 }
 
 #[test]

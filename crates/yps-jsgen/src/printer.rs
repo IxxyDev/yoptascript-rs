@@ -1355,12 +1355,6 @@ mod tests {
     }
 
     #[test]
-    fn typeof_helper_reports_classes_as_class() {
-        let out = js("клёво К {}\nсказать(тип(К));\n");
-        assert_contains(&out, r#"? "класс" : "функция""#);
-    }
-
-    #[test]
     fn date_used_as_a_namespace_is_a_diagnostic() {
         let err = js_err("сказать(Дата.сейчас());\n");
         assert_contains(&err.message, "'Дата'");

@@ -192,7 +192,6 @@ impl Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
@@ -254,32 +253,30 @@ mod tests {
     }
 
     #[test]
-    fn test_loading_state_returns_partial() {
+    fn test_loading_state_returns_partial_exports_during_cycle() {
         let dir = TempDir::new("partial");
-        let resolved = dir.path().join("dummy.yopta");
-        std::fs::write(&resolved, "").unwrap();
-
-        let mut exports = HashMap::new();
-        exports.insert("x".to_string(), Value::Number(42.0));
-
-        let cache: Rc<RefCell<HashMap<PathBuf, ModuleState>>> = Rc::new(RefCell::new(HashMap::new()));
-        cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(Rc::new(RefCell::new(exports.clone()))));
-
-        let state = cache.borrow();
-        let got = state.get(&resolved).unwrap().exports_snapshot();
-        assert_eq!(got.get("x"), Some(&Value::Number(42.0)));
+        write_file(
+            &dir,
+            "p.yopta",
+            "предъява гыы раньше = 1;\nспиздить { видимое } из \"q\";\nпредъява гыы позже = 2;",
+        );
+        write_file(&dir, "q.yopta", "спиздить { раньше, позже } из \"p\";\nпредъява гыы видимое = раньше;");
+        let mut i = interp_with_base(&dir);
+        let exports = i.load_module("p", Span { start: 0, end: 0 }).expect("цикл должен загрузиться");
+        assert_eq!(exports.get("раньше"), Some(&Value::Number(1.0)));
+        assert_eq!(exports.get("позже"), Some(&Value::Number(2.0)));
     }
 
     #[test]
-    fn test_loaded_state_cached() {
+    fn test_loaded_state_cached_not_reparsed() {
         let dir = TempDir::new("cached");
         write_file(&dir, "mod.yopta", "предъява гыы val = 99;");
         let mut i = interp_with_base(&dir);
-        let r1 = i.load_module("mod", Span { start: 0, end: 0 });
-        let r2 = i.load_module("mod", Span { start: 0, end: 0 });
-        let exports1 = r1.expect("модуль должен успешно загрузиться");
-        let exports2 = r2.expect("повторная загрузка должна вернуть закэшированные экспорты");
+        let exports1 = i.load_module("mod", Span { start: 0, end: 0 }).expect("модуль должен успешно загрузиться");
         assert_eq!(exports1.get("val"), Some(&Value::Number(99.0)));
-        assert_eq!(exports2.get("val"), Some(&Value::Number(99.0)));
+
+        write_file(&dir, "mod.yopta", "предъява гыы val = 111;");
+        let exports2 = i.load_module("mod", Span { start: 0, end: 0 }).expect("повторная загрузка должна взять кэш");
+        assert_eq!(exports2.get("val"), Some(&Value::Number(99.0)), "изменение файла не должно перечитываться");
     }
 }

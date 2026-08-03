@@ -314,7 +314,18 @@ fn malformed_string_and_template_tokens_do_not_panic() {
 #[test]
 fn deeply_nested_paren_assignments_parse_without_blowup() {
     let deep = "(п=".repeat(5000);
-    let _ = parse_program_from_source(&deep);
+    let (_, diags) = parse_program_from_source(&deep);
+    assert!(
+        diags.iter().any(|d| d.message.contains("вложенность")),
+        "ожидалась диагностика о вложенности: {:?}",
+        diag_messages(&diags)
+    );
+
     let balanced = format!("{}1{}", "(п=".repeat(5000), ")".repeat(5000));
-    let _ = parse_program_from_source(&balanced);
+    let (_, diags2) = parse_program_from_source(&balanced);
+    assert!(
+        diags2.iter().any(|d| d.message.contains("вложенность")),
+        "ожидалась диагностика о вложенности: {:?}",
+        diag_messages(&diags2)
+    );
 }

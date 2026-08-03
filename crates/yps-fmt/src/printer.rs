@@ -1210,11 +1210,10 @@ mod style_tests {
     }
 
     #[test]
-    fn do_while_roundtrips() {
+    fn do_while_prints_canonical_style() {
         let src = "крутани { и++; } потрещим (и < 3);\n";
         let out = fmt(src);
-        assert!(out.starts_with("крутани {"));
-        assert!(out.contains("} потрещим (и < 3);"));
+        assert_eq!(out, "крутани {\n    и++;\n} потрещим (и < 3);\n");
     }
 
     #[test]

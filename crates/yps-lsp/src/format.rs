@@ -42,6 +42,6 @@ mod tests {
         let edits = format_document(src).expect("should format");
         let range = edits[0].range;
         assert_eq!(range.start, Position { line: 0, character: 0 });
-        assert_eq!(range.end, byte_to_pos(src, src.len()));
+        assert_eq!(range.end, Position { line: 1, character: 0 });
     }
 }

@@ -1019,3 +1019,26 @@ fn async_generator_sync_iteration_rejected() {
     );
     assert!(err.message.contains("синхронно"), "неожиданное сообщение: {}", err.message);
 }
+
+#[test]
+fn sync_generator_try_catches_host_runtime_error() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        пиздюли ген() {
+            хапнуть {
+                гыы н = ноль;
+                н.нету();
+            } гоп (е) {
+                пойман = е.message;
+            }
+            поебалу 1;
+        }
+        го (гыы _ сашаГрей ген()) {}
+        "#,
+    );
+    let Some(Value::String(msg)) = interp.get("пойман") else {
+        panic!("ожидалось сообщение об ошибке")
+    };
+    assert!(msg.contains("нулл"), "получено: {msg}");
+}

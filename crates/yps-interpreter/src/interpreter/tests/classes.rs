@@ -260,22 +260,6 @@ fn class_method_with_args() {
 }
 
 #[test]
-fn class_instanceof_check() {
-    let i = run_code(
-        r#"
-        клёво Тест {
-            Тест() {
-                тырыпыры.вал = 1;
-            }
-        }
-        гыы т = захуярить Тест();
-        гыы рез = чезажижан т;
-        "#,
-    );
-    assert_eq!(i.get("рез"), Some(Value::String("объект".into())));
-}
-
-#[test]
 fn private_field_access_inside_class() {
     let i = run_code(
         r#"

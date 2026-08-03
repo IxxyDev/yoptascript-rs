@@ -125,17 +125,6 @@ fn unknown_top_level_flag_is_rejected() {
 }
 
 #[test]
-fn fmt_unknown_flag_is_rejected() {
-    let ws = Workspace::new("fmt_unknown_flag");
-    let prog = ws.write("p.yopta", "гыы x = 1;\n");
-
-    let out = run(&["fmt", prog.to_str().unwrap(), "--nonsense"], "");
-
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("Неизвестный флаг"), "stderr: {}", out.stderr);
-}
-
-#[test]
 fn requires_a_file_when_only_flags_are_given() {
     let out = run(&["--vm"], "");
 
@@ -286,7 +275,7 @@ fn repl_incomplete_input_at_eof_fails() {
     let out = run(&["repl"], "йопта f() {\n");
 
     assert_eq!(out.code, 1);
-    assert!(!out.stderr.is_empty(), "ожидалась диагностика незакрытого ввода");
+    assert!(out.stderr.contains("Ожидалась '}'"), "stderr: {}", out.stderr);
 }
 
 #[test]

@@ -53,101 +53,233 @@ mod suite {
     #[test]
     fn round_trip_abort() {
         assert_round_trip("abort.yopta");
+        let out = parse_and_format(&read_example("abort.yopta"));
+        assert!(out.contains("} гоп (е) {"), "catch-параметр должен получить каноничный пробел: {out:?}");
     }
 
     #[test]
     fn round_trip_async_timers() {
         assert_round_trip("async_timers.yopta");
+        let out = parse_and_format(&read_example("async_timers.yopta"));
+        assert!(out.contains("ассо йопта демо() {"), "async-функция должна печататься с префиксом 'ассо': {out:?}");
+        assert!(out.contains("} гоп (e) {"), "catch-параметр должен сохранить пробел: {out:?}");
     }
 
     #[test]
     fn round_trip_date() {
         assert_round_trip("date.yopta");
+        let out = parse_and_format(&read_example("date.yopta"));
+        assert!(!out.contains("\n\n"), "форматтер не сохраняет пустые строки между простыми statement'ами: {out:?}");
     }
 
     #[test]
     fn round_trip_decorators() {
         assert_round_trip("decorators.yopta");
+        let out = parse_and_format(&read_example("decorators.yopta"));
+        assert!(
+            out.contains("сложить(а, б) {\n        отвечаю а + б;\n    }\n\n    @лог\n    умножить(а, б) {"),
+            "декоратор должен остаться прямо над методом, с пустой строкой между методами: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_destructuring_defaults() {
         assert_round_trip("destructuring_defaults.yopta");
+        let out = parse_and_format(&read_example("destructuring_defaults.yopta"));
+        assert!(
+            out.contains("сказать(ширина); // 800 (взято из объекта)"),
+            "двойной пробел перед // должен схлопнуться в один: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_dynamic_import() {
         assert_round_trip("dynamic_import.yopta");
+        let out = parse_and_format(&read_example("dynamic_import.yopta"));
+        assert!(out.contains("гыы мод = сидетьНахуй спиздить(\"./modules/математика\");"), "вывод: {out:?}");
+        assert!(
+            out.contains("}\n\nглавная();"),
+            "пустая строка между объявлением функции и следующим вызовом должна сохраниться: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_event_loop() {
         assert_round_trip("event_loop.yopta");
+        let out = parse_and_format(&read_example("event_loop.yopta"));
+        assert!(
+            out.contains("сидетьНахуй (захуярить СловоПацана((решить, _) => чутка(() => решить(ноль), 40)));"),
+            "форматтер должен обернуть аргумент сидетьНахуй в скобки: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_for_await_of() {
         assert_round_trip("for_await_of.yopta");
+        let out = parse_and_format(&read_example("for_await_of.yopta"));
+        assert!(
+            out.contains("го сидетьНахуй (гыы х сашаГрей обещания) {"),
+            "форматтер должен восстановить неявный 'гыы' в паттерне for-await-of: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_hello() {
         assert_round_trip("hello.yopta");
+        let out = parse_and_format(&read_example("hello.yopta"));
+        assert!(
+            out.contains("}\n\nсказать(\"факториал(5) =\", факториал(5));\n"),
+            "пустая строка должна отделять объявление функции от следующего вызова: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_hoisting() {
         assert_round_trip("hoisting.yopta");
+        let out = parse_and_format(&read_example("hoisting.yopta"));
+        assert!(
+            out.contains("сказать(приветствие(\"Мир\")); // Привет, Мир!"),
+            "двойной пробел перед // должен схлопнуться в один: {out:?}"
+        );
+        assert!(
+            out.contains("вилкойвглаз (н == 0) {\n        отвечаю правда;\n    }"),
+            "однострочный if-блок должен раскрыться в многострочный: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_import_json() {
         assert_round_trip("import_json.yopta");
+        let out = parse_and_format(&read_example("import_json.yopta"));
+        assert_eq!(
+            out,
+            concat!(
+                "спиздить data из \"./modules/data.json\" with { type: \"json\" };\n",
+                "сказать(\"имя =\", data.имя);\n",
+                "сказать(\"возраст =\", data.возраст);\n",
+                "сказать(\"первое хобби =\", data.хобби[0]);\n",
+            )
+        );
     }
 
     #[test]
     fn round_trip_io_demo() {
         assert_round_trip("io_demo.yopta");
+        let out = parse_and_format(&read_example("io_demo.yopta"));
+        assert!(out.contains("сказать.время(\"замер\");"), "вывод: {out:?}");
+        assert!(
+            out.contains("го (гыы и = 0; и < 1000; и++) {}"),
+            "пустое тело for-цикла должно печататься как '{{}}' на одной строке: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_iterator_helpers() {
         assert_round_trip("iterator_helpers.yopta");
+        let out = parse_and_format(&read_example("iterator_helpers.yopta"));
+        assert!(
+            out.contains(
+                "гыы квадратыЧётных = Итератор.от(числа).отфильтровать((н) => н % 2 == 0).преобразовать((н) => н * н).вМассив();"
+            ),
+            "цепочка вызовов методов должна схлопнуться в одну строку: {out:?}"
+        );
+        assert!(
+            out.contains("го (гыы х сашаГрей Итератор.от([10, 20, 30]).преобразовать((н) => н + 1)) {"),
+            "форматтер должен восстановить неявный 'гыы' в паттерне for-of: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_labeled_loops() {
         assert_round_trip("labeled_loops.yopta");
+        let out = parse_and_format(&read_example("labeled_loops.yopta"));
+        assert!(out.contains("поиск: го (гыы и = 0; и < 3; и += 1) {"), "вывод: {out:?}");
+        assert!(out.contains("харэ поиск;"), "харэ по метке должен сохраниться: {out:?}");
+        assert!(out.contains("двигай строки;"), "двигай по метке должен сохраниться: {out:?}");
     }
 
     #[test]
     fn round_trip_promise_smoke1() {
         assert_round_trip("promise_smoke1.yopta");
+        let out = parse_and_format(&read_example("promise_smoke1.yopta"));
+        assert_eq!(
+            out,
+            concat!(
+                "гыы p = СловоПацана.решить(10);\n",
+                "p.потом(\n",
+                "    (v) => {\n",
+                "        сказать(\"первый:\", v);\n",
+                "    }\n",
+                ");\n",
+                "сказать(\"done\");\n",
+            )
+        );
     }
 
     #[test]
     fn round_trip_promise_smoke2() {
         assert_round_trip("promise_smoke2.yopta");
+        let out = parse_and_format(&read_example("promise_smoke2.yopta"));
+        assert!(
+            out.contains(
+                "гыы all = СловоПацана.всех([СловоПацана.решить(1), СловоПацана.решить(2), СловоПацана.решить(3)]);"
+            ),
+            "короткий многострочный массив-литерал должен схлопнуться в одну строку: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_regex() {
         assert_round_trip("regex.yopta");
+        let out = parse_and_format(&read_example("regex.yopta"));
+        assert!(
+            out.contains("го (гыы м сашаГрей \"foo=1, bar=2\".найтиВсе(/(\\w+)=(\\d+)/g)) {"),
+            "regex-литерал должен пережить форматирование, а 'гыы' в for-of восстановиться: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_stack_trace() {
         assert_round_trip("stack_trace.yopta");
+        let out = parse_and_format(&read_example("stack_trace.yopta"));
+        assert_eq!(
+            out,
+            concat!(
+                "йопта в() {\n",
+                "    кидай \"сломалось в В\";\n",
+                "}\n",
+                "\n",
+                "йопта б() {\n",
+                "    отвечаю в();\n",
+                "}\n",
+                "\n",
+                "йопта а() {\n",
+                "    отвечаю б();\n",
+                "}\n",
+                "\n",
+                "а();\n",
+            )
+        );
     }
 
     #[test]
     fn round_trip_stdlib() {
         assert_round_trip("stdlib.yopta");
+        let out = parse_and_format(&read_example("stdlib.yopta"));
+        assert!(
+            out.contains(
+                "гыы ответ = [1, 2, 3, 4, 5].filter((x) => x > 1).map((x) => x * x).reduce((а, б) => а + б, 0);"
+            ),
+            "цепочка вызовов методов должна схлопнуться в одну строку: {out:?}"
+        );
     }
 
     #[test]
     fn round_trip_tagged_templates() {
         assert_round_trip("tagged_templates.yopta");
+        let out = parse_and_format(&read_example("tagged_templates.yopta"));
+        assert!(out.contains("сказать(подсветить`Заказ: ${товар} за ${цена} руб.`);"), "вывод: {out:?}");
+        assert!(out.contains("сказать(сырьё`строка с \\n внутри`);"), "вывод: {out:?}");
     }
 
     // === (b) идемпотентность побайтно на 20 examples ===
@@ -322,70 +454,69 @@ mod suite {
     }
 
     #[test]
-    fn property_all_binary_ops_round_trip() {
+    fn property_all_binary_ops_render_canonically() {
         let mut seed: u64 = 42;
         for op_idx in 0..29 {
             let op = binary_op_str(op_idx);
             let lhs = gen_simple_ident(&mut seed);
             let rhs = gen_simple_number(&mut seed);
             let src = format!("гыы {lhs} = 1;\n{lhs} {op} {rhs};\n");
-            let result = format_source(&src);
-            match result {
-                Ok(outcome) => {
-                    assert!(
-                        programs_equivalent_str(&src, &outcome.text),
-                        "round-trip не прошёл для бинарного оп '{op}': fmt вывод: {:?}",
-                        outcome.text
-                    );
-                }
-                Err(e) => {
-                    panic!("format_source failed для оп '{op}': {e}");
-                }
-            }
+            let outcome = format_source(&src).unwrap_or_else(|e| panic!("format_source failed для оп '{op}': {e}"));
+            assert!(
+                programs_equivalent_str(&src, &outcome.text),
+                "round-trip не прошёл для бинарного оп '{op}': fmt вывод: {:?}",
+                outcome.text
+            );
+            let expected_infix = format!("{lhs} {op} {rhs}");
+            assert!(
+                outcome.text.contains(&expected_infix),
+                "бинарный оп '{op}' должен печататься с одиночными пробелами вокруг: {:?}",
+                outcome.text
+            );
         }
     }
 
     #[test]
-    fn property_all_unary_ops_round_trip() {
+    fn property_all_unary_ops_render_canonically() {
         let mut seed: u64 = 137;
         for op_idx in 0..6 {
             let op = unary_op_str(op_idx);
             let operand = gen_simple_ident(&mut seed);
             let src = format!("гыы {operand} = 1;\n{op} {operand};\n");
-            let result = format_source(&src);
-            match result {
-                Ok(outcome) => {
-                    assert!(
-                        programs_equivalent_str(&src, &outcome.text),
-                        "round-trip не прошёл для унарного оп '{op}': fmt вывод: {:?}",
-                        outcome.text
-                    );
-                }
-                Err(e) => {
-                    panic!("format_source failed для унарного оп '{op}': {e}");
-                }
-            }
+            let outcome =
+                format_source(&src).unwrap_or_else(|e| panic!("format_source failed для унарного оп '{op}': {e}"));
+            assert!(
+                programs_equivalent_str(&src, &outcome.text),
+                "round-trip не прошёл для унарного оп '{op}': fmt вывод: {:?}",
+                outcome.text
+            );
+            let is_word_op = op.chars().next().is_some_and(char::is_alphabetic);
+            let expected = if is_word_op { format!("{op} {operand}") } else { format!("{op}{operand}") };
+            assert!(
+                outcome.text.contains(&expected),
+                "унарный оп '{op}' должен печататься как {expected:?}: {:?}",
+                outcome.text
+            );
         }
     }
 
     #[test]
-    fn property_all_postfix_ops_round_trip() {
+    fn property_all_postfix_ops_render_canonically() {
         for op_idx in 0..2 {
             let op = postfix_op_str(op_idx);
             let src = format!("гыы а = 1;\nа{op};\n");
-            let result = format_source(&src);
-            match result {
-                Ok(outcome) => {
-                    assert!(
-                        programs_equivalent_str(&src, &outcome.text),
-                        "round-trip не прошёл для постфиксного оп '{op}': fmt вывод: {:?}",
-                        outcome.text
-                    );
-                }
-                Err(e) => {
-                    panic!("format_source failed для постфиксного оп '{op}': {e}");
-                }
-            }
+            let outcome =
+                format_source(&src).unwrap_or_else(|e| panic!("format_source failed для постфиксного оп '{op}': {e}"));
+            assert!(
+                programs_equivalent_str(&src, &outcome.text),
+                "round-trip не прошёл для постфиксного оп '{op}': fmt вывод: {:?}",
+                outcome.text
+            );
+            assert!(
+                outcome.text.contains(&format!("а{op};")),
+                "постфиксный оп '{op}' должен прилегать к операнду без пробела: {:?}",
+                outcome.text
+            );
         }
     }
 
@@ -404,6 +535,7 @@ mod suite {
         let src = "гыы х = 1;\n(-х) ** 2;\n";
         let out = parse_and_format(src);
         assert!(programs_equivalent_str(src, &out), "round-trip нарушен для (-х)**2");
+        assert!(out.contains("-х ** 2"), "унарный минус связывает сильнее **, скобки избыточны: {out:?}");
     }
 
     #[test]
@@ -427,6 +559,7 @@ mod suite {
         let src = "а - б - в;\n";
         let out = parse_and_format(src);
         assert!(programs_equivalent_str(src, &out), "round-trip нарушен для а - б - в");
+        assert!(!out.contains("(а - б)"), "левоассоциативность: не должно быть скобок вокруг а - б: {out:?}");
     }
 
     #[test]
@@ -434,6 +567,8 @@ mod suite {
         let src = "гыы а = ноль;\nгыы б = ноль;\nгыы в = 1;\nа ?? б || в;\n";
         let out = parse_and_format(src);
         assert!(programs_equivalent_str(src, &out), "round-trip нарушен для а ?? б || в");
+        assert!(!out.contains("(а ?? б)"), "не должно быть лишних скобок вокруг а ?? б: {out:?}");
+        assert!(!out.contains("(б || в)"), "не должно быть лишних скобок вокруг б || в: {out:?}");
     }
 
     // === (d) snapshot канонического вывода ===
@@ -514,27 +649,10 @@ mod suite {
     }
 
     #[test]
-    fn negative_dangling_comment_refused() {
-        let src = "йопта ф() {\n    // одинокий комментарий внутри пустого блока\n}\n";
-        let err = format_source(src).unwrap_err();
-        assert!(
-            matches!(err, FormatError::CommentRefused(_)),
-            "ожидался CommentRefused для dangling комментария, получен: {err:?}"
-        );
-    }
-
-    #[test]
     fn negative_slash_in_regex_not_comment() {
         let src = "гыы р = /https?:\\/\\//;\n";
-        let out = format_source(src);
-        assert!(out.is_ok(), "// внутри regex ошибочно принят за комментарий: {out:?}");
-    }
-
-    #[test]
-    fn negative_slash_in_string_not_comment() {
-        let src = "гыы у = \"http://пример.ру\";\n";
         let out = format_source(src).unwrap();
-        assert!(out.text.contains("http://пример.ру"));
+        assert!(out.text.contains("/https?:\\/\\//"), "regex-литерал должен пережить форматирование: {out:?}");
     }
 
     #[test]

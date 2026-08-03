@@ -68,7 +68,7 @@ const CALL_SRC: &str =
     "йопта удвоить(a) {\n    гыы b = a * 2;\n    отвечаю b;\n}\nгыы x = удвоить(4);\nгыы y = x + 1;\n";
 
 #[test]
-fn hook_is_not_invoked_without_a_debug_hook() {
+fn script_runs_normally_without_a_debug_hook() {
     let source = SourceFile::new("test.yopta".to_string(), LOOP_SRC.to_string());
     let (tokens, _) = Lexer::new(&source).tokenize();
     let (program, _) = Parser::new(&tokens, &source).parse_program();

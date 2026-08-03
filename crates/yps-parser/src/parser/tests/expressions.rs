@@ -236,7 +236,7 @@ fn test_complex_expression() {
 }
 
 #[test]
-fn test_precedence_logical_over_comparison() {
+fn test_precedence_comparison_over_logical() {
     let expr = parse_expr_from_source("x > 5 && y < 10").unwrap();
     match expr {
         Expr::Binary { op: BinaryOp::And, lhs, rhs, .. } => {

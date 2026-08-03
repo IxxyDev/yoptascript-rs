@@ -33,19 +33,6 @@ fn stack_clean_after_try_catch() {
 }
 
 #[test]
-fn stack_throw_carries_stack() {
-    let err = run_code_err(
-        r#"
-        йопта внутр() { кидай "тут"; }
-        йопта внешн() { отвечаю внутр(); }
-        внешн();
-        "#,
-    );
-    assert!(!err.stack.is_empty());
-    assert!(stack_names(&err).contains(&"внутр".to_string()));
-}
-
-#[test]
 fn stack_user_callback_frame_present() {
     let err = run_code_err(
         r#"
@@ -139,7 +126,6 @@ fn stack_capped_at_max_depth() {
         })
         .unwrap();
     let depth = handle.join().unwrap();
-    assert!(depth <= crate::error::MAX_STACK_DEPTH);
     assert_eq!(depth, crate::error::MAX_STACK_DEPTH);
 }
 

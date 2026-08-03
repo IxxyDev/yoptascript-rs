@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use yps_lexer::Span;
 use yps_parser::ast::{BinaryOp, Expr, Literal, ObjectEntry, Param, PropKey, TemplatePart, UnaryOp};
 
-use crate::environment::Environment;
+use crate::environment::{Environment, Lookup};
 use crate::error::RuntimeError;
 use crate::symbols;
 use crate::value::{ClassDef, FunctionData, MethodDef, RegExpData, Value, to_int_n, to_uint_n};
@@ -111,13 +111,29 @@ impl Interpreter {
     fn eval_expr_inner(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
-            Expr::Identifier(ident) => self
-                .lookup_read(ident)
-                .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span)),
+            Expr::Identifier(ident) => match self.lookup_read(ident) {
+                Lookup::Found(value) => Ok(value),
+                Lookup::Tdz => Err(RuntimeError::new(
+                    format!("Обращение к переменной '{}' до её инициализации", ident.name),
+                    ident.span,
+                )),
+                Lookup::Missing => {
+                    Err(RuntimeError::new(format!("Переменная '{}' не определена", ident.name), ident.span))
+                }
+            },
             Expr::Unary { op, expr, span } => {
                 if *op == UnaryOp::Typeof {
                     if let Expr::Identifier(ident) = expr.as_ref() {
-                        let val = self.lookup_read(ident).unwrap_or(Value::Undefined);
+                        let val = match self.lookup_read(ident) {
+                            Lookup::Found(value) => value,
+                            Lookup::Tdz => {
+                                return Err(RuntimeError::new(
+                                    format!("Обращение к переменной '{}' до её инициализации", ident.name),
+                                    ident.span,
+                                ));
+                            }
+                            Lookup::Missing => Value::Undefined,
+                        };
                         return Ok(Value::String(val.typeof_str().to_string().into()));
                     }
                     let val = self.eval_expr(expr)?;

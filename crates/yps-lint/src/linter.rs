@@ -6,6 +6,27 @@ use yps_parser::{
 
 use crate::{LintDiagnostic, LintSeverity, Rule};
 
+fn is_compound_assign(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::PlusAssign
+            | BinaryOp::MinusAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign
+            | BinaryOp::ExpAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::NullishAssign
+            | BinaryOp::AndAssign
+            | BinaryOp::OrAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::UshrAssign
+    )
+}
+
 pub fn lint_program(program: &Program) -> Vec<LintDiagnostic> {
     let mut linter = Linter { scopes: Vec::new(), diags: Vec::new() };
     linter.push_scope();
@@ -261,7 +282,7 @@ impl Linter {
                 self.visit_expr(init);
             }
             Stmt::Using { init, .. } => self.visit_expr(init),
-            Stmt::Expr { expr, .. } => self.visit_expr(expr),
+            Stmt::Expr { expr, .. } => self.visit_discarded_expr(expr),
             Stmt::Block(block) => self.visit_block(block),
             Stmt::Empty { .. } | Stmt::Break { .. } | Stmt::Continue { .. } | Stmt::Debugger { .. } => {}
             Stmt::If { condition, then_branch, else_branch, .. } => {
@@ -289,7 +310,7 @@ impl Linter {
                     self.visit_expr(condition);
                 }
                 if let Some(update) = update {
-                    self.visit_expr(update);
+                    self.visit_discarded_expr(update);
                 }
                 self.visit_branch(body);
                 self.pop_scope();
@@ -482,6 +503,19 @@ impl Linter {
                 self.visit_function(std::slice::from_ref(param), body);
             }
             ClassMember::StaticBlock { body, .. } => self.visit_block(body),
+        }
+    }
+
+    fn visit_discarded_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Grouping { expr, .. } => self.visit_discarded_expr(expr),
+            Expr::Binary { op, lhs, rhs, .. }
+                if is_compound_assign(*op) && matches!(lhs.as_ref(), Expr::Identifier(_)) =>
+            {
+                self.visit_expr(rhs);
+            }
+            Expr::Postfix { expr: operand, .. } if matches!(operand.as_ref(), Expr::Identifier(_)) => {}
+            other => self.visit_expr(other),
         }
     }
 

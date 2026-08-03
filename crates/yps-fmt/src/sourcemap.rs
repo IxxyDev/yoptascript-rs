@@ -167,9 +167,10 @@ mod tests {
         builder.add_mapping(0, 0, 0);
         let map = builder.build("out.yopta", "in.yopta");
         let json = map.to_json();
-        assert!(json.contains("\"version\":3"));
-        assert!(json.contains("\"sources\":[\"in.yopta\"]"));
-        assert!(json.contains("\"mappings\":"));
+        assert_eq!(
+            json,
+            "{\"version\":3,\"file\":\"out.yopta\",\"sources\":[\"in.yopta\"],\"sourcesContent\":[\"гыы х = 1;\"],\"mappings\":\"AAAA\"}"
+        );
     }
 
     #[test]
@@ -189,8 +190,7 @@ mod tests {
     fn encode_mappings_single_segment() {
         let mappings = vec![Mapping { gen_line: 0, gen_col: 0, src_line: 0, src_col: 0 }];
         let encoded = encode_mappings(&mappings);
-        assert!(!encoded.is_empty());
-        assert!(!encoded.contains(';'), "single line should have no semicolons");
+        assert_eq!(encoded, "AAAA");
     }
 
     #[test]
@@ -200,6 +200,6 @@ mod tests {
             Mapping { gen_line: 1, gen_col: 0, src_line: 1, src_col: 0 },
         ];
         let encoded = encode_mappings(&mappings);
-        assert!(encoded.contains(';'), "two lines need a semicolon separator");
+        assert_eq!(encoded, "AAAA;AACA");
     }
 }

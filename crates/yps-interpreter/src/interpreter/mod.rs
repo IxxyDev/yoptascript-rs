@@ -27,6 +27,7 @@ enum RunMode {
 }
 
 mod assign;
+mod async_lower;
 mod call;
 mod class;
 pub mod coercion;
@@ -132,17 +133,18 @@ impl Interpreter {
     }
 
     #[inline]
-    pub(super) fn lookup_read(&self, ident: &Identifier) -> Option<Value> {
+    pub(super) fn lookup_read(&self, ident: &Identifier) -> crate::environment::Lookup {
+        use crate::environment::Lookup;
         if let Some(value) = self.env.get_shallow(&ident.name) {
-            return Some(value);
+            return Lookup::Found(value);
         }
         if !self.resolution.is_empty()
             && self.resolution.is_root_read(ident.span.start)
             && let Some(value) = self.global_root.borrow().get_local(&ident.name)
         {
-            return Some(value);
+            return Lookup::Found(value);
         }
-        self.env.get(&ident.name)
+        self.env.lookup_read(&ident.name)
     }
 
     pub(crate) fn register_finalization_registry(&mut self, state: &Rc<RefCell<FinRegState>>) {
