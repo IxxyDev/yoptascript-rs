@@ -2,8 +2,19 @@ use super::*;
 
 #[test]
 fn test_parser_recovers_from_unknown_keyword_after_brace() {
-    let (_, diags) = parse_program_from_source("{ } йопта 5;");
-    assert!(!diags.is_empty());
+    let (program, diags) = parse_program_from_source("{ } йопта 5; гыы х = 1;");
+    assert!(
+        diag_messages(&diags).iter().any(|m| m.contains("Ожидался идентификатор")),
+        "expected identifier-expected diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+    assert_eq!(
+        program.items.len(),
+        2,
+        "expected parser to resynchronize and parse the trailing statement, got: {:?}",
+        program.items
+    );
+    assert!(matches!(program.items[1], Stmt::VarDecl { .. }), "expected trailing VarDecl, got: {:?}", program.items[1]);
 }
 
 #[test]

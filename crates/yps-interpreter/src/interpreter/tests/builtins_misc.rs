@@ -105,7 +105,7 @@ fn bigint_constructor_rejects_fractional() {
 }
 
 #[test]
-fn date_construct_and_instance_method_gate() {
+fn date_construct_from_epoch_ms_and_instance_getters() {
     let interp = run_code(
         r#"
         гыы д = захуярить Дата(0);
@@ -287,7 +287,7 @@ fn date_set_hours_and_minutes_rollover() {
 }
 
 #[test]
-fn date_utc_getters_and_setters_match_local() {
+fn date_local_getters_alias_utc_and_offset_reports_runtime_zone() {
     let interp = run_code(
         r#"
         гыы д = захуярить Дата(Дата.разобрать("2020-06-15T10:20:30.400Z"));
@@ -298,7 +298,10 @@ fn date_utc_getters_and_setters_match_local() {
         "#,
     );
     assert_eq!(interp.get("годРавны"), Some(Value::Boolean(true)));
-    assert_eq!(interp.get("смещение"), Some(Value::Number(0.0)));
+    assert_eq!(
+        interp.get("смещение"),
+        Some(Value::Number(-crate::stdlib::date::local_utc_offset_minutes_at(1_592_216_430_400.0) as f64))
+    );
     assert_eq!(interp.get("исо"), Some(Value::String("2020-01-15T10:20:30.400Z".into())));
 }
 

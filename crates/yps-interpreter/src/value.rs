@@ -15,6 +15,18 @@ pub struct AbortState {
     pub promise: RefCell<Option<Value>>,
 }
 
+impl Default for AbortState {
+    fn default() -> Self {
+        AbortState {
+            aborted: false,
+            reason: Value::Undefined,
+            next_token: 0,
+            listeners: Vec::new(),
+            promise: RefCell::new(None),
+        }
+    }
+}
+
 use yps_parser::ast::{Block, Expr, Param, Pattern, Stmt};
 
 use crate::environment::{EnvFrame, Environment};
@@ -43,6 +55,14 @@ pub struct GenState {
     pub is_async: bool,
     pub pending_bind: Option<BindTarget>,
     pub pending_send: Option<Value>,
+    pub pending_return: bool,
+    pub pending_label: Option<String>,
+}
+
+pub struct AsyncResumeData {
+    pub coroutine: Rc<RefCell<GenState>>,
+    pub outer: Rc<RefCell<PromiseState>>,
+    pub is_throw: bool,
 }
 
 #[derive(Clone)]
@@ -57,27 +77,46 @@ pub enum GenFrame {
         stmts: Rc<[Stmt]>,
         idx: usize,
         owns_scope: bool,
+        label: Option<String>,
     },
     While {
         condition: Rc<Expr>,
         body: Rc<[Stmt]>,
         phase: LoopPhase,
+        label: Option<String>,
     },
     DoWhile {
         condition: Rc<Expr>,
         body: Rc<[Stmt]>,
         phase: LoopPhase,
+        label: Option<String>,
     },
     For {
         condition: Option<Rc<Expr>>,
         update: Option<Rc<Expr>>,
         body: Rc<[Stmt]>,
         phase: LoopPhase,
+        label: Option<String>,
     },
     ForIter {
         variable: Pattern,
         iter: Rc<RefCell<IteratorState>>,
         body: Rc<[Stmt]>,
+        label: Option<String>,
+    },
+    ForAwait {
+        aiter: Value,
+        variable: Pattern,
+        body: Rc<[Stmt]>,
+        phase: LoopPhase,
+        label: Option<String>,
+    },
+    ForAwaitSync {
+        iter: Rc<RefCell<IteratorState>>,
+        variable: Pattern,
+        body: Rc<[Stmt]>,
+        phase: LoopPhase,
+        label: Option<String>,
     },
     Delegate {
         inner: Rc<RefCell<IteratorState>>,
@@ -104,8 +143,8 @@ pub enum TryState {
     FinallyNormal,
     FinallyAfterThrow(Value),
     FinallyAfterReturn(Value),
-    FinallyAfterBreak,
-    FinallyAfterContinue,
+    FinallyAfterBreak(Option<String>),
+    FinallyAfterContinue(Option<String>),
 }
 
 impl fmt::Debug for GenState {
@@ -122,6 +161,8 @@ impl fmt::Debug for GenFrame {
             GenFrame::DoWhile { phase, .. } => write!(f, "DoWhile({phase:?})"),
             GenFrame::For { phase, .. } => write!(f, "For({phase:?})"),
             GenFrame::ForIter { .. } => write!(f, "ForIter"),
+            GenFrame::ForAwait { .. } => write!(f, "ForAwait"),
+            GenFrame::ForAwaitSync { .. } => write!(f, "ForAwaitSync"),
             GenFrame::Delegate { .. } => write!(f, "Delegate"),
             GenFrame::TryCatch { .. } => write!(f, "TryCatch"),
         }
@@ -545,6 +586,7 @@ pub enum Value {
     PromiseCapability { state: Rc<RefCell<PromiseState>>, kind: CapKind },
     PromiseThenHandler(Box<ThenHandlerData>),
     PromiseFinallyHandler { cb: Box<Value>, cap: Box<Value> },
+    AsyncResume(Rc<AsyncResumeData>),
     PromiseAggregateHandler { state: Rc<RefCell<AggregateState>>, index: usize, role: AggregateRole },
     Iterator(Rc<RefCell<IteratorState>>),
     RegExp(Rc<RegExpData>),
@@ -680,6 +722,7 @@ impl Value {
             | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler(_)
+            | Value::AsyncResume(_)
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Array(_)
@@ -718,6 +761,7 @@ impl Value {
                 | Value::BoundMethod { .. }
                 | Value::PromiseCapability { .. }
                 | Value::PromiseThenHandler(_)
+                | Value::AsyncResume(_)
                 | Value::PromiseFinallyHandler { .. }
                 | Value::PromiseAggregateHandler { .. }
                 | Value::AbortUnsubscribe { .. }
@@ -741,6 +785,7 @@ impl Value {
             | Value::BoundMethod { .. }
             | Value::PromiseCapability { .. }
             | Value::PromiseThenHandler(_)
+            | Value::AsyncResume(_)
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => "функция",
             Value::Class(_) | Value::WeakClass(_) => "класс",
@@ -810,6 +855,7 @@ impl fmt::Debug for Value {
                 CapKind::Reject => write!(f, "PromiseCapability(Reject)"),
             },
             Value::PromiseThenHandler(_) => write!(f, "PromiseThenHandler"),
+            Value::AsyncResume(_) => write!(f, "AsyncResume"),
             Value::PromiseFinallyHandler { .. } => write!(f, "PromiseFinallyHandler"),
             Value::PromiseAggregateHandler { .. } => write!(f, "PromiseAggregateHandler"),
             Value::Iterator(state) => f.debug_tuple("Iterator").field(&*state.borrow()).finish(),
@@ -986,6 +1032,7 @@ impl Value {
                 CapKind::Reject => write!(f, "[капабилити отвергнуть]"),
             },
             Value::PromiseThenHandler(_) => write!(f, "[обработчик потом]"),
+            Value::AsyncResume(_) => write!(f, "[продолжение ассо]"),
             Value::PromiseFinallyHandler { .. } => write!(f, "[обработчик наконец]"),
             Value::PromiseAggregateHandler { .. } => write!(f, "[обработчик агрегата]"),
             Value::Iterator(_) => write!(f, "[итератор]"),
@@ -1260,9 +1307,7 @@ impl PartialEq for Value {
                 Rc::ptr_eq(a, b) && ta == tb
             }
             (Value::ArrayBuffer(a), Value::ArrayBuffer(b)) => Rc::ptr_eq(a, b),
-            (Value::TypedArray(a), Value::TypedArray(b)) => {
-                Rc::ptr_eq(&a.buffer, &b.buffer) && a.offset == b.offset && a.length == b.length && a.kind == b.kind
-            }
+            (Value::TypedArray(a), Value::TypedArray(b)) => Rc::ptr_eq(a, b),
             (
                 Value::DataView { buffer: ba, offset: oa, length: la },
                 Value::DataView { buffer: bb, offset: ob, length: lb },

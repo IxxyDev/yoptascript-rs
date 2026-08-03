@@ -11,7 +11,6 @@ use super::Interpreter;
 
 pub(crate) enum GcRoot {
     Value(Value),
-    Frame(Rc<RefCell<EnvFrame>>),
 }
 
 impl Interpreter {
@@ -80,10 +79,8 @@ impl Marker {
     }
 
     fn push_root(&mut self, root: &GcRoot) {
-        match root {
-            GcRoot::Value(value) => self.push_value(value),
-            GcRoot::Frame(frame) => self.work.push(Work::Frame(Rc::clone(frame))),
-        }
+        let GcRoot::Value(value) = root;
+        self.push_value(value);
     }
 
     fn run(&mut self) {
@@ -213,6 +210,13 @@ impl Marker {
                 self.push_value(cb);
                 self.push_value(cap);
             }
+            Value::AsyncResume(data) => {
+                self.work.push(Work::Promise(Rc::clone(&data.outer)));
+                if self.seen.insert(Rc::as_ptr(&data.coroutine) as usize) {
+                    let coroutine = data.coroutine.borrow();
+                    self.mark_gen_state(&coroutine);
+                }
+            }
             Value::PromiseAggregateHandler { state, .. } => self.work.push(Work::Aggregate(Rc::clone(state))),
             Value::Iterator(rc) => self.work.push(Work::Iter(Rc::clone(rc))),
             Value::AbortController { state } | Value::AbortSignal { state } | Value::AbortUnsubscribe { state, .. } => {
@@ -278,18 +282,24 @@ impl Marker {
 
     fn mark_gen_state(&mut self, gen_state: &GenState) {
         self.work.push(Work::Frame(gen_state.env.snapshot()));
+        if let Some(value) = &gen_state.pending_send {
+            self.push_value(value);
+        }
         for frame in &gen_state.frames {
             match frame {
                 GenFrame::Block { .. } | GenFrame::While { .. } | GenFrame::DoWhile { .. } | GenFrame::For { .. } => {}
-                GenFrame::ForIter { iter, .. } => self.work.push(Work::Iter(Rc::clone(iter))),
+                GenFrame::ForIter { iter, .. } | GenFrame::ForAwaitSync { iter, .. } => {
+                    self.work.push(Work::Iter(Rc::clone(iter)));
+                }
+                GenFrame::ForAwait { aiter, .. } => self.push_value(aiter),
                 GenFrame::Delegate { inner, .. } => self.work.push(Work::Iter(Rc::clone(inner))),
                 GenFrame::TryCatch { state, .. } => match state {
                     TryState::FinallyAfterThrow(value) | TryState::FinallyAfterReturn(value) => self.push_value(value),
                     TryState::Trying
                     | TryState::InCatch
                     | TryState::FinallyNormal
-                    | TryState::FinallyAfterBreak
-                    | TryState::FinallyAfterContinue => {}
+                    | TryState::FinallyAfterBreak(_)
+                    | TryState::FinallyAfterContinue(_) => {}
                 },
             }
         }

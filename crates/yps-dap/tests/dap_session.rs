@@ -194,7 +194,7 @@ fn step_in_descends_into_the_callee_and_step_out_returns() {
 }
 
 #[test]
-fn breakpoint_on_a_blank_line_snaps_to_the_next_statement() {
+fn breakpoint_on_a_closing_brace_snaps_to_the_next_statement() {
     let mut client = Client::start();
     let set = client.handshake("loop.yopta", false, &[4]);
     assert_eq!(set["body"]["breakpoints"][0]["verified"], true);
@@ -202,6 +202,19 @@ fn breakpoint_on_a_blank_line_snaps_to_the_next_statement() {
     client.wait_event("stopped");
     let variables = client.locals(1);
     assert_eq!(local_value(&variables, "сумма").as_deref(), Some("3"));
+    client.call("continue", json!({ "threadId": 1 }));
+    client.wait_event("terminated");
+}
+
+#[test]
+fn breakpoint_on_a_blank_line_snaps_to_the_next_statement() {
+    let mut client = Client::start();
+    let set = client.handshake("blank_line.yopta", false, &[2]);
+    assert_eq!(set["body"]["breakpoints"][0]["verified"], true);
+    assert_eq!(set["body"]["breakpoints"][0]["line"], 3, "строка 2 пустая, ближайший оператор на 3");
+    client.wait_event("stopped");
+    let variables = client.locals(1);
+    assert_eq!(local_value(&variables, "а").as_deref(), Some("1"));
     client.call("continue", json!({ "threadId": 1 }));
     client.wait_event("terminated");
 }

@@ -189,11 +189,4 @@ mod tests {
         let map = attach_comments(&program, &trivia, src).unwrap();
         assert_eq!(map.eof_trailing(), ["// конец".to_string()]);
     }
-
-    #[test]
-    fn dangling_comment_in_empty_block_is_refused() {
-        let src = "йопта ф() {\n    // пусто\n}\n";
-        let (program, trivia) = build(src);
-        assert!(attach_comments(&program, &trivia, src).is_err());
-    }
 }

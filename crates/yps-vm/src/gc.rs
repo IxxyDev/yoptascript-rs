@@ -143,6 +143,10 @@ impl Marker {
             Value::Promise { state } | Value::PromiseCapability { state, .. } => {
                 self.work.push(Work::Promise(Rc::clone(state)));
             }
+            Value::AsyncResume { coroutine, outer, .. } => {
+                self.work.push(Work::Gen(Rc::clone(coroutine)));
+                self.work.push(Work::Promise(Rc::clone(outer)));
+            }
             Value::PromiseThenHandler { handler, resolve, reject, .. } => {
                 self.push_value(handler);
                 self.push_value(resolve);

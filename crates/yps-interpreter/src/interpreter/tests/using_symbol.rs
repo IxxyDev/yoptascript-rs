@@ -38,13 +38,18 @@ fn using_disposes_in_lifo_order() {
 fn using_skips_null_resource() {
     let interp = run_code(
         r#"
-        гыы счёт = 0;
+        гыы лог = [];
         {
             юзай р = ноль;
+            лог.втолкнуть("тело");
         }
+        лог.втолкнуть("после");
         "#,
     );
-    assert_eq!(interp.get("счёт"), Some(Value::Number(0.0)));
+    assert_struct_eq(
+        interp.get("лог"),
+        Value::array(vec![Value::String("тело".into()), Value::String("после".into())]),
+    );
 }
 
 #[test]

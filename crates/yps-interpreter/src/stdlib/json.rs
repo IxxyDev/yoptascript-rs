@@ -36,14 +36,7 @@ pub fn call_static(
         "разобрать" => {
             require_args(&args, 1, span, "Жсон.разобрать")?;
             let s = as_string(&args[0], span, "Жсон.разобрать")?;
-            let mut parser = JsonParser { input: s.as_bytes(), pos: 0, depth: 0 };
-            parser.skip_ws();
-            let v = parser.parse_value(span)?;
-            parser.skip_ws();
-            if parser.pos != parser.input.len() {
-                return Err(RuntimeError::new("Лишние символы после JSON", span));
-            }
-            Ok(v)
+            parse_str(s, span)
         }
         "вСтроку" => {
             require_args(&args, 1, span, "Жсон.вСтроку")?;
@@ -147,6 +140,7 @@ fn stringify_into(
         Value::Promise { .. }
         | Value::PromiseCapability { .. }
         | Value::PromiseThenHandler { .. }
+        | Value::AsyncResume(_)
         | Value::PromiseFinallyHandler { .. }
         | Value::PromiseAggregateHandler { .. } => {
             return Err(RuntimeError::new("Обещания нельзя сериализовать в JSON", span));

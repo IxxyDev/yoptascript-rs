@@ -5,8 +5,9 @@ use std::time::Duration;
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
-use crate::value::{CapKind, PromiseState, Value};
+use crate::value::{AsyncResumeData, CapKind, GenState, PromiseState, Value};
 
+use super::generator::{GenInput, StepOutcome};
 use super::{GcRoot, Interpreter, Microtask, MicrotaskFn};
 
 impl Interpreter {
@@ -172,6 +173,69 @@ impl Interpreter {
         }
 
         promise
+    }
+
+    pub(crate) fn drive_async(
+        &mut self,
+        coroutine: &Rc<RefCell<GenState>>,
+        outer: &Rc<RefCell<PromiseState>>,
+        input: GenInput,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let outcome = {
+            let mut state = coroutine.borrow_mut();
+            super::generator::step_generator(self, &mut state, input, span)
+        };
+        match outcome {
+            Ok(StepOutcome::Awaited(value)) => {
+                self.schedule_async_resume(coroutine, outer, &value);
+                Ok(())
+            }
+            Ok(StepOutcome::Yielded(value) | StepOutcome::Done(value)) => {
+                Self::settle_promise(outer, CapKind::Resolve, value, self, span)
+            }
+            Err(e) => match e.thrown {
+                Some(value) => Self::settle_promise(outer, CapKind::Reject, *value, self, span),
+                None => Err(e),
+            },
+        }
+    }
+
+    fn schedule_async_resume(
+        &mut self,
+        coroutine: &Rc<RefCell<GenState>>,
+        outer: &Rc<RefCell<PromiseState>>,
+        awaited: &Value,
+    ) {
+        let make = |is_throw| {
+            Value::AsyncResume(Rc::new(AsyncResumeData {
+                coroutine: Rc::clone(coroutine),
+                outer: Rc::clone(outer),
+                is_throw,
+            }))
+        };
+        let Value::Promise { state } = awaited else {
+            self.enqueue_resume(make(false), awaited.clone());
+            return;
+        };
+        let snapshot = state.borrow().clone();
+        match snapshot {
+            PromiseState::Fulfilled(value) => self.enqueue_resume(make(false), value),
+            PromiseState::Rejected(value) => self.enqueue_resume(make(true), value),
+            PromiseState::Pending { .. } => {
+                if let PromiseState::Pending { on_resolve, on_reject } = &mut *state.borrow_mut() {
+                    on_resolve.push(make(false));
+                    on_reject.push(make(true));
+                }
+            }
+        }
+    }
+
+    fn enqueue_resume(&mut self, resume: Value, value: Value) {
+        self.enqueue_microtask(
+            vec![GcRoot::Value(resume.clone()), GcRoot::Value(value.clone())],
+            Box::new(move |interp, sp| interp.call_function(resume, vec![value], sp).map(|_| ())),
+        );
     }
 
     pub(crate) fn do_await(&mut self, value: Value, span: Span) -> Result<Value, RuntimeError> {

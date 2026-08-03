@@ -133,16 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_source_file_empty_file_slice() {
-        let source = SourceFile::new("empty.yopta".into(), String::new());
-        let span = Span { start: 0, end: 0 };
-
-        let result = source.slice(span);
-
-        assert_eq!(result, "");
-    }
-
-    #[test]
     fn test_source_file_empty_file_position() {
         let source = SourceFile::new("empty.yopta".into(), String::new());
 

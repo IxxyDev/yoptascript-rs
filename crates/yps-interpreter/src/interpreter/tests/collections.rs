@@ -143,12 +143,12 @@ fn test_huynya_parse_float() {
     );
     assert_eq!(interp.get("а"), Some(Value::Number(2.5)));
     assert_eq!(interp.get("б"), Some(Value::Number(-250.0)));
+    assert_eq!(interp.get("в"), Some(Value::Number(123.0)));
     if let Some(Value::Number(n)) = interp.get("г") {
         assert!(n.is_nan());
     } else {
         panic!("ожидалось NaN");
     }
-    let _ = interp.get("в");
 }
 
 #[test]

@@ -133,6 +133,10 @@ mod trivia_tests {
         let src = "йопта ф() {\n    // пусто\n}\n";
         let err = format_source(src).unwrap_err();
         assert!(matches!(err, FormatError::CommentRefused(_)));
+        assert!(
+            format!("{err}").contains("комментари"),
+            "ошибка должна явно называть причиной комментарий, а не молча отбрасывать его и печатать код без него: {err}"
+        );
     }
 
     #[test]
@@ -158,9 +162,13 @@ mod trivia_tests {
     }
 
     #[test]
-    fn with_map_produces_at_least_one_mapping() {
+    fn with_map_produces_one_mapping_per_statement() {
         let src = "гыы х = 1;\nгыы у = 2;\n";
         let (_out, map) = format_source_with_map(src).unwrap();
-        assert!(map.mappings.len() >= 2);
+        assert_eq!(map.mappings.len(), 2, "по одному mapping на каждый из двух statement'ов: {:?}", map.mappings);
+        assert_eq!(map.mappings[0].gen_line, 0);
+        assert_eq!(map.mappings[0].src_line, 0);
+        assert_eq!(map.mappings[1].gen_line, 1);
+        assert_eq!(map.mappings[1].src_line, 1);
     }
 }

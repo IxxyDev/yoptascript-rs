@@ -372,8 +372,16 @@ mod tests {
     }
 
     #[test]
-    fn resolves_param_inside_array_literal_arrow() {
+    fn resolves_param_inside_array_literal_function_expr() {
         let src = "ясенХуй список = [йопта(элемент) { отвечаю элемент; }];";
+        let usage = src.rfind("элемент").unwrap();
+        let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
+        assert_eq!(span.start, src.find("элемент").unwrap());
+    }
+
+    #[test]
+    fn resolves_param_inside_array_literal_arrow_function() {
+        let src = "ясенХуй список = [(элемент) => элемент];";
         let usage = src.rfind("элемент").unwrap();
         let span = resolve(src, byte_to_pos(src, usage)).expect("should resolve");
         assert_eq!(span.start, src.find("элемент").unwrap());
@@ -395,8 +403,8 @@ mod tests {
 
     #[test]
     fn unknown_identifier_has_no_definition() {
-        let src = "ясенХуй x = 1;";
+        let src = "неизвестно;";
         let pos = byte_to_pos(src, 0);
-        assert!(resolve("неизвестно;", pos).is_none());
+        assert!(resolve(src, pos).is_none());
     }
 }

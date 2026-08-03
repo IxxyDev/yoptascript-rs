@@ -579,23 +579,67 @@ fn unlabeled_break_in_generator_still_works() {
 }
 
 #[test]
-fn labeled_break_in_generator_errors() {
-    let err = run_code_err(
+fn labeled_break_in_generator_exits_labeled_loop() {
+    let interp = run_code(
         r#"
+        гыы лог = [];
         пиздюли ген() {
             метка: потрещим (правда) {
+                лог.втолкнуть("тело");
                 харэ метка;
             }
+            поебалу "после";
         }
         гыы г = ген();
-        г.следующий();
+        лог.втолкнуть(г.следующий().значение);
         "#,
     );
-    assert!(
-        err.message.contains("Маркированный 'харэ'"),
-        "ожидалась ошибка о маркированном харэ в генераторе, got: {}",
-        err.message
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("ожидался массив") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["тело", "после"]);
+}
+
+#[test]
+fn labeled_continue_in_async_targets_outer_loop() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта работа() {
+            внешний: го (гыы и = 0; и < 3; и += 1) {
+                го (гыы ж = 0; ж < 3; ж += 1) {
+                    вилкойвглаз (ж === 1) { двигай внешний; }
+                    лог.втолкнуть(сидетьНахуй СловоПацана.решить(и * 10 + ж));
+                }
+            }
+        }
+        работа();
+        "#,
     );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("ожидался массив") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["0", "10", "20"]);
+}
+
+#[test]
+fn labeled_break_in_async_exits_outer_loop() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта работа() {
+            внешний: го (гыы и = 0; и < 3; и += 1) {
+                го (гыы ж = 0; ж < 3; ж += 1) {
+                    вилкойвглаз (и === 1) { харэ внешний; }
+                    лог.втолкнуть(сидетьНахуй СловоПацана.решить(и * 10 + ж));
+                }
+            }
+            лог.втолкнуть("конец");
+        }
+        работа();
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("ожидался массив") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["0", "1", "2", "конец"]);
 }
 
 #[test]

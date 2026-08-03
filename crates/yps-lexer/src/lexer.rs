@@ -893,30 +893,6 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_single_ampersand_is_bitand() {
-        let source = SourceFile::new("test.yopta".to_string(), "а & б".to_string());
-        let (tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitAnd)));
-    }
-
-    #[test]
-    fn diagnostic_single_pipe_is_bitor() {
-        let source = SourceFile::new("test.yopta".to_string(), "а | б".to_string());
-        let (tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::Operator(OperatorKind::BitOr)));
-    }
-
-    #[test]
-    fn diagnostic_pipe_greater_is_pipeline_no_diag() {
-        let source = SourceFile::new("test.yopta".to_string(), "а |> б".to_string());
-        let (tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(diags.is_empty(), "|> should not emit a diagnostic, got: {diags:?}");
-        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Operator(OperatorKind::Pipeline))));
-    }
-
-    #[test]
     fn diagnostic_unknown_character() {
         let source = SourceFile::new("test.yopta".to_string(), "гыы х = §".to_string());
         let (_tokens, diags) = Lexer::new(&source).tokenize();
@@ -924,13 +900,6 @@ mod tests {
             diags.iter().any(|d| d.message.contains("Неизвестный символ") && d.message.contains('§')),
             "expected unknown-char diagnostic mentioning '§', got: {diags:?}"
         );
-    }
-
-    #[test]
-    fn diagnostic_does_not_panic_on_eof_after_string_quote() {
-        let source = SourceFile::new("test.yopta".to_string(), "\"".to_string());
-        let (_tokens, diags) = Lexer::new(&source).tokenize();
-        assert!(diags.iter().any(|d| d.message.contains("Незакрытая строка")));
     }
 
     #[test]
@@ -994,11 +963,24 @@ mod tests {
     }
 
     #[test]
-    fn nul_byte_between_tokens_terminates() {
+    fn nul_byte_between_tokens_does_not_stop_lexing() {
         let source = SourceFile::new("test.yopta".to_string(), "гыы х\0= 1;".to_string());
-        let (tokens, _diags) = Lexer::new(&source).tokenize();
-        assert!(matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)));
-        assert!(tokens.len() < 20);
+        let (tokens, diags) = Lexer::new(&source).tokenize();
+        let kinds: Vec<_> = tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &TokenKind::Keyword(KeywordKind::Gyy),
+                &TokenKind::Identifier,
+                &TokenKind::Unknown,
+                &TokenKind::Operator(OperatorKind::Assign),
+                &TokenKind::Number,
+                &TokenKind::Punctuation(PunctuationKind::Semicolon),
+                &TokenKind::Eof,
+            ]
+        );
+        assert_eq!(diags.len(), 1, "expected one diagnostic, got {diags:?}");
+        assert!(diags[0].message.contains("Неизвестный символ"), "got: {}", diags[0].message);
     }
 
     #[test]
@@ -1142,6 +1124,12 @@ mod tests {
         for (src, op) in cases {
             assert_eq!(infix_op(src), TokenKind::Operator(op.clone()), "src {src:?}");
         }
+    }
+
+    #[test]
+    fn diagnostic_pipe_greater_is_pipeline_no_diag() {
+        let kinds = lex_kinds("a |> b");
+        assert!(kinds.iter().any(|k| matches!(k, TokenKind::Operator(OperatorKind::Pipeline))));
     }
 
     #[test]

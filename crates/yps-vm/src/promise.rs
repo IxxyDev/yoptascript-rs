@@ -623,31 +623,29 @@ fn chain_promise(
     Ok(new_promise)
 }
 
+pub(crate) fn run_finally(vm: &mut Vm, cb: Value, cap: Value, value: Value, span: Span) -> Result<(), VmError> {
+    match vm.call_value(cb, None, &[], span) {
+        Ok(_) => vm.call_value(cap, None, &[value], span).map(|_| ()),
+        Err(e) => {
+            let Value::PromiseCapability { state, .. } = &cap else { return Err(e) };
+            let state = Rc::clone(state);
+            let reason = vm.rejection_reason(e);
+            Vm::settle_promise(&state, CapKind::Reject, reason, vm, span)
+        }
+    }
+}
+
 fn finally_promise(vm: &mut Vm, state: &Rc<RefCell<PromiseState>>, cb: Value, _span: Span) -> Result<Value, VmError> {
     let (new_promise, resolve_cap, reject_cap) = make_pending_promise();
     let snap = state.borrow().clone();
     match snap {
         PromiseState::Fulfilled(v) => {
             let roots = vec![cb.clone(), resolve_cap.clone(), v.clone()];
-            vm.enqueue_microtask(
-                roots,
-                Box::new(move |vm, span| {
-                    vm.call_value(cb, None, &[], span)?;
-                    vm.call_value(resolve_cap, None, &[v], span)?;
-                    Ok(())
-                }),
-            );
+            vm.enqueue_microtask(roots, Box::new(move |vm, span| run_finally(vm, cb, resolve_cap, v, span)));
         }
         PromiseState::Rejected(v) => {
             let roots = vec![cb.clone(), reject_cap.clone(), v.clone()];
-            vm.enqueue_microtask(
-                roots,
-                Box::new(move |vm, span| {
-                    vm.call_value(cb, None, &[], span)?;
-                    vm.call_value(reject_cap, None, &[v], span)?;
-                    Ok(())
-                }),
-            );
+            vm.enqueue_microtask(roots, Box::new(move |vm, span| run_finally(vm, cb, reject_cap, v, span)));
         }
         PromiseState::Pending { .. } => {
             let resolve_cb = Value::PromiseFinallyHandler { cb: Box::new(cb.clone()), cap: Box::new(resolve_cap) };

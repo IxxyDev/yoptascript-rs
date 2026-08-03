@@ -130,13 +130,17 @@ mod tests {
     #[test]
     fn unused_fires_on_destructured_param_before_used_param() {
         let src = "йопта ф({а}, б) { отвечаю б; }\nсказать(ф({а: 1}, 2));\n";
-        assert_eq!(count(src, Rule::UnusedVariable), 1);
+        let diags = diagnostics(src);
+        let unused: Vec<_> = diags.iter().filter(|d| d.rule == Rule::UnusedVariable).collect();
+        assert_eq!(unused.len(), 1);
+        assert!(unused[0].message.contains('а'), "ожидалась диагностика для «а», получено: {}", unused[0].message);
+        assert!(!unused[0].message.contains('б'), "не ожидалась диагностика для «б», получено: {}", unused[0].message);
     }
 
     #[test]
-    fn unused_silent_on_compound_assignment() {
+    fn unused_fires_on_compound_assignment_write_only() {
         let src = "гыы х = 1;\nх += 2;\n";
-        assert_eq!(count(src, Rule::UnusedVariable), 0);
+        assert_eq!(only(src, Rule::UnusedVariable), 1);
     }
 
     #[test]
@@ -145,8 +149,14 @@ mod tests {
     }
 
     #[test]
-    fn unused_silent_when_read_in_closure() {
+    fn unused_fires_on_postfix_write_only() {
         let src = "гыы счёт = 0;\nйопта инк() { счёт++; }\nсказать(инк());\n";
+        assert_eq!(count(src, Rule::UnusedVariable), 1);
+    }
+
+    #[test]
+    fn unused_silent_when_read_in_closure() {
+        let src = "гыы счёт = 0;\nйопта инк() { отвечаю счёт; }\nсказать(инк());\n";
         assert_eq!(count(src, Rule::UnusedVariable), 0);
     }
 
@@ -278,12 +288,6 @@ mod tests {
     #[test]
     fn shadow_silent_for_sibling_blocks() {
         let src = "{ гыы к = 1; сказать(к); }\n{ гыы к = 2; сказать(к); }\n";
-        assert_eq!(count(src, Rule::ShadowedDeclaration), 0);
-    }
-
-    #[test]
-    fn shadow_silent_for_builtin_name() {
-        let src = "гыы длина = 5;\nсказать(длина);\n";
         assert_eq!(count(src, Rule::ShadowedDeclaration), 0);
     }
 

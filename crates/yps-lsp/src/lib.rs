@@ -98,7 +98,10 @@ mod tests {
     #[test]
     fn core_providers_are_advertised() {
         let caps = server_capabilities();
-        assert!(caps.completion_provider.is_some());
+        assert_eq!(
+            caps.completion_provider.as_ref().and_then(|c| c.trigger_characters.clone()),
+            Some(vec![".".to_string()])
+        );
         assert!(caps.hover_provider.is_some());
         assert!(caps.document_symbol_provider.is_some());
         assert!(caps.document_formatting_provider.is_some());
@@ -107,7 +110,10 @@ mod tests {
         assert!(caps.rename_provider.is_some());
         assert!(caps.references_provider.is_some());
         assert!(caps.semantic_tokens_provider.is_some());
-        assert!(caps.signature_help_provider.is_some());
+        assert_eq!(
+            caps.signature_help_provider.as_ref().and_then(|s| s.trigger_characters.clone()),
+            Some(vec!["(".to_string(), ",".to_string()])
+        );
         assert!(caps.code_action_provider.is_some());
     }
 

@@ -356,6 +356,7 @@ impl Interpreter {
         if let Some(param) = catch_param {
             self.env.define(param.name.clone(), thrown, false);
         }
+        self.env.mark_tdz(crate::resolver::lexical_declarations(&catch_block.stmts));
         let r = self.exec_block_stmts(&catch_block.stmts);
         self.env.pop_scope();
         r
@@ -363,6 +364,7 @@ impl Interpreter {
 
     fn exec_block(&mut self, block: &Block) -> Result<Option<ControlFlow>, RuntimeError> {
         self.env.push_scope();
+        self.env.mark_tdz(crate::resolver::lexical_declarations(&block.stmts));
         let result = self.exec_block_stmts(&block.stmts);
         let dispose_result = self.dispose_current_scope(block.span);
         self.env.pop_scope();

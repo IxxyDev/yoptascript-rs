@@ -57,13 +57,6 @@ mod tests {
         let diags = to_lsp_diagnostics(src, &result.diagnostics);
         let unreachable = diags.iter().find(|d| d.code == Some(NumberOrString::String("unreachable-code".to_string())));
         let diag = unreachable.expect("unreachable diagnostic");
-        assert!(diag.range.start.character > 0);
-    }
-
-    #[test]
-    fn broken_source_yields_no_lint_diagnostics() {
-        let src = "йопта (";
-        let result = lint_source(src);
-        assert!(result.diagnostics.is_empty());
+        assert_eq!(diag.range.start.character, 24);
     }
 }

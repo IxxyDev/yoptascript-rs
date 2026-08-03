@@ -74,4 +74,10 @@ mod tests {
     fn unknown_word_has_no_doc() {
         assert!(keyword_hover("foobar").is_none());
     }
+
+    #[test]
+    fn every_keyword_has_a_doc() {
+        let missing: Vec<&str> = yps_lexer::KEYWORDS.iter().copied().filter(|k| keyword_hover(k).is_none()).collect();
+        assert!(missing.is_empty(), "keywords without hover docs: {missing:?}");
+    }
 }

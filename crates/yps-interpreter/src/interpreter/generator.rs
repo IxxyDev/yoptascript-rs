@@ -12,6 +12,7 @@ use super::{ControlFlow, Interpreter};
 
 pub(super) enum GenStep {
     Yielded(Value),
+    Awaited(Value),
     Done(Value),
     Threw(Value),
 }
@@ -24,26 +25,42 @@ pub(crate) enum GenInput {
 
 pub(crate) enum StepOutcome {
     Yielded(Value),
+    Awaited(Value),
     Done(Value),
 }
 
 enum Unwind {
     Throw(Value),
-    Break,
-    Continue,
+    Break(Option<String>),
+    Continue(Option<String>),
     Return(Value),
 }
 
+fn targets(frame: &Option<String>, want: &Option<String>) -> bool {
+    match want {
+        None => true,
+        Some(name) => frame.as_deref() == Some(name.as_str()),
+    }
+}
+
 pub(crate) fn build_generator(name: Rc<str>, env: Environment, body: &Rc<Block>, is_async: bool) -> GenState {
-    let stmts: Rc<[Stmt]> = Rc::from(body.stmts.as_slice());
+    let lowered;
+    let stmts: Rc<[Stmt]> = if is_async {
+        lowered = super::async_lower::lower_async_body(body);
+        Rc::from(lowered.stmts.as_slice())
+    } else {
+        Rc::from(body.stmts.as_slice())
+    };
     GenState {
         name,
         env,
-        frames: vec![GenFrame::Block { stmts, idx: 0, owns_scope: false }],
+        frames: vec![GenFrame::Block { stmts, idx: 0, owns_scope: false, label: None }],
         completed: false,
         is_async,
         pending_bind: None,
         pending_send: None,
+        pending_return: false,
+        pending_label: None,
     }
 }
 
@@ -66,21 +83,27 @@ pub(crate) fn step_generator(
     interp.push_frame(Rc::clone(&g.name), span);
     let mut result = match input {
         GenInput::Send(v) => {
-            if let Some(bind) = g.pending_bind.take() {
-                apply_bind(&mut g.env, bind, v);
+            if std::mem::take(&mut g.pending_return) {
+                pump_with_unwind(interp, g, Unwind::Return(v), span)
             } else {
-                g.pending_send = Some(v);
+                if let Some(bind) = g.pending_bind.take() {
+                    apply_bind(&mut g.env, bind, v);
+                } else {
+                    g.pending_send = Some(v);
+                }
+                pump(interp, g, span)
             }
-            pump(interp, g, span)
         }
         GenInput::Return(v) => {
             g.pending_bind = None;
             g.pending_send = None;
+            g.pending_return = false;
             pump_with_unwind(interp, g, Unwind::Return(v), span)
         }
         GenInput::Throw(v) => {
             g.pending_bind = None;
             g.pending_send = None;
+            g.pending_return = false;
             pump_with_unwind(interp, g, Unwind::Throw(v), span)
         }
     };
@@ -94,6 +117,7 @@ pub(crate) fn step_generator(
 
     match result? {
         GenStep::Yielded(v) => Ok(StepOutcome::Yielded(v)),
+        GenStep::Awaited(v) => Ok(StepOutcome::Awaited(v)),
         GenStep::Done(v) => {
             g.completed = true;
             Ok(StepOutcome::Done(v))
@@ -101,6 +125,33 @@ pub(crate) fn step_generator(
         GenStep::Threw(v) => {
             g.completed = true;
             Err(RuntimeError::thrown_with_stack(v, span, gen_stack))
+        }
+    }
+}
+
+pub(crate) enum SyncStep {
+    Yielded(Value),
+    Done(Value),
+}
+
+pub(crate) fn step_generator_awaiting(
+    interp: &mut Interpreter,
+    g: &mut GenState,
+    input: GenInput,
+    span: Span,
+) -> Result<SyncStep, RuntimeError> {
+    let mut input = input;
+    loop {
+        match step_generator(interp, g, input, span)? {
+            StepOutcome::Awaited(value) => match interp.do_await(value, span) {
+                Ok(v) => input = GenInput::Send(v),
+                Err(e) => match e.thrown {
+                    Some(thrown) => input = GenInput::Throw(*thrown),
+                    None => return Err(e),
+                },
+            },
+            StepOutcome::Yielded(v) => return Ok(SyncStep::Yielded(v)),
+            StepOutcome::Done(v) => return Ok(SyncStep::Done(v)),
         }
     }
 }
@@ -126,6 +177,27 @@ fn apply_bind(env: &mut Environment, target: BindTarget, sent: Value) {
     }
 }
 
+fn route_throw(
+    interp: &mut Interpreter,
+    g: &mut GenState,
+    e: RuntimeError,
+    span: Span,
+) -> Result<Option<GenStep>, RuntimeError> {
+    if let Some(thrown) = e.thrown.clone() {
+        return unwind(interp, g, Unwind::Throw(*thrown), span);
+    }
+    if !g.frames.iter().any(|f| matches!(f, GenFrame::TryCatch { .. })) {
+        return Err(e);
+    }
+    let mut map = indexmap::IndexMap::new();
+    map.insert(
+        crate::symbols::ERROR_NAME_FIELD.to_string(),
+        Value::String(crate::symbols::ERROR_NAME.to_string().into()),
+    );
+    map.insert(crate::symbols::ERROR_MESSAGE_FIELD.to_string(), Value::String(e.message.clone().into()));
+    unwind(interp, g, Unwind::Throw(Value::object(map)), span)
+}
+
 fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenStep, RuntimeError> {
     loop {
         let Some(frame) = g.frames.last_mut() else {
@@ -133,7 +205,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
         };
 
         match frame {
-            GenFrame::Block { stmts, idx, owns_scope } => {
+            GenFrame::Block { stmts, idx, owns_scope, .. } => {
                 if *idx >= stmts.len() {
                     let owns = *owns_scope;
                     g.frames.pop();
@@ -145,11 +217,17 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 let stmts_rc = Rc::clone(stmts);
                 let i = *idx;
                 *idx += 1;
-                if let Some(step) = step_block_stmt(interp, g, &stmts_rc[i], span)? {
-                    return Ok(step);
+                match step_block_stmt(interp, g, &stmts_rc[i], span) {
+                    Ok(Some(step)) => return Ok(step),
+                    Ok(None) => {}
+                    Err(e) => {
+                        if let Some(step) = route_throw(interp, g, e, span)? {
+                            return Ok(step);
+                        }
+                    }
                 }
             }
-            GenFrame::While { condition, body, phase } => match *phase {
+            GenFrame::While { condition, body, phase, .. } => match *phase {
                 LoopPhase::CheckCond => {
                     let cond_rc = Rc::clone(condition);
                     let body_rc = Rc::clone(body);
@@ -158,7 +236,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                         if let Some(GenFrame::While { phase, .. }) = g.frames.last_mut() {
                             *phase = LoopPhase::AfterBody;
                         }
-                        push_body(g, &body_rc);
+                        push_body(interp, g, &body_rc);
                     } else {
                         g.frames.pop();
                     }
@@ -167,13 +245,13 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     *phase = LoopPhase::CheckCond;
                 }
             },
-            GenFrame::DoWhile { condition, body, phase } => match *phase {
+            GenFrame::DoWhile { condition, body, phase, .. } => match *phase {
                 LoopPhase::AfterBody => {
                     let cond_rc = Rc::clone(condition);
                     let body_rc = Rc::clone(body);
                     let cond = interp.eval_expr(&cond_rc)?;
                     if cond.is_truthy() {
-                        push_body(g, &body_rc);
+                        push_body(interp, g, &body_rc);
                     } else {
                         g.frames.pop();
                     }
@@ -181,10 +259,10 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                 LoopPhase::CheckCond => {
                     let body_rc = Rc::clone(body);
                     *phase = LoopPhase::AfterBody;
-                    push_body(g, &body_rc);
+                    push_body(interp, g, &body_rc);
                 }
             },
-            GenFrame::For { condition, update, body, phase } => match *phase {
+            GenFrame::For { condition, update, body, phase, .. } => match *phase {
                 LoopPhase::CheckCond => {
                     let cond_rc = condition.as_ref().map(Rc::clone);
                     let body_rc = Rc::clone(body);
@@ -196,7 +274,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                         if let Some(GenFrame::For { phase, .. }) = g.frames.last_mut() {
                             *phase = LoopPhase::AfterBody;
                         }
-                        push_body(g, &body_rc);
+                        push_body(interp, g, &body_rc);
                     } else {
                         g.frames.pop();
                         interp.env.pop_scope();
@@ -212,7 +290,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
             },
-            GenFrame::ForIter { variable, iter, body } => {
+            GenFrame::ForIter { variable, iter, body, .. } => {
                 let variable = variable.clone();
                 let iter_rc = iter.clone();
                 let body_rc = body.clone();
@@ -224,7 +302,7 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     Some(v) => {
                         interp.env.fork_current();
                         interp.destructure_pattern(&variable, v, false, span)?;
-                        push_body(g, &body_rc);
+                        push_body(interp, g, &body_rc);
                     }
                     None => {
                         g.frames.pop();
@@ -232,6 +310,65 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                     }
                 }
             }
+            GenFrame::ForAwait { aiter, variable, body, phase, .. } => match *phase {
+                LoopPhase::CheckCond => {
+                    let aiter = aiter.clone();
+                    let pending = interp.async_iter_next_pending(&aiter, span)?;
+                    if let Some(GenFrame::ForAwait { phase, .. }) = g.frames.last_mut() {
+                        *phase = LoopPhase::AfterBody;
+                    }
+                    return Ok(GenStep::Awaited(pending));
+                }
+                LoopPhase::AfterBody => {
+                    let variable = variable.clone();
+                    let body_rc = Rc::clone(body);
+                    let result = g.pending_send.take().unwrap_or(Value::Undefined);
+                    let (done, item) = Interpreter::async_iter_unpack(&result);
+                    if done {
+                        g.frames.pop();
+                        interp.env.pop_scope();
+                    } else {
+                        interp.env.fork_current();
+                        interp.destructure_pattern(&variable, item, false, span)?;
+                        if let Some(GenFrame::ForAwait { phase, .. }) = g.frames.last_mut() {
+                            *phase = LoopPhase::CheckCond;
+                        }
+                        push_body(interp, g, &body_rc);
+                    }
+                }
+            },
+            GenFrame::ForAwaitSync { iter, variable, body, phase, .. } => match *phase {
+                LoopPhase::CheckCond => {
+                    let iter_rc = Rc::clone(iter);
+                    let next_val = {
+                        let mut state = iter_rc.borrow_mut();
+                        crate::stdlib::iterator::next(interp, &mut state, span)?
+                    };
+                    match next_val {
+                        Some(v) => {
+                            if let Some(GenFrame::ForAwaitSync { phase, .. }) = g.frames.last_mut() {
+                                *phase = LoopPhase::AfterBody;
+                            }
+                            return Ok(GenStep::Awaited(v));
+                        }
+                        None => {
+                            g.frames.pop();
+                            interp.env.pop_scope();
+                        }
+                    }
+                }
+                LoopPhase::AfterBody => {
+                    let variable = variable.clone();
+                    let body_rc = Rc::clone(body);
+                    let item = g.pending_send.take().unwrap_or(Value::Undefined);
+                    interp.env.fork_current();
+                    interp.destructure_pattern(&variable, item, false, span)?;
+                    if let Some(GenFrame::ForAwaitSync { phase, .. }) = g.frames.last_mut() {
+                        *phase = LoopPhase::CheckCond;
+                    }
+                    push_body(interp, g, &body_rc);
+                }
+            },
             GenFrame::Delegate { inner, bind } => {
                 let inner_rc = inner.clone();
                 let bind = bind.take();
@@ -265,7 +402,8 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                             if let GenFrame::TryCatch { state, .. } = &mut g.frames[top_idx] {
                                 *state = TryState::FinallyNormal;
                             }
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                            interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                         } else {
                             g.frames.pop();
                         }
@@ -276,7 +414,8 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                             if let GenFrame::TryCatch { state, .. } = &mut g.frames[top_idx] {
                                 *state = TryState::FinallyNormal;
                             }
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                            interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                         } else {
                             g.frames.pop();
                         }
@@ -294,15 +433,15 @@ fn pump(interp: &mut Interpreter, g: &mut GenState, span: Span) -> Result<GenSte
                         g.frames.clear();
                         return Ok(GenStep::Done(v));
                     }
-                    TryState::FinallyAfterBreak => {
+                    TryState::FinallyAfterBreak(label) => {
                         g.frames.pop();
-                        if let Some(step) = unwind(interp, g, Unwind::Break, span)? {
+                        if let Some(step) = unwind(interp, g, Unwind::Break(label), span)? {
                             return Ok(step);
                         }
                     }
-                    TryState::FinallyAfterContinue => {
+                    TryState::FinallyAfterContinue(label) => {
                         g.frames.pop();
-                        if let Some(step) = unwind(interp, g, Unwind::Continue, span)? {
+                        if let Some(step) = unwind(interp, g, Unwind::Continue(label), span)? {
                             return Ok(step);
                         }
                     }
@@ -325,10 +464,10 @@ fn delegate_step(
 ) -> Result<DelegateOutcome, RuntimeError> {
     let mut state = inner_rc.borrow_mut();
     if let IteratorState::Generator(gen_state) = &mut *state {
-        let outcome = step_generator(interp, gen_state, input, span)?;
+        let outcome = step_generator_awaiting(interp, gen_state, input, span)?;
         return Ok(match outcome {
-            StepOutcome::Yielded(v) => DelegateOutcome::Yielded(v),
-            StepOutcome::Done(v) => DelegateOutcome::Done(v),
+            SyncStep::Yielded(v) => DelegateOutcome::Yielded(v),
+            SyncStep::Done(v) => DelegateOutcome::Done(v),
         });
     }
     match input {
@@ -344,8 +483,9 @@ fn delegate_step(
     }
 }
 
-fn push_body(g: &mut GenState, body: &Rc<[Stmt]>) {
-    g.frames.push(GenFrame::Block { stmts: Rc::clone(body), idx: 0, owns_scope: false });
+fn push_body(interp: &mut Interpreter, g: &mut GenState, body: &Rc<[Stmt]>) {
+    interp.env.mark_tdz(crate::resolver::lexical_declarations(body));
+    g.frames.push(GenFrame::Block { stmts: Rc::clone(body), idx: 0, owns_scope: false, label: None });
 }
 
 fn body_stmts(body: &Stmt) -> Rc<[Stmt]> {
@@ -362,6 +502,10 @@ fn step_block_stmt(
     span: Span,
 ) -> Result<Option<GenStep>, RuntimeError> {
     match stmt {
+        Stmt::Expr { expr: Expr::Await { argument, .. }, .. } if g.is_async => {
+            let val = interp.eval_expr(argument)?;
+            Ok(Some(GenStep::Awaited(val)))
+        }
         Stmt::Expr { expr: Expr::Yield { argument, delegate, span: ys }, .. } => {
             if *delegate {
                 let arg = argument.as_deref().ok_or_else(|| RuntimeError::new("'поебалуна' требует аргумент", *ys))?;
@@ -378,6 +522,17 @@ fn step_block_stmt(
             }
         }
         Stmt::VarDecl { pattern, init, is_const, span: vs } => {
+            if let Expr::Await { argument, .. } = init
+                && g.is_async
+            {
+                let yps_parser::ast::Pattern::Identifier(ident) = pattern else {
+                    interp.exec_stmt(stmt)?;
+                    return Ok(None);
+                };
+                let val = interp.eval_expr(argument)?;
+                g.pending_bind = Some(BindTarget::Variable { name: ident.name.clone(), is_const: *is_const });
+                return Ok(Some(GenStep::Awaited(val)));
+            }
             if let Expr::Yield { argument, delegate, span: ys } = init {
                 let name = match pattern {
                     yps_parser::ast::Pattern::Identifier(ident) => ident.name.clone(),
@@ -411,6 +566,15 @@ fn step_block_stmt(
         }
         Stmt::Expr { expr: Expr::Binary { op, lhs, rhs, span: bs }, .. } => {
             if matches!(op, yps_parser::ast::BinaryOp::Assign)
+                && g.is_async
+                && let Expr::Await { argument, .. } = rhs.as_ref()
+                && let Expr::Identifier(ident) = lhs.as_ref()
+            {
+                let val = interp.eval_expr(argument)?;
+                g.pending_bind = Some(BindTarget::Reassign(ident.name.clone()));
+                return Ok(Some(GenStep::Awaited(val)));
+            }
+            if matches!(op, yps_parser::ast::BinaryOp::Assign)
                 && let Expr::Yield { argument, delegate, span: ys } = rhs.as_ref()
                 && let Expr::Identifier(ident) = lhs.as_ref()
             {
@@ -438,16 +602,17 @@ fn step_block_stmt(
         }
         Stmt::Block(block) => {
             interp.env.push_scope();
+            interp.env.mark_tdz(crate::resolver::lexical_declarations(&block.stmts));
             let stmts: Rc<[Stmt]> = Rc::from(block.stmts.as_slice());
-            g.frames.push(GenFrame::Block { stmts, idx: 0, owns_scope: true });
+            g.frames.push(GenFrame::Block { stmts, idx: 0, owns_scope: true, label: g.pending_label.take() });
             Ok(None)
         }
         Stmt::If { condition, then_branch, else_branch, .. } => {
             let cond = interp.eval_expr(condition)?;
             if cond.is_truthy() {
-                push_body(g, &body_stmts(then_branch));
+                push_body(interp, g, &body_stmts(then_branch));
             } else if let Some(eb) = else_branch {
-                push_body(g, &body_stmts(eb));
+                push_body(interp, g, &body_stmts(eb));
             }
             Ok(None)
         }
@@ -456,6 +621,7 @@ fn step_block_stmt(
                 condition: Rc::new(condition.clone()),
                 body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
+                label: g.pending_label.take(),
             });
             Ok(None)
         }
@@ -464,6 +630,7 @@ fn step_block_stmt(
                 condition: Rc::new(condition.clone()),
                 body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
+                label: g.pending_label.take(),
             });
             Ok(None)
         }
@@ -477,6 +644,7 @@ fn step_block_stmt(
                 update: update.clone().map(Rc::new),
                 body: body_stmts(body),
                 phase: LoopPhase::CheckCond,
+                label: g.pending_label.take(),
             });
             Ok(None)
         }
@@ -484,7 +652,40 @@ fn step_block_stmt(
             let val = interp.eval_expr(iterable)?;
             let iter_rc = value_to_iterator(val, *fs)?;
             interp.env.push_scope();
-            g.frames.push(GenFrame::ForIter { variable: variable.clone(), iter: iter_rc, body: body_stmts(body) });
+            g.frames.push(GenFrame::ForIter {
+                variable: variable.clone(),
+                iter: iter_rc,
+                body: body_stmts(body),
+                label: g.pending_label.take(),
+            });
+            Ok(None)
+        }
+        Stmt::ForAwaitOf { variable, iterable, body, span: fs } if g.is_async => {
+            let val = interp.eval_expr(iterable)?;
+            let val = interp.do_await(val, *fs)?;
+            match interp.get_async_iterator(&val, *fs)? {
+                Some(aiter) => {
+                    interp.env.push_scope();
+                    g.frames.push(GenFrame::ForAwait {
+                        aiter,
+                        variable: variable.clone(),
+                        body: body_stmts(body),
+                        phase: LoopPhase::CheckCond,
+                        label: g.pending_label.take(),
+                    });
+                }
+                None => {
+                    let iter_rc = value_to_iterator(val, *fs)?;
+                    interp.env.push_scope();
+                    g.frames.push(GenFrame::ForAwaitSync {
+                        iter: iter_rc,
+                        variable: variable.clone(),
+                        body: body_stmts(body),
+                        phase: LoopPhase::CheckCond,
+                        label: g.pending_label.take(),
+                    });
+                }
+            }
             Ok(None)
         }
         Stmt::ForIn { variable, iterable, body, span: fs } => {
@@ -500,10 +701,22 @@ fn step_block_stmt(
             };
             let iter_rc = Rc::new(RefCell::new(IteratorState::Array { values: keys, index: 0 }));
             interp.env.push_scope();
-            g.frames.push(GenFrame::ForIter { variable: variable.clone(), iter: iter_rc, body: body_stmts(body) });
+            g.frames.push(GenFrame::ForIter {
+                variable: variable.clone(),
+                iter: iter_rc,
+                body: body_stmts(body),
+                label: g.pending_label.take(),
+            });
             Ok(None)
         }
         Stmt::Return { value, .. } => {
+            if let Some(Expr::Await { argument, .. }) = value
+                && g.is_async
+            {
+                let val = interp.eval_expr(argument)?;
+                g.pending_return = true;
+                return Ok(Some(GenStep::Awaited(val)));
+            }
             let val = match value {
                 Some(e) => {
                     if let Expr::Yield { span: ys, .. } = e {
@@ -526,24 +739,22 @@ fn step_block_stmt(
             }
             Ok(None)
         }
-        Stmt::Labeled { body, .. } => {
-            push_body(g, &body_stmts(body));
-            Ok(None)
+        Stmt::Labeled { label, body, .. } => {
+            g.pending_label = Some(label.name.clone());
+            let inner = step_block_stmt(interp, g, body, span);
+            g.pending_label = None;
+            inner
         }
         Stmt::Break { label, .. } => {
-            if label.is_some() {
-                return Err(RuntimeError::new("Маркированный 'харэ' не поддерживается внутри генераторов", span));
-            }
-            if let Some(step) = unwind(interp, g, Unwind::Break, span)? {
+            let want = label.as_ref().map(|l| l.name.clone());
+            if let Some(step) = unwind(interp, g, Unwind::Break(want), span)? {
                 return Ok(Some(step));
             }
             Ok(None)
         }
         Stmt::Continue { label, .. } => {
-            if label.is_some() {
-                return Err(RuntimeError::new("Маркированный 'двигай' не поддерживается внутри генераторов", span));
-            }
-            if let Some(step) = unwind(interp, g, Unwind::Continue, span)? {
+            let want = label.as_ref().map(|l| l.name.clone());
+            if let Some(step) = unwind(interp, g, Unwind::Continue(want), span)? {
                 return Ok(Some(step));
             }
             Ok(None)
@@ -558,8 +769,9 @@ fn step_block_stmt(
                 state: TryState::Trying,
             });
             interp.env.push_scope();
+            interp.env.mark_tdz(crate::resolver::lexical_declarations(&try_block.stmts));
             let try_stmts: Rc<[Stmt]> = Rc::from(try_block.stmts.as_slice());
-            g.frames.push(GenFrame::Block { stmts: try_stmts, idx: 0, owns_scope: false });
+            g.frames.push(GenFrame::Block { stmts: try_stmts, idx: 0, owns_scope: false, label: None });
             Ok(None)
         }
         other => {
@@ -579,13 +791,13 @@ fn step_block_stmt(
                     Ok(None)
                 }
                 Some(ControlFlow::Break(_)) => {
-                    if let Some(step) = unwind(interp, g, Unwind::Break, span)? {
+                    if let Some(step) = unwind(interp, g, Unwind::Break(None), span)? {
                         return Ok(Some(step));
                     }
                     Ok(None)
                 }
                 Some(ControlFlow::Continue(_)) => {
-                    if let Some(step) = unwind(interp, g, Unwind::Continue, span)? {
+                    if let Some(step) = unwind(interp, g, Unwind::Continue(None), span)? {
                         return Ok(Some(step));
                     }
                     Ok(None)
@@ -606,8 +818,14 @@ fn unwind(
             return match kind {
                 Unwind::Throw(v) => Ok(Some(GenStep::Threw(v))),
                 Unwind::Return(v) => Ok(Some(GenStep::Done(v))),
-                Unwind::Break => Err(RuntimeError::new("'харэ' вне цикла", span)),
-                Unwind::Continue => Err(RuntimeError::new("'двигай' вне цикла", span)),
+                Unwind::Break(label) => Err(RuntimeError::new(
+                    label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                    span,
+                )),
+                Unwind::Continue(label) => Err(RuntimeError::new(
+                    label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
+                    span,
+                )),
             };
         };
 
@@ -622,12 +840,14 @@ fn unwind(
                             if let Some(name) = catch_param {
                                 interp.env.define(name.clone(), v.clone(), false);
                             }
-                            g.frames.push(GenFrame::Block { stmts: cb, idx: 0, owns_scope: false });
+                            interp.env.mark_tdz(crate::resolver::lexical_declarations(&cb));
+                            g.frames.push(GenFrame::Block { stmts: cb, idx: 0, owns_scope: false, label: None });
                             return Ok(None);
                         } else if let Some(fb) = finally_body.clone() {
                             *state = TryState::FinallyAfterThrow(v.clone());
                             interp.env.pop_scope();
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                            interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                             return Ok(None);
                         } else {
                             g.frames.pop();
@@ -639,7 +859,8 @@ fn unwind(
                         if let Some(fb) = finally_body.clone() {
                             *state = TryState::FinallyAfterThrow(v.clone());
                             interp.env.pop_scope();
-                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                            interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                            g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                             return Ok(None);
                         } else {
                             g.frames.pop();
@@ -661,14 +882,15 @@ fn unwind(
                     }
                     if pending && let Some(fb) = finally_body.clone() {
                         *state = TryState::FinallyAfterReturn(v.clone());
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                        interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                         return Ok(None);
                     } else {
                         g.frames.pop();
                         continue;
                     }
                 }
-                Unwind::Break => {
+                Unwind::Break(label) => {
                     let pending = matches!(state, TryState::Trying | TryState::InCatch);
                     match state {
                         TryState::Trying => interp.env.pop_scope(),
@@ -676,15 +898,16 @@ fn unwind(
                         _ => {}
                     }
                     if pending && let Some(fb) = finally_body.clone() {
-                        *state = TryState::FinallyAfterBreak;
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                        *state = TryState::FinallyAfterBreak(label.clone());
+                        interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                         return Ok(None);
                     } else {
                         g.frames.pop();
                         continue;
                     }
                 }
-                Unwind::Continue => {
+                Unwind::Continue(label) => {
                     let pending = matches!(state, TryState::Trying | TryState::InCatch);
                     match state {
                         TryState::Trying => interp.env.pop_scope(),
@@ -692,8 +915,9 @@ fn unwind(
                         _ => {}
                     }
                     if pending && let Some(fb) = finally_body.clone() {
-                        *state = TryState::FinallyAfterContinue;
-                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false });
+                        *state = TryState::FinallyAfterContinue(label.clone());
+                        interp.env.mark_tdz(crate::resolver::lexical_declarations(&fb));
+                        g.frames.push(GenFrame::Block { stmts: fb, idx: 0, owns_scope: false, label: None });
                         return Ok(None);
                     } else {
                         g.frames.pop();
@@ -701,12 +925,12 @@ fn unwind(
                     }
                 }
             },
-            GenFrame::While { phase, .. } | GenFrame::DoWhile { phase, .. } => match &kind {
-                Unwind::Break => {
+            GenFrame::While { phase, label, .. } | GenFrame::DoWhile { phase, label, .. } => match &kind {
+                Unwind::Break(want) if targets(label, want) => {
                     g.frames.pop();
                     return Ok(None);
                 }
-                Unwind::Continue => {
+                Unwind::Continue(want) if targets(label, want) => {
                     *phase = LoopPhase::CheckCond;
                     return Ok(None);
                 }
@@ -715,13 +939,13 @@ fn unwind(
                     continue;
                 }
             },
-            GenFrame::For { phase, .. } => match &kind {
-                Unwind::Break => {
+            GenFrame::For { phase, label, .. } => match &kind {
+                Unwind::Break(want) if targets(label, want) => {
                     g.frames.pop();
                     interp.env.pop_scope();
                     return Ok(None);
                 }
-                Unwind::Continue => {
+                Unwind::Continue(want) if targets(label, want) => {
                     *phase = LoopPhase::AfterBody;
                     return Ok(None);
                 }
@@ -731,13 +955,13 @@ fn unwind(
                     continue;
                 }
             },
-            GenFrame::ForIter { .. } => match &kind {
-                Unwind::Break => {
+            GenFrame::ForIter { label, .. } => match &kind {
+                Unwind::Break(want) if targets(label, want) => {
                     g.frames.pop();
                     interp.env.pop_scope();
                     return Ok(None);
                 }
-                Unwind::Continue => {
+                Unwind::Continue(want) if targets(label, want) => {
                     return Ok(None);
                 }
                 _ => {
@@ -746,11 +970,48 @@ fn unwind(
                     continue;
                 }
             },
-            GenFrame::Block { owns_scope, .. } => {
+            GenFrame::ForAwait { aiter, phase, label, .. } => {
+                if matches!(&kind, Unwind::Continue(want) if targets(label, want)) {
+                    *phase = LoopPhase::CheckCond;
+                    return Ok(None);
+                }
+                let stop = matches!(&kind, Unwind::Break(want) if targets(label, want));
+                let aiter = aiter.clone();
+                g.frames.pop();
+                interp.async_iter_close(&aiter, span)?;
+                interp.env.pop_scope();
+                if stop {
+                    return Ok(None);
+                }
+                continue;
+            }
+            GenFrame::ForAwaitSync { iter, phase, label, .. } => {
+                if matches!(&kind, Unwind::Continue(want) if targets(label, want)) {
+                    *phase = LoopPhase::CheckCond;
+                    return Ok(None);
+                }
+                let stop = matches!(&kind, Unwind::Break(want) if targets(label, want));
+                let iter_rc = Rc::clone(iter);
+                g.frames.pop();
+                {
+                    let mut state = iter_rc.borrow_mut();
+                    let _ = crate::stdlib::iterator::close(interp, &mut state, span);
+                }
+                interp.env.pop_scope();
+                if stop {
+                    return Ok(None);
+                }
+                continue;
+            }
+            GenFrame::Block { owns_scope, label, .. } => {
                 let owns = *owns_scope;
+                let stop = matches!(&kind, Unwind::Break(Some(want)) if label.as_deref() == Some(want.as_str()));
                 g.frames.pop();
                 if owns {
                     interp.env.pop_scope();
+                }
+                if stop {
+                    return Ok(None);
                 }
                 continue;
             }
@@ -787,7 +1048,7 @@ fn unwind(
                             }
                         }
                     }
-                    Unwind::Break | Unwind::Continue => {
+                    Unwind::Break(_) | Unwind::Continue(_) => {
                         g.frames.pop();
                         continue;
                     }

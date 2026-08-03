@@ -103,33 +103,29 @@ mod tests {
     use crate::output::BufferSink;
 
     #[test]
-    fn info_returns_undefined() {
-        let r =
-            dispatch(&mut BufferSink::new(), "инфо", vec![Value::String("привет".into())], Span { start: 0, end: 0 })
-                .unwrap();
+    fn info_writes_message_and_returns_undefined() {
+        let mut sink = BufferSink::new();
+        let r = dispatch(&mut sink, "инфо", vec![Value::String("привет".into())], Span { start: 0, end: 0 }).unwrap();
         assert_eq!(r, Value::Undefined);
+        assert!(sink.take().contains("привет"));
     }
 
     #[test]
-    fn error_returns_undefined() {
-        let r =
-            dispatch(&mut BufferSink::new(), "ошибка", vec![Value::String("боль".into())], Span { start: 0, end: 0 })
-                .unwrap();
+    fn error_writes_message_and_returns_undefined() {
+        let mut sink = BufferSink::new();
+        let r = dispatch(&mut sink, "ошибка", vec![Value::String("боль".into())], Span { start: 0, end: 0 }).unwrap();
         assert_eq!(r, Value::Undefined);
+        assert!(sink.take().contains("боль"));
     }
 
     #[test]
-    fn time_then_time_stop() {
-        dispatch(&mut BufferSink::new(), "время", vec![Value::String("метка".into())], Span { start: 0, end: 0 })
-            .unwrap();
-        let r = dispatch(
-            &mut BufferSink::new(),
-            "времяСтоп",
-            vec![Value::String("метка".into())],
-            Span { start: 0, end: 0 },
-        )
-        .unwrap();
+    fn time_stop_reports_label_and_returns_undefined() {
+        let mut sink = BufferSink::new();
+        dispatch(&mut sink, "время", vec![Value::String("метка".into())], Span { start: 0, end: 0 }).unwrap();
+        let r =
+            dispatch(&mut sink, "времяСтоп", vec![Value::String("метка".into())], Span { start: 0, end: 0 }).unwrap();
         assert_eq!(r, Value::Undefined);
+        assert!(sink.take().contains("метка"));
     }
 
     #[test]

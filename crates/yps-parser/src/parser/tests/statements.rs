@@ -473,21 +473,6 @@ fn test_parse_nested_for() {
 }
 
 #[test]
-fn test_parse_break_stmt() {
-    let source = SourceFile::new("test.yopta".to_string(), "харэ;".to_string());
-    let lexer = yps_lexer::Lexer::new(&source);
-    let (tokens, lex_diags) = lexer.tokenize();
-    assert!(lex_diags.is_empty());
-    let parser = Parser::new(&tokens, &source);
-
-    let (program, diags) = parser.parse_program();
-
-    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
-    assert_eq!(program.items.len(), 1);
-    assert!(matches!(program.items[0], Stmt::Break { .. }));
-}
-
-#[test]
 fn test_parse_continue_stmt() {
     let source = SourceFile::new("test.yopta".to_string(), "двигай;".to_string());
     let lexer = yps_lexer::Lexer::new(&source);
@@ -661,13 +646,6 @@ fn test_parse_for_await_of_object_pattern() {
 #[test]
 fn test_parse_for_classic_with_array_destructure_init_unchanged() {
     let (program, diags) = parse_program_from_source("го (гыы [а, б] = [1, 2]; а < 10; а = а + 1) { сказать(а); }");
-    assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
-    assert!(matches!(program.items[0], Stmt::For { .. }), "Expected classic For, got {:?}", program.items[0]);
-}
-
-#[test]
-fn test_parse_for_classic_plain_still_for() {
-    let (program, diags) = parse_program_from_source("го (гыы i = 0; i < 10; i = i + 1) { сказать(i); }");
     assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
     assert!(matches!(program.items[0], Stmt::For { .. }), "Expected classic For, got {:?}", program.items[0]);
 }

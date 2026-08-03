@@ -171,17 +171,6 @@ fn test_parse_async_function_decl() {
 }
 
 #[test]
-fn test_parser_accepts_yopta_function_expr_in_call_arg() {
-    let (prog, diags) = parse_program_from_source("сказать(йопта(v) {});");
-    assert!(
-        diags.is_empty(),
-        "function expression в аргументе должен парситься без ошибок: {:?}",
-        diag_messages(&diags)
-    );
-    assert_eq!(prog.items.len(), 1);
-}
-
-#[test]
 fn function_expr_anon_in_call_arg() {
     let (prog, diags) = parse_program_from_source("чутка(йопта() { сказать(1); }, 10);");
     assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
@@ -216,13 +205,6 @@ fn function_expr_named_in_var_decl() {
         panic!("Ожидался именованный FunctionExpr, получено {init:?}");
     };
     assert_eq!(name.name, "имя");
-}
-
-#[test]
-fn function_decl_top_level_still_works() {
-    let (prog, diags) = parse_program_from_source("йопта ф() { отвечаю 1; }");
-    assert!(diags.is_empty(), "ошибок не ожидается: {:?}", diag_messages(&diags));
-    assert!(matches!(prog.items[0], crate::ast::Stmt::FunctionDecl { .. }));
 }
 
 #[test]

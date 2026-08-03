@@ -192,7 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn to_number_empty_string_is_zero() {
+    fn to_number_empty_and_whitespace_strings_are_zero() {
+        assert_eq!(to_number(&Value::String(String::new().into())), 0.0);
         assert_eq!(to_number(&Value::String("   ".into())), 0.0);
     }
 

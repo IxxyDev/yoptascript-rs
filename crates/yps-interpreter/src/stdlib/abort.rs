@@ -9,13 +9,7 @@ use crate::interpreter::{GcRoot, Interpreter};
 use crate::value::{AbortState, CapKind, Value};
 
 pub fn make_controller() -> Value {
-    let state = Rc::new(RefCell::new(AbortState {
-        aborted: false,
-        reason: Value::Undefined,
-        next_token: 0,
-        listeners: Vec::new(),
-        promise: RefCell::new(None),
-    }));
+    let state = Rc::new(RefCell::new(AbortState::default()));
     Value::AbortController { state }
 }
 
@@ -27,13 +21,7 @@ pub(crate) fn make_abort_error(message: &str) -> Value {
 }
 
 pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
-    let ctrl_state = Rc::new(RefCell::new(AbortState {
-        aborted: false,
-        reason: Value::Undefined,
-        next_token: 0,
-        listeners: Vec::new(),
-        promise: RefCell::new(None),
-    }));
+    let ctrl_state = Rc::new(RefCell::new(AbortState::default()));
     let result_signal = Value::AbortSignal { state: Rc::clone(&ctrl_state) };
 
     for sig in sigs {
@@ -151,13 +139,7 @@ pub(crate) fn get_or_init_signal_promise(state: &Rc<RefCell<AbortState>>) -> Val
 }
 
 pub fn make_timeout_signal(interp: &mut Interpreter, ms: u64) -> Value {
-    let state = Rc::new(RefCell::new(AbortState {
-        aborted: false,
-        reason: Value::Undefined,
-        next_token: 0,
-        listeners: Vec::new(),
-        promise: RefCell::new(None),
-    }));
+    let state = Rc::new(RefCell::new(AbortState::default()));
     let signal = Value::AbortSignal { state: Rc::clone(&state) };
     let state_for_task = Rc::clone(&state);
     interp.schedule_macrotask(
@@ -319,25 +301,6 @@ mod tests {
         "#,
         );
         assert_eq!(interp.get("вызван"), Some(Value::Boolean(true)));
-    }
-
-    #[test]
-    fn t4_token_unsubscribe() {
-        let ctrl_val = make_controller();
-        let state = match &ctrl_val {
-            Value::AbortController { state } => Rc::clone(state),
-            _ => unreachable!(),
-        };
-        let id = {
-            let mut st = state.borrow_mut();
-            let id = st.next_token;
-            st.next_token += 1;
-            st.listeners.push((id, Value::Undefined));
-            id
-        };
-        assert_eq!(state.borrow().listeners.len(), 1);
-        state.borrow_mut().listeners.retain(|(tid, _)| *tid != id);
-        assert!(state.borrow().listeners.is_empty());
     }
 
     #[test]

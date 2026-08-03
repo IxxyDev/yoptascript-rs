@@ -217,7 +217,7 @@ fn await_on_non_promise_returns_value() {
 }
 
 #[test]
-fn async_fn_returns_pending_immediately() {
+fn async_fn_without_await_runs_body_synchronously() {
     let interp = run_code(
         r#"
         гыы маркер = "before";
@@ -232,8 +232,34 @@ fn async_fn_returns_pending_immediately() {
     let Value::Array(items) = pair else { panic!("expected array") };
     let items = items.borrow();
     assert!(matches!(items[0], Value::Promise { .. }), "first element must be a Promise");
-    assert_eq!(items[1], Value::String("before".into()));
+    assert_eq!(items[1], Value::String("inside".into()));
     assert_eq!(interp.get("маркер"), Some(Value::String("inside".into())));
+}
+
+#[test]
+fn async_fn_suspends_at_first_await_not_before() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта работа() {
+            лог.втолкнуть("до");
+            сидетьНахуй захуярить СловоПацана((решить, _) => { решить(1); });
+            лог.втолкнуть("после");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items = items.borrow();
+    let items: Vec<&str> = items
+        .iter()
+        .map(|v| match v {
+            Value::String(s) => s.as_ref(),
+            _ => panic!("expected string"),
+        })
+        .collect();
+    assert_eq!(items, vec!["до", "вызывающий", "после"]);
 }
 
 #[test]
@@ -269,37 +295,243 @@ fn non_callable_to_srazu_errors() {
 }
 
 #[test]
-fn await_depth_limit_caught() {
+fn await_nested_in_call_argument_suspends() {
     let interp = run_code(
         r#"
+        гыы лог = [];
+        йопта собрать(x) { лог.втолкнуть(x); отвечаю x; }
+        ассо йопта работа() {
+            собрать("до");
+            собрать(сидетьНахуй СловоПацана.решить("значение"));
+            собрать("после");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["до", "вызывающий", "значение", "после"]);
+}
+
+#[test]
+fn await_in_short_circuit_rhs_suspends_and_short_circuits() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта работа() {
+            гыы a = лож && сидетьНахуй СловоПацана.решить("не вычисляется");
+            лог.втолкнуть(a);
+            гыы b = правда && сидетьНахуй СловоПацана.решить("вычисляется");
+            лог.втолкнуть(b);
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["false", "вызывающий", "вычисляется"]);
+}
+
+#[test]
+fn await_in_loop_body_suspends_each_iteration() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта работа() {
+            го (гыы и = 0; и < 3; и = и + 1) {
+                лог.втолкнуть(сидетьНахуй СловоПацана.решить(и));
+            }
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["вызывающий", "0", "1", "2"]);
+}
+
+#[test]
+fn await_in_for_condition_suspends_before_first_iteration() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо йопта работа() {
+            го (гыы и = 0; и < (сидетьНахуй ф(2)); и += 1) { лог.втолкнуть(и); }
+            лог.втолкнуть("конец");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["вызывающий", "0", "1", "конец"]);
+}
+
+#[test]
+fn await_in_for_update_still_runs_update_on_continue() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо йопта работа() {
+            го (гыы и = 0; и < 4; и = сидетьНахуй ф(и + 1)) {
+                вилкойвглаз (и % 2 === 0) { двигай; }
+                лог.втолкнуть(и);
+            }
+        }
+        работа();
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["1", "3"]);
+}
+
+#[test]
+fn await_in_for_loop_preserves_per_iteration_binding() {
+    let interp = run_code(
+        r#"
+        гыы фс = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо йопта работа() {
+            го (гыы и = 0; и < (сидетьНахуй ф(3)); и += 1) { фс.втолкнуть(() => и); }
+        }
+        работа();
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("фс") else { panic!("expected array") };
+    assert_eq!(items.borrow().len(), 3);
+}
+
+#[test]
+fn await_in_do_while_condition_suspends_after_first_body_run() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо йопта работа() {
+            гыы и = 0;
+            крутани { лог.втолкнуть(и); и += 1; } потрещим (и < (сидетьНахуй ф(2)));
+            лог.втолкнуть("конец");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["0", "вызывающий", "1", "конец"]);
+}
+
+#[test]
+fn await_in_switch_case_body_suspends() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо йопта работа() {
+            базарпо (1) {
+                тема 1: { лог.втолкнуть(сидетьНахуй ф("кейс")); }
+                нуичо { лог.втолкнуть("другое"); }
+            }
+            лог.втолкнуть("конец");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["вызывающий", "кейс", "конец"]);
+}
+
+#[test]
+fn await_in_for_await_body_suspends() {
+    let interp = run_code(
+        r#"
+        гыы лог = [];
+        ассо йопта ф(н) { отвечаю н; }
+        ассо пиздюли ген() { поебалу 1; поебалу 2; }
+        ассо йопта работа() {
+            го сидетьНахуй (гыы х сашаГрей ген()) { лог.втолкнуть(сидетьНахуй ф(х)); }
+            лог.втолкнуть("конец");
+        }
+        работа();
+        лог.втолкнуть("вызывающий");
+        "#,
+    );
+    let Some(Value::Array(items)) = interp.get("лог") else { panic!("expected array") };
+    let items: Vec<String> = items.borrow().iter().map(std::string::ToString::to_string).collect();
+    assert_eq!(items, vec!["вызывающий", "1", "2", "конец"]);
+}
+
+#[test]
+fn host_error_in_async_body_is_caught_by_its_own_try() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        ассо йопта работа() {
+            хапнуть {
+                гыы н = ноль;
+                н.нету();
+            } гоп (е) {
+                пойман = е.message;
+            }
+        }
+        работа();
+        "#,
+    );
+    let Some(Value::String(msg)) = interp.get("пойман") else { panic!("expected caught message") };
+    assert!(msg.contains("нулл"), "got: {msg}");
+}
+
+#[test]
+fn rejected_await_is_caught_by_enclosing_try() {
+    let interp = run_code(
+        r#"
+        гыы пойман = ноль;
+        ассо йопта работа() {
+            хапнуть {
+                сидетьНахуй захуярить СловоПацана((_, отвергнуть) => { отвергнуть("бум"); });
+            } гоп (e) {
+                пойман = e;
+            }
+        }
+        работа();
+        "#,
+    );
+    assert_eq!(interp.get("пойман"), Some(Value::String("бум".into())));
+}
+
+#[test]
+fn deeply_nested_awaits_resolve_without_depth_limit() {
+    let interp = run_code(
+        r#"
+        гыы итог = ноль;
+        гыы пойман = ноль;
         ассо йопта глубина(н) {
             вилкойвглаз (н <= 0) {
                 отвечаю 0;
             }
-            гыы p = захуярить СловоПацана((решить, _) => {
-                чутка(() => решить(н), 0);
-            });
-            гыы значение = сидетьНахуй p;
-            гыы дальше = сидетьНахуй глубина(н - 1);
-            отвечаю значение + дальше;
+            отвечаю 1 + сидетьНахуй глубина(н - 1);
         }
-        гыы пойман = ноль;
         ассо йопта запуск() {
             хапнуть {
-                сидетьНахуй глубина(30);
+                итог = сидетьНахуй глубина(64);
             } гоп (e) {
-                пойман = e.message;
+                пойман = e;
             }
         }
         запуск();
         "#,
     );
-    let caught = interp.get("пойман").unwrap();
-    if let Value::String(s) = caught {
-        assert!(s.contains("глубин"), "expected depth-limit message, got: {s}");
-    } else {
-        panic!("expected error string, got {caught:?}");
-    }
+    assert_eq!(interp.get("пойман"), Some(Value::Null));
+    assert_eq!(interp.get("итог"), Some(Value::Number(64.0)));
 }
 
 #[test]
@@ -573,12 +805,16 @@ fn test_promise_race_picks_shortest_timer() {
         r#"
         гыы итог = ноль;
         ассо йопта главное() {
-            итог = сидетьНахуй СловоПацана.гонка([подождать(50), подождать(5), подождать(100)]);
+            итог = сидетьНахуй СловоПацана.гонка([
+                подождать(50).потом(() => "медленно"),
+                подождать(5).потом(() => "быстро"),
+                подождать(100).потом(() => "оченьМедленно")
+            ]);
         }
         главное();
         "#,
     );
-    assert_eq!(interp.get("итог"), Some(Value::Undefined));
+    assert_eq!(interp.get("итог"), Some(Value::String("быстро".into())));
 }
 
 #[test]

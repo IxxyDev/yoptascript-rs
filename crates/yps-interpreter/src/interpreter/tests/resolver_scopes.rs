@@ -1,4 +1,4 @@
-use super::{Value, assert_struct_eq, run_code, run_more};
+use super::{Value, assert_struct_eq, run_code, run_code_err, run_more};
 use crate::Interpreter;
 
 #[test]
@@ -59,11 +59,121 @@ fn destructuring_locals_do_not_leak_to_global_read() {
 }
 
 #[test]
-fn block_local_declared_later_does_not_capture_outer_read() {
-    let interp = run_code(
+fn block_local_read_before_declaration_is_tdz_error() {
+    let err = run_code_err(
         "гыы значение = 1;\nйопта фн() { { гыы промежуточное = значение; гыы значение = 2; отвечаю промежуточное; } }\nгыы вывод = фн();",
     );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+    assert!(err.message.contains("значение"), "got: {}", err.message);
+}
+
+#[test]
+fn function_body_read_before_declaration_is_tdz_error() {
+    let err = run_code_err("гыы значение = 1;\nйопта фн() { отвечаю значение; гыы значение = 2; }\nфн();");
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn arrow_body_read_before_declaration_is_tdz_error() {
+    let err = run_code_err("гыы значение = 1;\nгыы фн = () => { отвечаю значение; гыы значение = 2; };\nфн();");
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn async_body_read_before_declaration_is_tdz_error() {
+    let err = run_code_err("гыы значение = 1;\nассо йопта фн() { отвечаю значение; гыы значение = 2; }\nфн();");
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn generator_body_read_before_declaration_is_tdz_error() {
+    let err = run_code_err(
+        "гыы значение = 1;\nпиздюли ген() { поебалу значение; гыы значение = 2; }\nго (гыы _ сашаГрей ген()) {}",
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn method_body_read_before_declaration_is_tdz_error() {
+    let err = run_code_err(
+        "гыы значение = 1;\nклево К { метод() { отвечаю значение; гыы значение = 2; } }\nзахуярить К().метод();",
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn nested_block_after_await_is_tdz_error() {
+    let err = run_code_err(
+        r#"
+        ассо йопта главная() {
+            сидетьНахуй 1;
+            { сказать(у); гыы у = 2; }
+        }
+        главная();
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+    assert!(err.message.contains('у'), "got: {}", err.message);
+}
+
+#[test]
+fn nested_block_in_generator_is_tdz_error() {
+    let err = run_code_err(
+        r#"
+        пиздюли ген() {
+            { сказать(у); гыы у = 2; }
+            поебалу 1;
+        }
+        го (гыы _ сашаГрей ген()) {}
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn loop_body_after_await_is_tdz_error() {
+    let err = run_code_err(
+        r#"
+        ассо йопта главная() {
+            сидетьНахуй 1;
+            го (гыы и = 0; и < 1; и += 1) { сказать(з); гыы з = 1; }
+        }
+        главная();
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn catch_block_read_before_declaration_is_tdz_error() {
+    let err = run_code_err(
+        r#"
+        йопта фн() {
+            хапнуть { кидай "бум"; } гоп (е) { сказать(з); гыы з = 1; }
+        }
+        фн();
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
+}
+
+#[test]
+fn block_local_read_after_declaration_shadows_outer() {
+    let interp =
+        run_code("гыы значение = 1;\nйопта фн() { { гыы значение = 2; отвечаю значение; } }\nгыы вывод = фн();");
+    assert_eq!(interp.get("вывод"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn outer_read_in_block_without_local_declaration_works() {
+    let interp = run_code("гыы значение = 1;\nйопта фн() { { отвечаю значение; } }\nгыы вывод = фн();");
     assert_eq!(interp.get("вывод"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn typeof_block_local_before_declaration_is_tdz_error() {
+    let err = run_code_err("{ гыы вид = чезажижан значение; гыы значение = 2; }");
+    assert!(err.message.contains("до её инициализации"), "got: {}", err.message);
 }
 
 #[test]
