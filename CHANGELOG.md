@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-08-03
+
+### Fixed
+
+- **Real `await` suspension** — async functions now run synchronously up
+  to (and suspend at) each `await`, resuming later via the microtask
+  queue, instead of blocking the whole call by eagerly draining the
+  task queue. Both the tree-walking interpreter and the bytecode VM
+  implement this consistently, including inside `for`/`do-while`
+  conditions and updates, `switch` case bodies, and `for-await-of`
+  loop bodies.
+- **Temporal dead zone (TDZ)** — reading a block-scoped `гыы`/`ясенХуй`
+  binding before its declaration now throws a catchable
+  `ReferenceError`, matching `let`, instead of silently reading an
+  outer-scope value of the same name. Enforced consistently in plain
+  functions, arrow functions, async functions, and after an `await`
+  suspension point.
+- `Хуйня.разобратьЦелое(s, 0)` (`parseInt` with radix `0`) now treats
+  the radix as unspecified (defaulting to base 10, or base 16 for a
+  `0x`/`0X` prefix) instead of always returning `NaN`.
+- `Дата.разобрать(...)` (`Date.parse`) on a date-time string with no
+  `Z`/offset now parses in the machine's real local time zone;
+  date-only strings continue to default to UTC.
+- `TypedArray` equality (`==`) is now reference identity, matching
+  every other reference-like value in the language, instead of
+  comparing buffer/offset/length/kind structurally.
+- `yps-lint`'s unused-variable rule no longer treats a discarded
+  compound assignment (`х += 2;`) or postfix `х++;`/`х--;` as a "use"
+  of the variable when the result is never read.
+
+### Internal
+
+- Workspace-wide test-suite audit: removed or strengthened dozens of
+  tests across every crate that were tautological, duplicated a
+  stronger sibling, or didn't actually exercise what their name
+  claimed.
+
 ## [1.10.0] - 2026-07-31
 
 ### Added

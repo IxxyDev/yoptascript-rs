@@ -16,7 +16,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "1.10.0"
+version = "1.11.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
@@ -29,7 +29,7 @@ yps-dap = { path = "crates/yps-dap" }
 yps-fmt = { path = "crates/yps-fmt" }
 yps-interpreter = { path = "crates/yps-interpreter" }
 yps-jsgen = { path = "crates/yps-jsgen" }
-yps-lexer = { path = "crates/yps-lexer", version = "1.10.0" }
+yps-lexer = { path = "crates/yps-lexer", version = "1.11.0" }
 yps-lint = { path = "crates/yps-lint" }
 yps-lsp = { path = "crates/yps-lsp" }
 yps-parser = { path = "crates/yps-parser" }
@@ -39,6 +39,7 @@ console_error_panic_hook = "0.1"
 criterion = "0.8.2"
 fancy-regex = "0.18.0"
 indexmap = "2"
+libc = "0.2"
 regex = "1"
 rustyline = "18.0.1"
 serde_json = "1"

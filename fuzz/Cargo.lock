@@ -271,7 +271,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "yps-fmt"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "yps-lexer",
  "yps-parser",
@@ -292,10 +292,11 @@ dependencies = [
 
 [[package]]
 name = "yps-interpreter"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "fancy-regex",
  "indexmap",
+ "libc",
  "regex",
  "stacker",
  "unicode-normalization",
@@ -305,11 +306,11 @@ dependencies = [
 
 [[package]]
 name = "yps-lexer"
-version = "1.10.0"
+version = "1.11.0"
 
 [[package]]
 name = "yps-parser"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "stacker",
  "yps-lexer",
@@ -317,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "yps-vm"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "indexmap",
  "stacker",
