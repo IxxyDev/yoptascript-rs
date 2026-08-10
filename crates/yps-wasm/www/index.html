@@ -8,14 +8,20 @@
 </head>
 <body>
 <header>
-  <h1>Песочница YoptaScript</h1>
-  <p>Код выполняется в браузере через WebAssembly. Файловая система, сеть и процесс недоступны.</p>
+  <div class="header-bar">
+    <h1 id="title">Песочница YoptaScript</h1>
+    <div class="lang" role="group" aria-label="Language">
+      <button id="lang-ru" type="button">RU</button>
+      <button id="lang-en" type="button">EN</button>
+    </div>
+  </div>
+  <p id="subtitle">Код выполняется в браузере через WebAssembly. Файловая система, сеть и процесс недоступны.</p>
 </header>
 
 <main>
   <section class="panel">
     <div class="bar">
-      <label for="examples">Пример:</label>
+      <label id="examples-label" for="examples">Пример:</label>
       <select id="examples"></select>
       <button id="run" type="button" disabled>Запустить</button>
       <span id="status">Загрузка модуля…</span>
@@ -24,7 +30,7 @@
   </section>
 
   <section class="panel">
-    <h2>Вывод</h2>
+    <h2 id="output-title">Вывод</h2>
     <pre id="output"></pre>
   </section>
 </main>

@@ -24,6 +24,31 @@ header p {
   opacity: 0.75;
 }
 
+.header-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.lang {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.lang button {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.lang button.active {
+  opacity: 1;
+  font-weight: 600;
+  cursor: default;
+}
+
 main {
   display: grid;
   gap: 1rem;
