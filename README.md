@@ -10,6 +10,8 @@ The language surface tracks ES6–ES2026: closures, classes, generators, async/a
 
 > ⚠️ The language uses Russian slang/profanity for keywords. This is an engineering exercise, not the language itself; semantics mirror JavaScript.
 
+**Try it in your browser:** the WASM-powered playground runs the real lexer → parser → interpreter pipeline client-side at <https://ixxydev.github.io/yoptascript-rs/> — no install needed.
+
 ## Why this exists
 
 I was contributing to [Biome](https://github.com/biomejs/biome) (a Rust-based linter/formatter for JS/TS) and wanted deeper hands-on experience with the full compiler frontend pipeline — lexer, parser, AST design, error recovery — without the complexity of full ECMAScript. YoptaScript turned out to be a perfect playground:

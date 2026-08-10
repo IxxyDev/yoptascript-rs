@@ -42,5 +42,7 @@ python3 -m http.server 8000 --directory crates/yps-wasm/www
 
 ## Развёртывание
 
-Публикация страницы (хостинг, GitHub Pages, домен) — отдельное решение и в этот крейт
-не входит. Здесь только локально проверяемый артефакт.
+Страница живёт на GitHub Pages: <https://ixxydev.github.io/yoptascript-rs/>.
+Workflow `.github/workflows/pages.yml` собирает `wasm-pack build` и публикует
+`crates/yps-wasm/www` при каждом пуше в `master`, затрагивающем `crates/**`
+(и по ручному запуску `workflow_dispatch`).
