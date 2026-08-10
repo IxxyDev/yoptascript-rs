@@ -45,6 +45,23 @@ fn arithmetic_and_precedence() {
 }
 
 #[test]
+fn bitwise_not_coercion_parity() {
+    for src in [
+        "сказать(~\";\");",
+        "сказать(~\"12\");",
+        "сказать(~правда);",
+        "сказать(~ноль);",
+        "сказать(~неибу);",
+        "сказать(~5n);",
+        "сказать(~-1n);",
+    ] {
+        assert_eq!(run(src), run_interp(src), "расхождение на {src:?}");
+    }
+    assert_eq!(run("сказать(~\";\");"), "-1\n");
+    assert_eq!(run("сказать(~5n);"), "-6n\n");
+}
+
+#[test]
 fn number_formatting_matches_interpreter() {
     for src in ["сказать(-0);", r#"сказать(число("абв"));"#, "сказать(0.5);", "сказать(9007199254740992);"]
     {

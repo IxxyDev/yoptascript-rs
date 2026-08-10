@@ -378,6 +378,36 @@ fn void_operator() {
 }
 
 #[test]
+fn bitwise_not_coerces_like_js() {
+    let i = run_code(
+        r#"
+        гыы а = ~";";
+        гыы б = ~"12";
+        гыы в = ~правда;
+        гыы г = ~ноль;
+        гыы д = ~неибу;
+        "#,
+    );
+    assert_eq!(i.get("а"), Some(Value::Number(-1.0)));
+    assert_eq!(i.get("б"), Some(Value::Number(-13.0)));
+    assert_eq!(i.get("в"), Some(Value::Number(-2.0)));
+    assert_eq!(i.get("г"), Some(Value::Number(-1.0)));
+    assert_eq!(i.get("д"), Some(Value::Number(-1.0)));
+}
+
+#[test]
+fn bitwise_not_bigint() {
+    let i = run_code(
+        r#"
+        гыы р = ~5n;
+        гыы о = ~-1n;
+        "#,
+    );
+    assert_eq!(i.get("р"), Some(Value::BigInt(-6)));
+    assert_eq!(i.get("о"), Some(Value::BigInt(0)));
+}
+
+#[test]
 fn string_key_in_object() {
     let i = run_code(
         r#"

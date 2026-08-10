@@ -599,18 +599,10 @@ impl Interpreter {
                 _ => Ok(Value::Number(coercion::to_number(&val))),
             },
             UnaryOp::Not => Ok(Value::Boolean(!val.is_truthy())),
-            UnaryOp::BitwiseNot => {
-                let n = match &val {
-                    Value::Number(n) => *n,
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Нельзя применить '~' к типу '{}'", val.type_name()),
-                            span,
-                        ));
-                    }
-                };
-                Ok(Value::Number(!(to_int_n(n, 32) as i32) as f64))
-            }
+            UnaryOp::BitwiseNot => match val {
+                Value::BigInt(n) => Ok(Value::BigInt(!n)),
+                _ => Ok(Value::Number(!(to_int_n(coercion::to_number(&val), 32) as i32) as f64)),
+            },
             UnaryOp::Typeof => Ok(Value::String(val.typeof_str().to_string().into())),
             UnaryOp::Delete => Ok(Value::Boolean(true)),
             UnaryOp::Void => Ok(Value::Undefined),

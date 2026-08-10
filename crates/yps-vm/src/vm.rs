@@ -296,7 +296,11 @@ impl Vm {
                 }
                 Op::BitNot => {
                     let a = self.pop();
-                    self.stack.push(Value::Number(f64::from(!to_int32(a.to_number()))));
+                    if let Value::BigInt(n) = a {
+                        self.stack.push(Value::BigInt(!n));
+                    } else {
+                        self.stack.push(Value::Number(f64::from(!to_int32(a.to_number()))));
+                    }
                 }
                 Op::Typeof => {
                     let a = self.pop();
