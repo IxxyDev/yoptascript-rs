@@ -75,7 +75,7 @@ function applyLang(next) {
   examplesLabelEl.textContent = t.examplesLabel;
   runEl.textContent = t.run;
   outputTitleEl.textContent = t.outputTitle;
-  statusEl.textContent = t[statusKey];
+  setStatus(statusKey);
   for (const option of examplesEl.options) {
     const example = EXAMPLES.find((e) => e.name === option.value);
     if (example) {
@@ -90,7 +90,6 @@ function applyLang(next) {
 for (const example of EXAMPLES) {
   const option = document.createElement("option");
   option.value = example.name;
-  option.textContent = example.title[lang];
   examplesEl.appendChild(option);
 }
 
