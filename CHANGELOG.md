@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] - 2026-08-11
+
+### Added
+
+- **Browser playground on GitHub Pages** — the WASM playground is now
+  deployed to <https://ixxydev.github.io/yoptascript-rs/> by a new
+  `pages.yml` workflow on every `master` push touching `crates/**`.
+  The UI got a RU/EN language toggle: chrome strings and example
+  titles are bilingual, the choice persists in `localStorage` and
+  defaults to the browser language.
+- **Execution step budget** — `Interpreter::set_step_limit` (counts
+  statements) and `Vm::set_step_limit` / `run_to_string_with_limit`
+  (counts instructions) let embedders bound runaway programs. Used by
+  the differential fuzzer so infinite loops no longer kill the weekly
+  job via libFuzzer timeouts.
+
+### Fixed
+
+- **Unary `~` follows JS coercion** — `~значение` now applies ToNumber
+  to non-numbers in the tree-walking interpreter (`~";"` is `-1`)
+  instead of raising, and both backends return a BigInt for `~бигцелое`
+  (`~5n` is `-6n`; the VM previously produced the number `-1`).
+- **Labels are validated at parse time** — `харэ`/`двигай` with an
+  undefined label, `двигай` targeting a non-loop label, and bare
+  `харэ`/`двигай` outside any loop are now parser diagnostics matching
+  the JS early SyntaxError, instead of diverging between backends when
+  the statement sat in dead code. Labels are scoped per function and
+  do not leak into nested functions.
+- **`ясенХуй` follows JS `const` semantics** — const-ness is resolved
+  in the scope where the binding lives, so a `гыы` binding shadowing a
+  const (including builtins like `строка`) is assignable again, and
+  redeclaring a name in the same scope clears the stale const flag.
+  Property and index writes through a const root
+  (`ясенХуй о = {}; о.х = 1;`) and mutating builtin methods on a const
+  receiver are allowed: const forbids rebinding, not mutation.
+
 ## [1.11.0] - 2026-08-03
 
 ### Fixed
