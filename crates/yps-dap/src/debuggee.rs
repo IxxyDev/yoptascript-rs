@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use yps_interpreter::{DebugAction, DebugEvent, DebugHook, Interpreter};
+use yps_interpreter::{DebugAction, DebugEvent, DebugHook, Interpreter, OutputSink};
 use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 
@@ -55,7 +55,22 @@ pub struct StopInfo {
 #[derive(Debug)]
 pub enum DebugMsg {
     Stopped(Box<StopInfo>),
+    Output { category: &'static str, text: String },
     Exited { error: Option<String> },
+}
+
+struct NotifySink {
+    notify: Box<dyn Fn(DebugMsg) + Send>,
+}
+
+impl OutputSink for NotifySink {
+    fn write_line(&mut self, line: &str) {
+        (self.notify)(DebugMsg::Output { category: "stdout", text: format!("{line}\n") });
+    }
+
+    fn write_error_line(&mut self, line: &str) {
+        (self.notify)(DebugMsg::Output { category: "stderr", text: format!("{line}\n") });
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +195,8 @@ pub fn spawn<N: Fn(DebugMsg) + Clone + Send + 'static>(config: LaunchConfig, not
         }
 
         let mut interp = Interpreter::new();
+        interp.set_output_sink(Box::new(NotifySink { notify: Box::new(notify.clone()) }));
+        interp.block_stdin("чтение из stdin недоступно под отладчиком: канал занят протоколом DAP");
         if let Some(parent) = config.program.parent() {
             interp.set_base_path(parent.to_path_buf());
         }

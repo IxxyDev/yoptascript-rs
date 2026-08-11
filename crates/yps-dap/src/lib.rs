@@ -3,18 +3,24 @@
 //!
 //! Deliberate limitations:
 //! - Stepping granularity is one statement, not one expression: the hook fires once per `Stmt`.
-//! - Debuggee stdout (`сказать`) goes straight to the adapter's stdout instead of being captured
-//!   into DAP `output` events; only errors are reported as `output`. This shares stdout with the
-//!   Content-Length-framed protocol stream itself — a strict DAP client reading frame-by-frame
-//!   could desync on interleaved debuggee output, not just miss it.
+//! - Debuggee stdin is blocked: `прочестьСтроку`/`прочестьВсё` raise a catchable runtime error,
+//!   because the adapter's stdin carries the Content-Length-framed protocol stream itself and a
+//!   debuggee read would steal protocol bytes. Debuggee stdout/stderr (`сказать`/`сказать.*`) are
+//!   captured via the interpreter's `OutputSink` and forwarded as DAP `output` events; both the
+//!   sink and the stdin block are inherited by imported modules, which run in a sub-interpreter.
+//! - Uncaught errors inside timer/promise callbacks are printed to the adapter's stderr (not
+//!   through the sink), so they never corrupt the protocol stream but also don't reach the
+//!   client's debug console.
+//! - Breakpoints are accepted only for the launched file: `setBreakpoints` for any other path
+//!   answers with unverified breakpoints instead of resolving lines against the wrong source.
 //! - Only the innermost stack frame exposes real locals; the interpreter keeps no per-frame
 //!   environment snapshots, so outer frames report an empty `Locals` scope.
 //! - Variables are rendered flat (no expandable children for objects, arrays or maps).
 //! - A module-level variable that shadows a builtin name (e.g. `гыы длина = 99;`) is invisible in
 //!   `variables`: top-level script bindings share the same `EnvFrame` as builtins, so the debugger
 //!   filters out anything present in the pre-run global snapshot to avoid listing every builtin.
-//! - VS Code editor wiring (`contributes.debuggers`, `launch.json`) is a separate follow-up and
-//!   is not part of this crate.
+//! - VS Code editor wiring (`contributes.debuggers`, adapter factory) lives in `editors/vscode`,
+//!   not in this crate.
 
 pub mod breakpoints;
 pub mod debuggee;

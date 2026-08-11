@@ -16,6 +16,16 @@ pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
 const NOT_PAUSED: &str = "Программа не находится на паузе";
 
+fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// What arrives on the adapter's single event queue.
 pub enum Incoming {
     Client(Value),
@@ -132,6 +142,9 @@ impl Session {
                     }),
                 ));
             }
+            DebugMsg::Output { category, text } => {
+                out.push(self.event("output", json!({ "category": category, "output": text })));
+            }
             DebugMsg::Exited { error } => {
                 self.state = State::Exited;
                 self.stopped = None;
@@ -177,11 +190,14 @@ impl Session {
                         "supportsConditionalBreakpoints": false,
                     }),
                 );
-                let initialized = self.event("initialized", json!({}));
-                vec![response, initialized]
+                vec![response]
             }
             "launch" => self.handle_launch(request),
             "setBreakpoints" => self.handle_set_breakpoints(request),
+            "setExceptionBreakpoints" => {
+                vec![self.response(request, json!({ "breakpoints": [] }))]
+            }
+            "loadedSources" => vec![self.response(request, json!({ "sources": [] }))],
             "configurationDone" => {
                 let response = self.response(request, json!({}));
                 let mut out = vec![response];
@@ -227,11 +243,19 @@ impl Session {
             return vec![self.failure(request, "В 'launch' не указан аргумент 'program'")];
         };
         self.stop_on_entry = request["arguments"]["stopOnEntry"].as_bool().unwrap_or(false);
-        if self.source_path.is_none() {
-            self.load_statement_lines(Path::new(program));
+        let mut program_path = PathBuf::from(program);
+        if program_path.is_relative()
+            && let Ok(cwd) = std::env::current_dir()
+        {
+            program_path = cwd.join(program_path);
         }
-        self.program = Some(PathBuf::from(program));
-        vec![self.response(request, json!({}))]
+        if self.source_path.is_none() {
+            self.load_statement_lines(&program_path);
+        }
+        self.program = Some(program_path);
+        let response = self.response(request, json!({}));
+        let initialized = self.event("initialized", json!({}));
+        vec![response, initialized]
     }
 
     fn load_statement_lines(&mut self, path: &Path) {
@@ -246,13 +270,6 @@ impl Session {
     }
 
     fn handle_set_breakpoints(&mut self, request: &Value) -> Vec<Value> {
-        if let Some(path) = request["arguments"]["source"]["path"].as_str() {
-            let path = Path::new(path);
-            if self.source_path.as_deref() != Some(path) {
-                self.load_statement_lines(path);
-            }
-        }
-
         let arguments = &request["arguments"];
         let requested: Vec<usize> = if let Some(items) = arguments["breakpoints"].as_array() {
             items.iter().filter_map(|item| item["line"].as_u64()).map(|line| line as usize).collect()
@@ -261,6 +278,32 @@ impl Session {
         } else {
             Vec::new()
         };
+
+        if let Some(path) = request["arguments"]["source"]["path"].as_str() {
+            let path = Path::new(path);
+            let (foreign, message) = match &self.program {
+                Some(program) => (!same_file(program, path), "Отлаживается только запущенный файл"),
+                None => (true, "Сначала пришлите 'launch'"),
+            };
+            if foreign {
+                let rejected: Vec<Value> = requested
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, line)| {
+                        json!({
+                            "id": index + 1,
+                            "verified": false,
+                            "line": line,
+                            "message": message,
+                        })
+                    })
+                    .collect();
+                return vec![self.response(request, json!({ "breakpoints": rejected }))];
+            }
+            if self.source_path.as_deref() != Some(path) {
+                self.load_statement_lines(path);
+            }
+        }
 
         let mut verified = Vec::new();
         let mut resolved = HashSet::new();
