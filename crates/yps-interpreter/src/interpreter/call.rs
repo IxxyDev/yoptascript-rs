@@ -91,12 +91,13 @@ impl Interpreter {
                 if let Some(res) = crate::stdlib::call_static_namespaced(self, &name, args.clone(), span) {
                     return res;
                 }
-                match self.output_sink.take() {
-                    Some(mut sink) => {
-                        let result = crate::builtins::call_builtin_with_sink(&mut *sink, &name, args, span);
-                        self.output_sink = Some(sink);
-                        result
-                    }
+                if let Some(reason) = &self.stdin_blocked
+                    && matches!(name.as_str(), "прочестьСтроку" | "прочестьВсё")
+                {
+                    return Err(RuntimeError::new(reason.clone(), span));
+                }
+                match self.output_sink.clone() {
+                    Some(sink) => crate::builtins::call_builtin_with_sink(&mut **sink.borrow_mut(), &name, args, span),
                     None => call_builtin(&name, args, span),
                 }
             }

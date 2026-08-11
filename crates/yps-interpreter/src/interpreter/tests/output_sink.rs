@@ -68,3 +68,51 @@ fn sink_captures_output_from_timers_and_promises() {
     );
     assert_eq!(out, "синхронно\nобещание\nтаймер\n");
 }
+
+fn module_dir(module_src: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let id = SEQ.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("yps_sink_mod_{}_{id}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("модуль.yopta"), module_src).unwrap();
+    dir
+}
+
+fn parse(src: &str) -> yps_parser::Program {
+    let source = SourceFile::new("test".to_string(), src.to_string());
+    let (tokens, lex_diags) = Lexer::new(&source).tokenize();
+    assert!(lex_diags.is_empty(), "Ошибки лексера: {lex_diags:?}");
+    let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
+    assert!(parse_diags.is_empty(), "Ошибки парсера: {parse_diags:?}");
+    program
+}
+
+#[test]
+fn sink_is_inherited_by_imported_modules() {
+    let dir = module_dir("сказать(\"из модуля\");\nпредъява гыы х = 1;");
+    let program = parse("спиздить { х } из \"./модуль\";\nсказать(\"из главного\", х);");
+    let buffer = BufferSink::new();
+    let mut interp = Interpreter::new();
+    interp.set_output_sink(Box::new(buffer.clone()));
+    interp.set_base_path(dir.clone());
+
+    interp.run(&program).expect("Ошибка интерпретатора");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(buffer.take(), "из модуля\nиз главного 1\n");
+}
+
+#[test]
+fn stdin_block_is_inherited_by_imported_modules() {
+    let dir = module_dir("прочестьСтроку();\nпредъява гыы х = 1;");
+    let program = parse("спиздить { х } из \"./модуль\";");
+    let mut interp = Interpreter::new();
+    interp.block_stdin("stdin занят");
+    interp.set_base_path(dir.clone());
+
+    let err = interp.run(&program).expect_err("импорт обязан упасть");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(err.message.contains("stdin занят"), "получено {:?}", err.message);
+}

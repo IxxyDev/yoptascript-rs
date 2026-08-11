@@ -118,6 +118,8 @@ impl Interpreter {
         sub.module_links = Rc::clone(&self.module_links);
         sub.base_path = resolved.parent().map(Path::to_path_buf);
         sub.export_cell = Some(Rc::clone(&export_cell));
+        sub.output_sink = self.output_sink.clone();
+        sub.stdin_blocked = self.stdin_blocked.clone();
 
         self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(Rc::clone(&export_cell)));
         match sub.run_module(&program, &resolved) {

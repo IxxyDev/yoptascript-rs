@@ -74,7 +74,8 @@ pub struct Interpreter {
     pub(super) debug_depth: usize,
     pub(super) debug_globals_baseline: std::collections::HashSet<String>,
     /// `None` keeps `сказать` on real stdout/stderr; hosts without a console (WASM) install a sink.
-    pub(super) output_sink: Option<Box<dyn crate::output::OutputSink>>,
+    pub(super) output_sink: Option<Rc<RefCell<Box<dyn crate::output::OutputSink>>>>,
+    pub(super) stdin_blocked: Option<String>,
     pub(super) step_budget: Option<u64>,
 }
 
@@ -126,12 +127,17 @@ impl Interpreter {
             debug_depth: 0,
             debug_globals_baseline: std::collections::HashSet::new(),
             output_sink: None,
+            stdin_blocked: None,
             step_budget: None,
         }
     }
 
     pub fn set_output_sink(&mut self, sink: Box<dyn crate::output::OutputSink>) {
-        self.output_sink = Some(sink);
+        self.output_sink = Some(Rc::new(RefCell::new(sink)));
+    }
+
+    pub fn block_stdin(&mut self, reason: impl Into<String>) {
+        self.stdin_blocked = Some(reason.into());
     }
 
     pub fn set_step_limit(&mut self, limit: u64) {
