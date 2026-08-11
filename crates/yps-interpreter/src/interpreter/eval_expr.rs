@@ -238,7 +238,7 @@ impl Interpreter {
                         let (ret, new_receiver) =
                             crate::stdlib::call_method(self, obj, &property.name, arg_values, *span)?;
                         if let Some(new) = new_receiver {
-                            self.write_back_object(object, new, *span)?;
+                            self.write_back_object(object, new);
                         }
                         return Ok(ret);
                     }

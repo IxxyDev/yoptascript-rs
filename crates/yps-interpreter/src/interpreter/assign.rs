@@ -29,7 +29,7 @@ impl Interpreter {
             let (obj, key, old) = self.resolve_index_place(object, index, span)?;
             let right = self.eval_expr(rhs)?;
             let result = self.eval_binary(compound_arith_op(op), old, right, span)?;
-            self.store_index_place(object, obj, key, result.clone(), span)?;
+            self.store_index_place(obj, key, result.clone(), span)?;
             return Ok(result);
         }
         let old = self.eval_expr(lhs)?;
@@ -51,7 +51,7 @@ impl Interpreter {
                 return Ok(old);
             }
             let right = self.eval_expr(rhs)?;
-            self.store_index_place(object, obj, key, right.clone(), span)?;
+            self.store_index_place(obj, key, right.clone(), span)?;
             return Ok(right);
         }
         let left = self.eval_expr(lhs)?;
@@ -293,25 +293,15 @@ impl Interpreter {
         }
     }
 
-    pub(super) fn write_back_object(
-        &mut self,
-        object_expr: &Expr,
-        updated: Value,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
+    pub(super) fn write_back_object(&mut self, object_expr: &Expr, updated: Value) {
         match object_expr {
             Expr::Identifier(ident) => {
-                if self.env.is_const(&ident.name) {
-                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{}'", ident.name), span));
-                }
                 self.env.set(&ident.name, updated);
-                Ok(())
             }
             Expr::This { .. } => {
                 self.env.set(symbols::THIS, updated);
-                Ok(())
             }
-            _ => Ok(()),
+            _ => {}
         }
     }
 
@@ -338,10 +328,7 @@ impl Interpreter {
         let mut path = Vec::new();
         let root_name = self.collect_access_path(target, &mut path, span)?;
         path.reverse();
-        let (is_const, root) = self.env.lookup(&root_name);
-        if is_const {
-            return Err(RuntimeError::new(format!("Нельзя изменить константу '{root_name}'"), span));
-        }
+        let (_, root) = self.env.lookup(&root_name);
         let root = root.ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
         Self::set_at_path(root, &path, value.clone(), span)?;
         Ok(value)
@@ -383,7 +370,6 @@ impl Interpreter {
 
     pub(super) fn store_index_place(
         &mut self,
-        object: &Expr,
         obj: Value,
         key: Value,
         value: Value,
@@ -392,22 +378,7 @@ impl Interpreter {
         if let Some((target, handler)) = obj.proxy_parts() {
             return self.proxy_set(&target, &handler, &key.to_string(), value, obj, span);
         }
-        if let Some(root) = Self::root_ident_name(object)
-            && self.env.is_const(&root)
-        {
-            return Err(RuntimeError::new(format!("Нельзя изменить константу '{root}'"), span));
-        }
         Self::set_at_path(obj, &[AccessSegment::Index(key)], value, span)
-    }
-
-    fn root_ident_name(expr: &Expr) -> Option<String> {
-        match expr {
-            Expr::Identifier(ident) => Some(ident.name.clone()),
-            Expr::This { .. } => Some(symbols::THIS.to_string()),
-            Expr::Member { object, .. } | Expr::Index { object, .. } => Self::root_ident_name(object),
-            Expr::Grouping { expr, .. } => Self::root_ident_name(expr),
-            _ => None,
-        }
     }
 
     fn set_at_path(target: Value, path: &[AccessSegment], value: Value, span: Span) -> Result<(), RuntimeError> {

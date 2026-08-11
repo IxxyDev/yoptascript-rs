@@ -200,3 +200,84 @@ fn repl_redeclared_global_updates_function_view() {
     let out = run_more(&mut interp, "читать();");
     assert_eq!(out, Some(Value::Number(2.0)));
 }
+
+#[test]
+fn let_redeclares_const_builtin_and_is_assignable() {
+    let i = run_code("гыы строка = \"привет\"; строка = \"мир\";");
+    assert_eq!(i.get("строка"), Some(Value::String("мир".into())));
+}
+
+#[test]
+fn inner_let_shadows_outer_const_and_is_assignable() {
+    let i = run_code(
+        r#"
+        ясенХуй к = 1;
+        гыы рез = 0;
+        йопта ф() {
+            гыы к = 2;
+            к = 3;
+            отвечаю к;
+        }
+        рез = ф();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(3.0)));
+    assert_eq!(i.get("к"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn outer_const_still_protected_after_inner_shadow() {
+    let err = run_code_err(
+        r#"
+        ясенХуй к = 1;
+        йопта ф() {
+            гыы к = 2;
+            к = 3;
+        }
+        ф();
+        к = 5;
+        "#,
+    );
+    assert!(err.message.contains("Нельзя изменить константу"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn member_write_through_shadowing_root_is_allowed() {
+    let i = run_code(
+        r#"
+        ясенХуй о = { х: 1 };
+        гыы рез = 0;
+        йопта ф() {
+            гыы о = { х: 2 };
+            о.х = 3;
+            отвечаю о.х;
+        }
+        рез = ф();
+        "#,
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn const_object_property_write_is_allowed() {
+    let i = run_code("ясенХуй о = { х: 1 }; о.х = 2; гыы рез = о.х;");
+    assert_eq!(i.get("рез"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn const_array_index_write_is_allowed() {
+    let i = run_code("ясенХуй а = [1, 2]; а[0] = 5; а[1] += 40; гыы рез = а[0] + а[1];");
+    assert_eq!(i.get("рез"), Some(Value::Number(47.0)));
+}
+
+#[test]
+fn mutating_method_on_const_receiver_is_allowed() {
+    let i = run_code("ясенХуй а = [1]; а.push(2); гыы рез = а.length;");
+    assert_eq!(i.get("рез"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn const_rebinding_still_rejected() {
+    let err = run_code_err("ясенХуй к = 1; к = 2;");
+    assert!(err.message.contains("Нельзя изменить константу"), "неожиданное сообщение: {}", err.message);
+}

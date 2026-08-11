@@ -163,6 +163,8 @@ impl Environment {
         let mut frame = self.current.borrow_mut();
         if is_const {
             frame.constants.insert(name.clone());
+        } else if !frame.constants.is_empty() {
+            frame.constants.remove(&name);
         }
         if !frame.tdz.is_empty() {
             frame.tdz.remove(&name);
@@ -207,6 +209,9 @@ impl Environment {
                 if frame.constants.contains(name) {
                     return true;
                 }
+                if frame.bindings.contains_key(name) {
+                    return false;
+                }
                 frame.parent.clone()
             };
             match parent {
@@ -237,27 +242,20 @@ impl Environment {
 
     pub fn lookup(&self, name: &str) -> (bool, Option<Value>) {
         let mut frame_rc = Rc::clone(&self.current);
-        let mut is_const = false;
-        let mut value: Option<Value> = None;
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
-                if !is_const && frame.constants.contains(name) {
-                    is_const = true;
+                if let Some(v) = frame.bindings.get(name) {
+                    return (frame.constants.contains(name), Some(v.clone()));
                 }
-                if value.is_none()
-                    && let Some(v) = frame.bindings.get(name)
-                {
-                    value = Some(v.clone());
-                }
-                if is_const && value.is_some() {
-                    return (is_const, value);
+                if frame.constants.contains(name) {
+                    return (true, None);
                 }
                 frame.parent.clone()
             };
             match parent {
                 Some(p) => frame_rc = p,
-                None => return (is_const, value),
+                None => return (false, None),
             }
         }
     }
