@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
                 self.push_error(span, "Декораторы нельзя применять к статическому блоку");
                 return Err(());
             }
-            let body = self.parse_block()?;
+            let body = self.parse_function_body_block()?;
             let end = body.span.end;
             return Ok(ClassMember::StaticBlock { body: Rc::new(body), span: Span { start, end } });
         }
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
             let (member_name, is_private) = self.parse_member_name(modifier_private)?;
             self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени геттера")?;
             self.expect_punct(PunctuationKind::RParen, "Геттер не принимает параметров")?;
-            let body = self.parse_block()?;
+            let body = self.parse_function_body_block()?;
             let end = body.span.end;
             return Ok(ClassMember::Getter {
                 name: member_name,
@@ -99,7 +99,7 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
             self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметра сеттера")?;
-            let body = self.parse_block()?;
+            let body = self.parse_function_body_block()?;
             let end = body.span.end;
             let param = params.into_iter().next().unwrap();
             return Ok(ClassMember::Setter {
@@ -121,7 +121,7 @@ impl<'a> Parser<'a> {
 
             self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
 
-            let body = self.parse_block()?;
+            let body = self.parse_function_body_block()?;
             let end = body.span.end;
 
             if !is_static && !is_private && member_name.name == class_name {

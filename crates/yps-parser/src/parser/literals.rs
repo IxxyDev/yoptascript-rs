@@ -318,7 +318,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         let params = self.parse_function_params()?;
                         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
-                        let body = self.parse_block()?;
+                        let body = self.parse_function_body_block()?;
                         let func_span = body.span;
                         let value = Expr::ArrowFunction {
                             params: params.into(),
@@ -356,7 +356,7 @@ impl<'a> Parser<'a> {
                     let key = self.parse_identifier()?;
                     self.expect_punct(PunctuationKind::LParen, "Ожидалась '(' после имени геттера")?;
                     self.expect_punct(PunctuationKind::RParen, "Геттер не принимает параметров")?;
-                    let body = self.parse_block()?;
+                    let body = self.parse_function_body_block()?;
                     let gs_end = body.span.end;
                     entries.push(ObjectEntry::Getter {
                         key: PropKey::Identifier(key),
@@ -378,7 +378,7 @@ impl<'a> Parser<'a> {
                         return Err(());
                     }
                     self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметра сеттера")?;
-                    let body = self.parse_block()?;
+                    let body = self.parse_function_body_block()?;
                     let gs_end = body.span.end;
                     let param = params.into_iter().next().unwrap();
                     entries.push(ObjectEntry::Setter {
@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         let params = self.parse_function_params()?;
                         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров метода")?;
-                        let body = self.parse_block()?;
+                        let body = self.parse_function_body_block()?;
                         let func_span = Span { start: key.span.start, end: body.span.end };
                         let value = Expr::ArrowFunction {
                             params: params.into(),

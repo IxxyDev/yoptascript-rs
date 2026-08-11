@@ -20,6 +20,8 @@ pub struct Parser<'a> {
     diagnostics: Vec<Diagnostic>,
     unexpected_eof: bool,
     depth: usize,
+    label_scopes: Vec<Vec<(String, bool)>>,
+    loop_depths: Vec<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -28,7 +30,41 @@ impl<'a> Parser<'a> {
             matches!(tokens.last().map(|t| &t.kind), Some(TokenKind::Eof)),
             "Parser::new требует, чтобы tokens заканчивался TokenKind::Eof"
         );
-        Self { tokens, source, position: 0, diagnostics: Vec::new(), unexpected_eof: false, depth: 0 }
+        Self {
+            tokens,
+            source,
+            position: 0,
+            diagnostics: Vec::new(),
+            unexpected_eof: false,
+            depth: 0,
+            label_scopes: vec![Vec::new()],
+            loop_depths: vec![0],
+        }
+    }
+
+    fn labeled_body_is_loop(&self) -> bool {
+        let mut idx = self.position;
+        while matches!(self.tokens.get(idx).map(|t| &t.kind), Some(TokenKind::Identifier))
+            && matches!(self.tokens.get(idx + 1).map(|t| &t.kind), Some(TokenKind::Punctuation(PunctuationKind::Colon)))
+        {
+            idx += 2;
+        }
+        matches!(
+            self.tokens.get(idx).map(|t| &t.kind),
+            Some(TokenKind::Keyword(KeywordKind::Go | KeywordKind::Potreshchim | KeywordKind::DoWhile))
+        )
+    }
+
+    fn break_label_defined(&self, name: &str) -> bool {
+        self.label_scopes.last().is_some_and(|scope| scope.iter().any(|(label, _)| label == name))
+    }
+
+    fn continue_label_defined(&self, name: &str) -> bool {
+        self.label_scopes.last().is_some_and(|scope| scope.iter().any(|(label, is_loop)| label == name && *is_loop))
+    }
+
+    fn loop_depth(&self) -> usize {
+        self.loop_depths.last().copied().unwrap_or(0)
     }
 
     fn expect_punct(&mut self, kind: PunctuationKind, msg: &str) -> Result<Span, ()> {

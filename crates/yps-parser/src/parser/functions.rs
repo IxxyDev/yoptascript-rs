@@ -163,7 +163,7 @@ impl<'a> Parser<'a> {
         is_async: bool,
     ) -> Result<Expr, ()> {
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
-            let body = self.parse_block()?;
+            let body = self.parse_function_body_block()?;
             let end = body.span.end;
             Ok(Expr::ArrowFunction { params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
         } else {
@@ -265,7 +265,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после параметров функции")?;
 
-        let body = self.parse_block()?;
+        let body = self.parse_function_body_block()?;
         Ok((params, body))
     }
 

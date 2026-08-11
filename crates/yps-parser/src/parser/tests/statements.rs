@@ -44,16 +44,19 @@ fn test_parse_labeled_statement() {
 
 #[test]
 fn test_parse_break_with_label() {
-    let source = SourceFile::new("test.yopta".to_string(), "харэ метка;".to_string());
-    let lexer = yps_lexer::Lexer::new(&source);
-    let (tokens, lex_diags) = lexer.tokenize();
-    assert!(lex_diags.is_empty());
-
-    let parser = Parser::new(&tokens, &source);
-    let (program, diags) = parser.parse_program();
+    let (program, diags) = parse_program_from_source("метка: потрещим (правда) { харэ метка; }");
     assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
 
-    match &program.items[0] {
+    let Stmt::Labeled { body, .. } = &program.items[0] else {
+        panic!("Expected Labeled, got: {:?}", program.items[0]);
+    };
+    let Stmt::While { body, .. } = &**body else {
+        panic!("Expected While, got: {body:?}");
+    };
+    let Stmt::Block(block) = &**body else {
+        panic!("Expected Block, got: {body:?}");
+    };
+    match &block.stmts[0] {
         Stmt::Break { label: Some(l), .. } => assert_eq!(l.name, "метка"),
         other => panic!("Expected Break with label, got: {other:?}"),
     }
@@ -61,13 +64,16 @@ fn test_parse_break_with_label() {
 
 #[test]
 fn test_parse_break_without_label() {
-    let source = SourceFile::new("test.yopta".to_string(), "харэ;".to_string());
-    let lexer = yps_lexer::Lexer::new(&source);
-    let (tokens, _) = lexer.tokenize();
-    let parser = Parser::new(&tokens, &source);
-    let (program, diags) = parser.parse_program();
+    let (program, diags) = parse_program_from_source("потрещим (правда) { харэ; }");
     assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
-    assert!(matches!(program.items[0], Stmt::Break { label: None, .. }));
+
+    let Stmt::While { body, .. } = &program.items[0] else {
+        panic!("Expected While, got: {:?}", program.items[0]);
+    };
+    let Stmt::Block(block) = &**body else {
+        panic!("Expected Block, got: {body:?}");
+    };
+    assert!(matches!(block.stmts[0], Stmt::Break { label: None, .. }));
 }
 
 #[test]
@@ -474,17 +480,17 @@ fn test_parse_nested_for() {
 
 #[test]
 fn test_parse_continue_stmt() {
-    let source = SourceFile::new("test.yopta".to_string(), "двигай;".to_string());
-    let lexer = yps_lexer::Lexer::new(&source);
-    let (tokens, lex_diags) = lexer.tokenize();
-    assert!(lex_diags.is_empty());
-    let parser = Parser::new(&tokens, &source);
-
-    let (program, diags) = parser.parse_program();
-
+    let (program, diags) = parse_program_from_source("го (;;) { двигай; }");
     assert!(diags.is_empty(), "Expected no errors, got: {diags:?}");
     assert_eq!(program.items.len(), 1);
-    assert!(matches!(program.items[0], Stmt::Continue { .. }));
+
+    let Stmt::For { body, .. } = &program.items[0] else {
+        panic!("Expected For, got: {:?}", program.items[0]);
+    };
+    let Stmt::Block(block) = &**body else {
+        panic!("Expected Block, got: {body:?}");
+    };
+    assert!(matches!(block.stmts[0], Stmt::Continue { label: None, .. }));
 }
 
 #[test]
@@ -679,4 +685,80 @@ fn test_parse_class_static_block_decorator_rejected() {
         "Expected static-block decorator diagnostic, got: {:?}",
         diag_messages(&diags)
     );
+}
+
+#[test]
+fn test_break_undefined_label_is_parse_error() {
+    let (_program, diags) = parse_program_from_source("поиск2: го (гыы и = 5; и < 3; и += 1) { харэ поиск; }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("метка 'поиск' не найдена")),
+        "Expected undefined-label diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
+fn test_continue_undefined_label_is_parse_error() {
+    let (_program, diags) = parse_program_from_source("го (;;) { двигай мимо; харэ; }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("метка цикла 'мимо' не найдена")),
+        "Expected undefined-label diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
+fn test_continue_to_non_loop_label_is_parse_error() {
+    let (_program, diags) = parse_program_from_source("м: { вилкойвглаз (лож) { двигай м; } }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("метка цикла 'м' не найдена")),
+        "Expected non-loop-label diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
+fn test_bare_break_outside_loop_is_parse_error() {
+    let (_program, diags) = parse_program_from_source("вилкойвглаз (лож) { харэ; }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("'харэ' вне цикла")),
+        "Expected break-outside-loop diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
+fn test_bare_continue_outside_loop_is_parse_error() {
+    let (_program, diags) = parse_program_from_source("вилкойвглаз (лож) { двигай; }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("'двигай' вне цикла")),
+        "Expected continue-outside-loop diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+}
+
+#[test]
+fn test_break_inside_function_does_not_see_outer_loop() {
+    let (_program, diags) = parse_program_from_source("м: го (;;) { йопта ф() { харэ м; } харэ м; }");
+    assert!(
+        diags.iter().any(|d| d.message.contains("метка 'м' не найдена")),
+        "Expected label-not-visible-in-function diagnostic, got: {:?}",
+        diag_messages(&diags)
+    );
+    assert_eq!(diags.len(), 1, "Expected exactly one diagnostic, got: {:?}", diag_messages(&diags));
+}
+
+#[test]
+fn test_valid_label_usages_parse_clean() {
+    for src in [
+        "а: б: го (;;) { двигай а; харэ б; }",
+        "м: { го (;;) { харэ м; } }",
+        "го (;;) { вилкойвглаз (правда) { харэ; } двигай; }",
+        "крутани { харэ; } потрещим (лож);",
+        "внешний: потрещим (правда) { харэ внешний; }",
+        "го (;;) { йопта ф() { го (;;) { харэ; } } харэ; }",
+    ] {
+        let (_program, diags) = parse_program_from_source(src);
+        assert!(diags.is_empty(), "Expected clean parse for {src:?}, got: {:?}", diag_messages(&diags));
+    }
 }

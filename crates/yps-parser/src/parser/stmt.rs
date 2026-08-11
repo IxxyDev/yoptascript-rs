@@ -102,6 +102,26 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Using { name, init, is_await, span: Span { start, end } })
     }
 
+    pub(super) fn parse_loop_body(&mut self) -> Result<Stmt, ()> {
+        if let Some(depth) = self.loop_depths.last_mut() {
+            *depth += 1;
+        }
+        let result = self.parse_statement();
+        if let Some(depth) = self.loop_depths.last_mut() {
+            *depth -= 1;
+        }
+        result
+    }
+
+    pub(super) fn parse_function_body_block(&mut self) -> Result<Block, ()> {
+        self.label_scopes.push(Vec::new());
+        self.loop_depths.push(0);
+        let result = self.parse_block();
+        self.label_scopes.pop();
+        self.loop_depths.pop();
+        result
+    }
+
     pub(super) fn parse_block(&mut self) -> Result<Block, ()> {
         let start = self.current().span.start;
 
@@ -171,7 +191,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после условия")?;
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
 
         let end = body.span().end;
 
@@ -260,7 +280,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
 
         let end = body.span().end;
 
@@ -268,11 +288,25 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_break_stmt(&mut self) -> Result<Stmt, ()> {
-        let start = self.current().span.start;
+        let keyword_span = self.current().span;
+        let start = keyword_span.start;
         self.advance();
 
         let label =
             if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
+
+        match &label {
+            Some(ident) => {
+                if !self.break_label_defined(&ident.name) {
+                    self.push_error(ident.span, format!("метка '{}' не найдена", ident.name));
+                }
+            }
+            None => {
+                if self.loop_depth() == 0 {
+                    self.push_error(keyword_span, "'харэ' вне цикла");
+                }
+            }
+        }
 
         let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'харэ'")?.end;
 
@@ -280,11 +314,25 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_continue_stmt(&mut self) -> Result<Stmt, ()> {
-        let start = self.current().span.start;
+        let keyword_span = self.current().span;
+        let start = keyword_span.start;
         self.advance();
 
         let label =
             if matches!(self.current().kind, TokenKind::Identifier) { Some(self.parse_identifier()?) } else { None };
+
+        match &label {
+            Some(ident) => {
+                if !self.continue_label_defined(&ident.name) {
+                    self.push_error(ident.span, format!("метка цикла '{}' не найдена", ident.name));
+                }
+            }
+            None => {
+                if self.loop_depth() == 0 {
+                    self.push_error(keyword_span, "'двигай' вне цикла");
+                }
+            }
+        }
 
         let end = self.expect_punct(PunctuationKind::Semicolon, "Ожидалась ';' после 'двигай'")?.end;
 
@@ -294,7 +342,15 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_labeled_stmt(&mut self) -> Result<Stmt, ()> {
         let label = self.parse_identifier()?;
         self.advance();
-        let body = self.parse_statement()?;
+        let is_loop = self.labeled_body_is_loop();
+        if let Some(scope) = self.label_scopes.last_mut() {
+            scope.push((label.name.clone(), is_loop));
+        }
+        let body = self.parse_statement();
+        if let Some(scope) = self.label_scopes.last_mut() {
+            scope.pop();
+        }
+        let body = body?;
         let span = Span { start: label.span.start, end: body.span().end };
         Ok(Stmt::Labeled { label, body: Box::new(body), span })
     }
@@ -413,7 +469,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
 
         let end = body.span().end;
 
@@ -428,7 +484,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го'")?;
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
         let end = body.span().end;
 
         Ok(Stmt::ForOf { variable, iterable, body, span: Span { start, end } })
@@ -442,7 +498,7 @@ impl<'a> Parser<'a> {
 
         self.expect_punct(PunctuationKind::RParen, "Ожидалась ')' после 'го сидетьНахуй'")?;
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
         let end = body.span().end;
 
         Ok(Stmt::ForAwaitOf { variable, iterable, body, span: Span { start, end } })
@@ -452,7 +508,7 @@ impl<'a> Parser<'a> {
         let start = self.current().span.start;
         self.advance();
 
-        let body = Box::new(self.parse_statement()?);
+        let body = Box::new(self.parse_loop_body()?);
 
         self.expect_keyword(KeywordKind::Potreshchim, "Ожидалось 'потрещим' после тела 'крутани'")?;
 
