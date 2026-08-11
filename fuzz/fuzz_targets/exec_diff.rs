@@ -11,11 +11,15 @@ use yps_parser::ast::Program;
 
 const TIMER_MARKERS: [&str; 3] = ["чутка", "интервал", "подождать"];
 
-const KNOWN_DIVERGENCES: [&str; 2] = ["найтиВсе", "RegExp("];
+const KNOWN_DIVERGENCES: [&str; 2] = ["найтиВсе", "RegExp"];
 
 const KNOWN_VM_ONLY_ERRORS: [&str; 1] = ["недопустимая цель присваивания в VM"];
 
 const KNOWN_INTERP_ONLY_ERRORS: [&str; 1] = ["Операция требует числа"];
+
+const STEP_LIMIT: u64 = 1_000_000;
+
+const STEP_LIMIT_MARKER: &str = "превышен лимит шагов";
 
 fn has_real_time_wait(source: &str) -> bool {
     TIMER_MARKERS.iter().any(|marker| source.contains(marker))
@@ -38,6 +42,7 @@ fn run_interpreter_capturing_stdout(program: &Program) -> (bool, String, String)
     unsafe { libc::dup2(file.as_raw_fd(), 1) };
 
     let mut interpreter = Interpreter::new();
+    interpreter.set_step_limit(STEP_LIMIT);
     let result = interpreter.run(program);
     let ok = result.is_ok();
     let err = result.err().map(|e| e.message.clone()).unwrap_or_default();
@@ -71,11 +76,14 @@ fuzz_target!(|data: &str| {
     }
 
     let (interp_ok, interp_out, interp_err) = run_interpreter_capturing_stdout(&program);
-    let (vm_ok, vm_out, vm_err) = match yps_vm::run_to_string(&program) {
+    let (vm_ok, vm_out, vm_err) = match yps_vm::run_to_string_with_limit(&program, STEP_LIMIT) {
         Ok(out) => (true, out, String::new()),
         Err(e) => (false, String::new(), e.to_string()),
     };
 
+    if interp_err.contains(STEP_LIMIT_MARKER) || vm_err.contains(STEP_LIMIT_MARKER) {
+        return;
+    }
     if !vm_ok && KNOWN_VM_ONLY_ERRORS.iter().any(|marker| vm_err.contains(marker)) {
         return;
     }

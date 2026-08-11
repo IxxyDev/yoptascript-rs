@@ -75,6 +75,7 @@ pub struct Interpreter {
     pub(super) debug_globals_baseline: std::collections::HashSet<String>,
     /// `None` keeps `сказать` on real stdout/stderr; hosts without a console (WASM) install a sink.
     pub(super) output_sink: Option<Box<dyn crate::output::OutputSink>>,
+    pub(super) step_budget: Option<u64>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -125,11 +126,16 @@ impl Interpreter {
             debug_depth: 0,
             debug_globals_baseline: std::collections::HashSet::new(),
             output_sink: None,
+            step_budget: None,
         }
     }
 
     pub fn set_output_sink(&mut self, sink: Box<dyn crate::output::OutputSink>) {
         self.output_sink = Some(sink);
+    }
+
+    pub fn set_step_limit(&mut self, limit: u64) {
+        self.step_budget = Some(limit);
     }
 
     #[inline]

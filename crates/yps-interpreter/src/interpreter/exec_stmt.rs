@@ -17,6 +17,12 @@ impl Interpreter {
     }
 
     fn exec_stmt_inner(&mut self, stmt: &Stmt) -> Result<Option<ControlFlow>, RuntimeError> {
+        if let Some(budget) = self.step_budget.as_mut() {
+            if *budget == 0 {
+                return Err(RuntimeError::new("превышен лимит шагов исполнения", stmt.span()));
+            }
+            *budget -= 1;
+        }
         if self.debug_hook.is_some() {
             self.debug_before_stmt(stmt.span())?;
         }

@@ -2,7 +2,7 @@ use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 use yps_parser::ast::Program;
 
-use crate::{Vm, compile_program, run_to_string};
+use crate::{Vm, compile_program, run_to_string, run_to_string_with_limit};
 
 fn parse(src: &str) -> Program {
     let source = SourceFile::new("<тест>".to_string(), src.to_string());
@@ -42,6 +42,18 @@ fn arithmetic_and_precedence() {
     assert_eq!(run("сказать(2 ** 10);"), "1024\n");
     assert_eq!(run("сказать(7 % 3);"), "1\n");
     assert_eq!(run("сказать(10 / 4);"), "2.5\n");
+}
+
+#[test]
+fn step_limit_stops_infinite_loops() {
+    let err = run_to_string_with_limit(&parse("го(;;){}"), 100_000).unwrap_err();
+    assert!(err.to_string().contains("превышен лимит шагов"), "неожиданная ошибка: {err}");
+    let err = run_to_string_with_limit(&parse("потрещим (правда) {}"), 100_000).unwrap_err();
+    assert!(err.to_string().contains("превышен лимит шагов"), "неожиданная ошибка: {err}");
+    let ok =
+        run_to_string_with_limit(&parse("гыы с = 0; го (гыы и = 0; и < 100; и += 1) { с += и; } сказать(с);"), 100_000)
+            .unwrap();
+    assert_eq!(ok, "4950\n");
 }
 
 #[test]

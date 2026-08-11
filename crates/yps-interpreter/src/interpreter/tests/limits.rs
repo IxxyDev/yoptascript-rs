@@ -1,5 +1,43 @@
 use super::*;
 
+fn run_code_with_step_limit(src: &str, limit: u64) -> Result<Interpreter, RuntimeError> {
+    let source = yps_lexer::SourceFile::new("test".to_string(), src.to_string());
+    let (tokens, lex_diags) = yps_lexer::Lexer::new(&source).tokenize();
+    assert!(lex_diags.is_empty(), "Ошибки лексера: {lex_diags:?}");
+    let (program, parse_diags) = yps_parser::Parser::new(&tokens, &source).parse_program();
+    assert!(parse_diags.is_empty(), "Ошибки парсера: {parse_diags:?}");
+    let mut interp = Interpreter::new();
+    interp.set_step_limit(limit);
+    match interp.run(&program) {
+        Ok(()) => Ok(interp),
+        Err(e) => Err(e),
+    }
+}
+
+#[test]
+fn step_limit_stops_infinite_for_loop() {
+    let err = match run_code_with_step_limit("го(;;){}", 10_000) {
+        Err(e) => e,
+        Ok(_) => panic!("ожидалась ошибка лимита шагов"),
+    };
+    assert!(err.message.contains("превышен лимит шагов"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn step_limit_stops_infinite_while_loop() {
+    let err = match run_code_with_step_limit("потрещим (правда) {}", 10_000) {
+        Err(e) => e,
+        Ok(_) => panic!("ожидалась ошибка лимита шагов"),
+    };
+    assert!(err.message.contains("превышен лимит шагов"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn step_limit_allows_normal_programs() {
+    let i = run_code_with_step_limit("гыы с = 0; го (гыы и = 0; и < 100; и += 1) { с += и; }", 10_000).unwrap();
+    assert_eq!(i.get("с"), Some(Value::Number(4950.0)));
+}
+
 #[test]
 fn infinite_recursion_returns_error_instead_of_crash() {
     let err = run_code_err("йопта рек(н) { отвечаю рек(н + 1); } рек(0);");

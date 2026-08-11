@@ -110,6 +110,7 @@ pub struct Vm {
     gc: Rc<crate::gc::GcRegistry>,
     gc_counter: usize,
     out: Box<dyn Write>,
+    step_budget: Option<u64>,
 }
 
 impl Default for Vm {
@@ -143,11 +144,16 @@ impl Vm {
             gc: Rc::new(crate::gc::GcRegistry::default()),
             gc_counter: 0,
             out,
+            step_budget: None,
         }
     }
 
     pub fn set_base_path(&mut self, path: std::path::PathBuf) {
         self.base_path = Some(path);
+    }
+
+    pub fn set_step_limit(&mut self, limit: u64) {
+        self.step_budget = Some(limit);
     }
 
     pub fn run(&mut self, proto: Rc<FnProto>) -> Result<(), VmError> {
@@ -194,6 +200,13 @@ impl Vm {
             let span = chunk.spans[ip];
             self.frames[frame_idx].ip = ip + 1;
             let base = self.frames[frame_idx].base;
+
+            if let Some(budget) = self.step_budget.as_mut() {
+                if *budget == 0 {
+                    return Err(VmError::new("превышен лимит шагов исполнения", span));
+                }
+                *budget -= 1;
+            }
 
             match self.exec_op(op, span, frame_idx, base, &closure, chunk, ip) {
                 Ok(Step::Continue) => {}

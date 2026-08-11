@@ -43,9 +43,20 @@ pub fn execute_with_base(program: &Program, base: Option<std::path::PathBuf>) ->
 }
 
 pub fn run_to_string(program: &Program) -> Result<String, ExecError> {
+    run_to_string_inner(program, None)
+}
+
+pub fn run_to_string_with_limit(program: &Program, step_limit: u64) -> Result<String, ExecError> {
+    run_to_string_inner(program, Some(step_limit))
+}
+
+fn run_to_string_inner(program: &Program, step_limit: Option<u64>) -> Result<String, ExecError> {
     let proto = compile_program(program)?;
     let buf: Rc<RefCell<Vec<u8>>> = Rc::new(RefCell::new(Vec::new()));
     let mut vm = Vm::with_writer(Box::new(SharedWriter(Rc::clone(&buf))));
+    if let Some(limit) = step_limit {
+        vm.set_step_limit(limit);
+    }
     let result = vm.run(proto);
     drop(vm);
     let bytes = buf.borrow().clone();
