@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-08-11
+
+### Added
+
+- **VS Code debugging** — the extension now contributes a `yoptascript`
+  debugger backed by the `yps-dap` adapter: press F5 on a `.yopta` file
+  (no `launch.json` needed) for breakpoints, step over/in/out, pause,
+  call stack, locals and `сказать` output in the Debug Console. The
+  adapter binary is resolved via the new `yoptascript.dap.path` setting,
+  then the vsix-bundled `bin/<platform>-<arch>/yps-dap` (packaged by
+  `npm run package:local` alongside `yps-lsp`), then `PATH`.
+
+### Fixed
+
+- **DAP protocol stream safety** — debuggee `сказать`/`сказать.*` output
+  is captured through the interpreter's `OutputSink` and forwarded as DAP
+  `output` events instead of interleaving with the Content-Length-framed
+  protocol on the adapter's stdout, and `прочестьСтроку`/`прочестьВсё`
+  now raise a catchable runtime error under the debugger (new additive
+  `Interpreter::block_stdin`) instead of stealing protocol bytes from
+  stdin. Both guarantees extend to imported modules: the sub-interpreter
+  spawned by `спиздить` now inherits the output sink and the stdin block
+  (this also lets the WASM playground capture module output).
+- **Per-file breakpoint honesty in `yps-dap`** — `setBreakpoints` for a
+  file other than the launched program now answers with unverified
+  breakpoints instead of silently re-resolving the lines against the
+  wrong source and clobbering the real breakpoint set.
+
 ## [1.11.1] - 2026-08-11
 
 ### Added
