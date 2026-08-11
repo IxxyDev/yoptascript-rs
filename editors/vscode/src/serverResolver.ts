@@ -12,10 +12,13 @@ export interface ResolveServerPathOptions {
   arch: string;
   pathEnv: string | undefined;
   fileExists: (path: string) => boolean;
+  binaryBaseName?: string;
 }
 
-export function bundledBinaryFileName(platform: string): string {
-  return platform === "win32" ? "yps-lsp.exe" : "yps-lsp";
+const DEFAULT_BINARY = "yps-lsp";
+
+export function bundledBinaryFileName(platform: string, baseName: string = DEFAULT_BINARY): string {
+  return platform === "win32" ? `${baseName}.exe` : baseName;
 }
 
 function pathSeparator(platform: string): string {
@@ -36,8 +39,12 @@ function joinPath(platform: string, ...parts: string[]): string {
     .join(sep);
 }
 
-export function bundledBinaryRelativePath(platform: string, arch: string): string {
-  return joinPath(platform, "bin", `${platform}-${arch}`, bundledBinaryFileName(platform));
+export function bundledBinaryRelativePath(
+  platform: string,
+  arch: string,
+  baseName: string = DEFAULT_BINARY
+): string {
+  return joinPath(platform, "bin", `${platform}-${arch}`, bundledBinaryFileName(platform, baseName));
 }
 
 function findOnPath(
@@ -64,6 +71,7 @@ function findOnPath(
 export function resolveServerPath(
   options: ResolveServerPathOptions
 ): ServerPathResult | undefined {
+  const baseName = options.binaryBaseName ?? DEFAULT_BINARY;
   const configured = options.configuredPath?.trim();
   if (configured) {
     return { path: configured, source: "config" };
@@ -72,13 +80,13 @@ export function resolveServerPath(
   const bundledPath = joinPath(
     options.platform,
     options.extensionPath,
-    bundledBinaryRelativePath(options.platform, options.arch)
+    bundledBinaryRelativePath(options.platform, options.arch, baseName)
   );
   if (options.fileExists(bundledPath)) {
     return { path: bundledPath, source: "bundled" };
   }
 
-  const binaryName = bundledBinaryFileName(options.platform);
+  const binaryName = bundledBinaryFileName(options.platform, baseName);
   const pathMatch = findOnPath(binaryName, options.platform, options.pathEnv, options.fileExists);
   if (pathMatch) {
     return { path: pathMatch, source: "path" };

@@ -26,6 +26,40 @@ code --install-extension ixxydev.yoptascript
   - document outline / breadcrumbs (`textDocument/documentSymbol`)
   - formatting (`textDocument/formatting`, powered by `yps-fmt`)
   - go-to-definition (`textDocument/definition`)
+- **Debugger** backed by `yps-dap` (Debug Adapter Protocol over the tree-walking
+  interpreter): breakpoints, step over/in/out, pause, call stack, local variables,
+  `сказать` output in the Debug Console.
+
+## Debugging
+
+Open a `.yopta` file and press F5 — no `launch.json` needed (the extension debugs the active
+file). For a persistent setup, add a configuration:
+
+```jsonc
+{
+  "type": "yoptascript",
+  "request": "launch",
+  "name": "Отладка YoptaScript",
+  "program": "${file}",
+  "stopOnEntry": false
+}
+```
+
+The `yps-dap` binary is resolved the same way as the language server: the
+`yoptascript.dap.path` setting first, then a bundled `bin/<platform>-<arch>/yps-dap`, then
+`PATH` (build one with `cargo build --release -p yps-dap`).
+
+Known limitations:
+
+- Variables are rendered flat (objects/arrays/maps have no expandable children).
+- Only the innermost stack frame shows locals; outer frames report an empty scope.
+- Stepping granularity is one statement, not one expression.
+- Breakpoints are accepted only in the launched file; breakpoints set in any other file
+  (including imported modules) show up as unverified.
+- `прочестьСтроку`/`прочестьВсё` raise a catchable error under the debugger: the adapter's
+  stdin carries the DAP protocol stream itself.
+- Uncaught errors inside timer/promise callbacks go to the adapter's stderr and don't reach
+  the Debug Console.
 
 ## Requirements
 
@@ -59,6 +93,7 @@ Then either put the binary on `PATH`, or point the extension at it directly:
 | Setting | Default | Description |
 | --- | --- | --- |
 | `yoptascript.server.path` | `` (empty) | Explicit path to the `yps-lsp` executable. Leave empty to use the bundled binary (if present) or search `PATH`. |
+| `yoptascript.dap.path` | `` (empty) | Explicit path to the `yps-dap` debug adapter. Same fallback order as the language server. |
 | `yoptascript.trace.server` | `off` | Trace LSP traffic (`off` / `messages` / `verbose`). |
 
 ## Building the extension
@@ -68,8 +103,8 @@ cd editors/vscode
 npm ci
 npm run compile      # bundle src/extension.ts -> dist/extension.js with esbuild
 npm test             # tokenization + server-resolution tests
-npm run package      # produce a .vsix without a bundled server (requires @vscode/vsce)
-npm run package:local # cargo build the yps-lsp release binary, bundle it under bin/, then package a .vsix
+npm run package      # produce a .vsix without bundled binaries (requires @vscode/vsce)
+npm run package:local # cargo build the yps-lsp + yps-dap release binaries, bundle them under bin/, then package a .vsix
 ```
 
 ## License

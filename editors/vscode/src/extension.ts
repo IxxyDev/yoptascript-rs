@@ -11,6 +11,60 @@ import { resolveServerPath } from "./serverResolver.js";
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  activateDebugger(context);
+  activateLanguageServer(context);
+}
+
+function activateDebugger(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.debug.registerDebugConfigurationProvider("yoptascript", {
+      resolveDebugConfiguration(_folder, config) {
+        if (!config.type && !config.request && !config.name) {
+          const editor = vscode.window.activeTextEditor;
+          if (editor?.document.languageId !== "yoptascript") {
+            void vscode.window.showErrorMessage(
+              "YoptaScript: откройте .yopta-файл, чтобы начать отладку."
+            );
+            return undefined;
+          }
+          return {
+            type: "yoptascript",
+            request: "launch",
+            name: "Отладка YoptaScript",
+            program: editor.document.uri.fsPath,
+            stopOnEntry: false
+          };
+        }
+        return config;
+      }
+    }),
+    vscode.debug.registerDebugAdapterDescriptorFactory("yoptascript", {
+      createDebugAdapterDescriptor() {
+        const config = vscode.workspace.getConfiguration("yoptascript");
+        const resolved = resolveServerPath({
+          extensionPath: context.extensionPath,
+          configuredPath: config.get<string>("dap.path"),
+          platform: process.platform,
+          arch: process.arch,
+          pathEnv: process.env.PATH,
+          fileExists: existsSync,
+          binaryBaseName: "yps-dap"
+        });
+        if (!resolved) {
+          void vscode.window.showErrorMessage(
+            "YoptaScript: не найден отладчик yps-dap. Укажите путь к бинарю в настройке " +
+              "yoptascript.dap.path, либо соберите его из исходников " +
+              "(cargo build --release -p yps-dap) и добавьте в PATH."
+          );
+          return undefined;
+        }
+        return new vscode.DebugAdapterExecutable(resolved.path);
+      }
+    })
+  );
+}
+
+function activateLanguageServer(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration("yoptascript");
   const configuredPath = config.get<string>("server.path");
 

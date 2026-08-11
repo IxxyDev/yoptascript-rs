@@ -11,32 +11,35 @@ const here = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = join(here, "..");
 const repoRoot = join(extensionRoot, "..", "..");
 
-console.log("[package:local] building yps-lsp (cargo build --release -p yps-lsp)...");
-execFileSync("cargo", ["build", "--release", "-p", "yps-lsp"], {
-  cwd: repoRoot,
-  stdio: "inherit"
-});
+const BINARIES = ["yps-lsp", "yps-dap"];
 
-const builtBinary = join(
-  repoRoot,
-  "target",
-  "release",
-  process.platform === "win32" ? "yps-lsp.exe" : "yps-lsp"
-);
-if (!existsSync(builtBinary)) {
-  console.error(`[package:local] expected built binary at ${builtBinary}, but it is missing`);
-  process.exit(1);
-}
+for (const binary of BINARIES) {
+  console.log(`[package:local] building ${binary} (cargo build --release -p ${binary})...`);
+  execFileSync("cargo", ["build", "--release", "-p", binary], {
+    cwd: repoRoot,
+    stdio: "inherit"
+  });
 
-const destRelative = bundledBinaryRelativePath(process.platform, process.arch);
-const destPath = join(extensionRoot, destRelative);
-mkdirSync(dirname(destPath), { recursive: true });
-copyFileSync(builtBinary, destPath);
-if (process.platform !== "win32") {
-  chmodSync(destPath, 0o755);
+  const builtBinary = join(
+    repoRoot,
+    "target",
+    "release",
+    bundledBinaryFileName(process.platform, binary)
+  );
+  if (!existsSync(builtBinary)) {
+    console.error(`[package:local] expected built binary at ${builtBinary}, but it is missing`);
+    process.exit(1);
+  }
+
+  const destRelative = bundledBinaryRelativePath(process.platform, process.arch, binary);
+  const destPath = join(extensionRoot, destRelative);
+  mkdirSync(dirname(destPath), { recursive: true });
+  copyFileSync(builtBinary, destPath);
+  if (process.platform !== "win32") {
+    chmodSync(destPath, 0o755);
+  }
+  console.log(`[package:local] copied ${builtBinary} -> ${destPath}`);
 }
-console.log(`[package:local] copied ${builtBinary} -> ${destPath}`);
-console.log(`[package:local] bundled binary name: ${bundledBinaryFileName(process.platform)}`);
 
 console.log("[package:local] running vsce package...");
 execFileSync("npx", ["vsce", "package", "--no-dependencies"], {

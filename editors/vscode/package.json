@@ -1,7 +1,7 @@
 {
   "name": "yoptascript",
   "displayName": "YoptaScript",
-  "description": "YoptaScript language support: syntax highlighting and language server (diagnostics, hover, completion, outline, formatting, go-to-definition, rename).",
+  "description": "YoptaScript language support: syntax highlighting, language server (diagnostics, hover, completion, outline, formatting, go-to-definition, rename) and debugger (breakpoints, stepping, variables).",
   "version": "1.11.1",
   "publisher": "ixxydev",
   "license": "MIT OR Apache-2.0",
@@ -19,7 +19,8 @@
   "icon": "icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onLanguage:yoptascript"
+    "onLanguage:yoptascript",
+    "onDebugResolve:yoptascript"
   ],
   "contributes": {
     "languages": [
@@ -47,6 +48,61 @@
         "path": "./syntaxes/yoptascript.tmLanguage.json"
       }
     ],
+    "breakpoints": [
+      {
+        "language": "yoptascript"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "yoptascript",
+        "label": "YoptaScript",
+        "languages": [
+          "yoptascript"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Путь к .yopta-файлу для отладки.",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Остановиться на первом операторе программы.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "yoptascript",
+            "request": "launch",
+            "name": "Отладка YoptaScript",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "YoptaScript: запуск текущего файла",
+            "description": "Отладка активного .yopta-файла",
+            "body": {
+              "type": "yoptascript",
+              "request": "launch",
+              "name": "Отладка YoptaScript",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          }
+        ]
+      }
+    ],
     "configurationDefaults": {
       "[yoptascript]": {
         "editor.unicodeHighlight.ambiguousCharacters": false,
@@ -61,6 +117,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the yps-lsp language server executable. Leave empty to use the binary bundled with the extension (if any), then fall back to searching PATH."
+        },
+        "yoptascript.dap.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the yps-dap debug adapter executable. Leave empty to use the binary bundled with the extension (if any), then fall back to searching PATH."
         },
         "yoptascript.trace.server": {
           "type": "string",

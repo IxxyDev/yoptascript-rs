@@ -13,6 +13,11 @@ test("bundledBinaryFileName appends .exe only on win32", () => {
   assert.equal(bundledBinaryFileName("linux"), "yps-lsp");
 });
 
+test("bundledBinaryFileName honors a custom binary base name", () => {
+  assert.equal(bundledBinaryFileName("win32", "yps-dap"), "yps-dap.exe");
+  assert.equal(bundledBinaryFileName("darwin", "yps-dap"), "yps-dap");
+});
+
 test("bundledBinaryRelativePath maps platform-arch to bin/<platform>-<arch>/<binary>", () => {
   assert.equal(
     bundledBinaryRelativePath("darwin", "arm64"),
@@ -23,6 +28,41 @@ test("bundledBinaryRelativePath maps platform-arch to bin/<platform>-<arch>/<bin
     bundledBinaryRelativePath("linux", "x64"),
     join("bin", "linux-x64", "yps-lsp")
   );
+});
+
+test("bundledBinaryRelativePath honors a custom binary base name", () => {
+  assert.equal(
+    bundledBinaryRelativePath("darwin", "arm64", "yps-dap"),
+    join("bin", "darwin-arm64", "yps-dap")
+  );
+  assert.equal(bundledBinaryRelativePath("win32", "x64", "yps-dap"), "bin\\win32-x64\\yps-dap.exe");
+});
+
+test("resolveServerPath resolves an alternate binary from the bundled directory and PATH", () => {
+  const bundled = join("/ext", "bin", "darwin-arm64", "yps-dap");
+  const onPath = join("/usr/bin", "yps-dap");
+
+  const fromBundle = resolveServerPath({
+    extensionPath: "/ext",
+    configuredPath: undefined,
+    platform: "darwin",
+    arch: "arm64",
+    pathEnv: "/usr/bin",
+    fileExists: (p) => p === bundled,
+    binaryBaseName: "yps-dap"
+  });
+  const fromPath = resolveServerPath({
+    extensionPath: "/ext",
+    configuredPath: undefined,
+    platform: "darwin",
+    arch: "arm64",
+    pathEnv: "/usr/bin",
+    fileExists: (p) => p === onPath,
+    binaryBaseName: "yps-dap"
+  });
+
+  assert.deepEqual(fromBundle, { path: bundled, source: "bundled" });
+  assert.deepEqual(fromPath, { path: onPath, source: "path" });
 });
 
 test("resolveServerPath prefers the configured path when set", () => {
