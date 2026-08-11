@@ -35,7 +35,7 @@ jobs:
         with:
           cache-on-failure: true
 
-      - run: cargo build --release --locked -p yps-cli -p yps-lsp --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p yps-cli -p yps-lsp -p yps-dap --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
@@ -45,9 +45,10 @@ jobs:
           stage=$(mktemp -d)
           cp "target/${{ matrix.target }}/release/yps-cli" "$stage/yps"
           cp "target/${{ matrix.target }}/release/yps-lsp" "$stage/yps-lsp"
-          chmod +x "$stage/yps" "$stage/yps-lsp"
+          cp "target/${{ matrix.target }}/release/yps-dap" "$stage/yps-dap"
+          chmod +x "$stage/yps" "$stage/yps-lsp" "$stage/yps-dap"
           archive="yps-${{ matrix.target }}.tar.gz"
-          tar -C "$stage" -czf "$archive" yps yps-lsp
+          tar -C "$stage" -czf "$archive" yps yps-lsp yps-dap
           shasum -a 256 "$archive" > "$archive.sha256"
 
       - name: Package (windows)
@@ -57,6 +58,7 @@ jobs:
           $stage = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "stage")
           Copy-Item "target/${{ matrix.target }}/release/yps-cli.exe" (Join-Path $stage "yps.exe")
           Copy-Item "target/${{ matrix.target }}/release/yps-lsp.exe" (Join-Path $stage "yps-lsp.exe")
+          Copy-Item "target/${{ matrix.target }}/release/yps-dap.exe" (Join-Path $stage "yps-dap.exe")
           $archive = "yps-${{ matrix.target }}.zip"
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
