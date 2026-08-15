@@ -7,6 +7,8 @@ pub(crate) enum Helper {
     Sleep,
     ReadLine,
     ReadAll,
+    Round,
+    Hypot,
 }
 
 impl Helper {
@@ -19,6 +21,8 @@ impl Helper {
             Self::Sleep => "__ypsSleep",
             Self::ReadLine => "__ypsReadLine",
             Self::ReadAll => "__ypsReadAll",
+            Self::Round => "__ypsRound",
+            Self::Hypot => "__ypsHypot",
         }
     }
 
@@ -31,6 +35,8 @@ impl Helper {
             Self::Sleep => SLEEP_SRC,
             Self::ReadLine => READ_LINE_SRC,
             Self::ReadAll => READ_ALL_SRC,
+            Self::Round => ROUND_SRC,
+            Self::Hypot => HYPOT_SRC,
         }
     }
 
@@ -90,6 +96,27 @@ const SLEEP_SRC: &str = r"function __ypsSleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }";
 
+/// `Math.round` в JS округляет половины к +бесконечности (`Math.round(-1.5) === -1`),
+/// а `f64::round` в интерпретаторе — от нуля (`(-1.5).round() == -2.0`). Шим повторяет
+/// семантику интерпретатора: знак отдельно, модуль округляется вверх на половине.
+const ROUND_SRC: &str = r"function __ypsRound(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return n;
+  return Math.sign(n) * Math.round(Math.abs(n));
+}";
+
+/// Нативный `Math.hypot` защищён от переполнения, а `Матан.гипотенуза` интерпретатора
+/// считает наивный `sqrt(Σxᵢ²)` и потому даёт `Infinity` уже на `1e200, 1e200`.
+/// Шим повторяет наивную формулу и порядок суммирования интерпретатора.
+const HYPOT_SRC: &str = r"function __ypsHypot(...args) {
+  let sum = 0;
+  for (const a of args) {
+    const n = Number(a);
+    sum += n * n;
+  }
+  return Math.sqrt(sum);
+}";
+
 pub(crate) const STDIN_SRC: &str = r#"let __ypsStdinText = null;
 let __ypsStdinPos = 0;
 function __ypsStdin() {
@@ -137,13 +164,6 @@ pub(crate) enum Builtin {
 pub(crate) fn lookup(name: &str) -> Option<Builtin> {
     let mapped = match name {
         "сказать" => Builtin::Plain("console.log"),
-        "сказать.ошибка" => Builtin::Plain("console.error"),
-        "сказать.предупреждение" => Builtin::Plain("console.warn"),
-        "сказать.инфо" => Builtin::Plain("console.info"),
-        "сказать.отладка" => Builtin::Plain("console.debug"),
-        "сказать.таблица" => Builtin::Plain("console.table"),
-        "сказать.время" => Builtin::Plain("console.time"),
-        "сказать.времяСтоп" => Builtin::Plain("console.timeEnd"),
         "длина" => Builtin::Length,
         "тип" => Builtin::Helper(Helper::Typeof),
         "число" => Builtin::Plain("Number"),
@@ -164,13 +184,91 @@ pub(crate) fn lookup(name: &str) -> Option<Builtin> {
         "сОчередить" => Builtin::Plain("queueMicrotask"),
         "прочестьСтроку" => Builtin::Helper(Helper::ReadLine),
         "прочестьВсё" => Builtin::Helper(Helper::ReadAll),
-        _ => return None,
+        _ => {
+            let (namespace, member) = name.split_once('.')?;
+            return namespace_member(namespace, member);
+        }
     };
     Some(mapped)
 }
 
-pub(crate) const CONSOLE_MEMBERS: &[&str] =
-    &["ошибка", "предупреждение", "инфо", "отладка", "таблица", "время", "времяСтоп"];
+pub(crate) fn namespace_member(namespace: &str, property: &str) -> Option<Builtin> {
+    let js = match (namespace, property) {
+        ("Матан", "округлить") => return Some(Builtin::Helper(Helper::Round)),
+        ("Матан", "гипотенуза") => return Some(Builtin::Helper(Helper::Hypot)),
+        ("сказать", "ошибка") => "console.error",
+        ("сказать", "предупреждение") => "console.warn",
+        ("сказать", "инфо") => "console.info",
+        ("сказать", "отладка") => "console.debug",
+        ("сказать", "таблица") => "console.table",
+        ("сказать", "время") => "console.time",
+        ("сказать", "времяСтоп") => "console.timeEnd",
+        ("Матан", "ПИ") => "Math.PI",
+        ("Матан", "Е") => "Math.E",
+        ("Матан", "ЛН2") => "Math.LN2",
+        ("Матан", "ЛН10") => "Math.LN10",
+        ("Матан", "ЛОГ2Е") => "Math.LOG2E",
+        ("Матан", "ЛОГ10Е") => "Math.LOG10E",
+        ("Матан", "КОРЕНЬ2") => "Math.SQRT2",
+        ("Матан", "КОРЕНЬ0_5") => "Math.SQRT1_2",
+        ("Матан", "пол") => "Math.floor",
+        ("Матан", "потолок") => "Math.ceil",
+        ("Матан", "модуль") => "Math.abs",
+        ("Матан", "мин") => "Math.min",
+        ("Матан", "макс") => "Math.max",
+        ("Матан", "степень") => "Math.pow",
+        ("Матан", "корень") => "Math.sqrt",
+        ("Матан", "рандом") => "Math.random",
+        ("Матан", "знак") => "Math.sign",
+        ("Матан", "обрезать") => "Math.trunc",
+        ("Матан", "лог") => "Math.log",
+        ("Матан", "синус") => "Math.sin",
+        ("Матан", "косинус") => "Math.cos",
+        ("Матан", "тангенс") => "Math.tan",
+        ("Матан", "арксинус") => "Math.asin",
+        ("Матан", "арккосинус") => "Math.acos",
+        ("Матан", "арктангенс") => "Math.atan",
+        ("Матан", "арктангенс2") => "Math.atan2",
+        ("Матан", "кубическийКорень") => "Math.cbrt",
+        ("Матан", "лог2") => "Math.log2",
+        ("Матан", "лог10") => "Math.log10",
+        ("Матан", "лог1п") => "Math.log1p",
+        ("Матан", "эксп") => "Math.exp",
+        ("Матан", "экспМ1") => "Math.expm1",
+        ("Матан", "гиперСинус") => "Math.sinh",
+        ("Матан", "гиперКосинус") => "Math.cosh",
+        ("Матан", "гиперТангенс") => "Math.tanh",
+        ("Матан", "аркГиперСинус") => "Math.asinh",
+        ("Матан", "аркГиперКосинус") => "Math.acosh",
+        ("Матан", "аркГиперТангенс") => "Math.atanh",
+        ("Матан", "дробь32") => "Math.fround",
+        ("Матан", "нулиСлева32") => "Math.clz32",
+        ("Матан", "умножить32") => "Math.imul",
+        ("Жсон", "разобрать") => "JSON.parse",
+        ("Жсон", "вСтроку") => "JSON.stringify",
+        ("Отражение", "получить") => "Reflect.get",
+        ("Отражение", "установить") => "Reflect.set",
+        ("Отражение", "есть") => "Reflect.has",
+        ("Отражение", "удалить") => "Reflect.deleteProperty",
+        ("Отражение", "прототипОт") => "Reflect.getPrototypeOf",
+        ("Отражение", "назначитьПрототип") => "Reflect.setPrototypeOf",
+        ("Отражение", "собственныеКлючи") => "Reflect.ownKeys",
+        ("Отражение", "определитьСвойство") => "Reflect.defineProperty",
+        ("Отражение", "описатьСвойство") => "Reflect.getOwnPropertyDescriptor",
+        ("Отражение", "расширяем") => "Reflect.isExtensible",
+        ("Отражение", "запретитьРасширение") => "Reflect.preventExtensions",
+        ("Отражение", "применить") => "Reflect.apply",
+        ("Отражение", "построить") => "Reflect.construct",
+        _ => return None,
+    };
+    Some(Builtin::Plain(js))
+}
+
+const SUPPORTED_NAMESPACES: &[&str] = &["Матан", "Жсон", "Отражение"];
+
+pub(crate) fn is_supported_namespace(name: &str) -> bool {
+    SUPPORTED_NAMESPACES.contains(&name)
+}
 
 const UNSUPPORTED_GLOBALS: &[&str] = &[
     "Матан",

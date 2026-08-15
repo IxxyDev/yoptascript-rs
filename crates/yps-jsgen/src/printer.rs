@@ -13,7 +13,9 @@ use yps_parser::{
 };
 
 use crate::TranspileError;
-use crate::builtins::{Builtin, CONSOLE_MEMBERS, Helper, STDIN_SRC, is_unsupported_global, lookup};
+use crate::builtins::{
+    Builtin, Helper, STDIN_SRC, is_supported_namespace, is_unsupported_global, lookup, namespace_member,
+};
 use crate::scope::collect_declared;
 
 const INDENT: &str = "  ";
@@ -729,9 +731,21 @@ impl Printer {
                 self.print_expr(index, 0);
                 self.write("]");
             }
-            Expr::Member { object, property, .. } => {
-                if let Some(name) = self.console_member(object, &property.name) {
-                    self.write(name);
+            Expr::Member { object, property, span } => {
+                match self.namespace_builtin(object, &property.name) {
+                    Some(Builtin::Helper(helper)) => {
+                        let name = self.helper(helper);
+                        self.write(name);
+                        return;
+                    }
+                    Some(Builtin::Plain(js) | Builtin::Construct(js)) => {
+                        self.write(js);
+                        return;
+                    }
+                    Some(Builtin::Length | Builtin::IsError) | None => {}
+                }
+                if let Some(namespace) = self.unknown_namespace_member(object, &property.name) {
+                    self.report_unknown_member(namespace, &property.name, *span);
                     return;
                 }
                 self.reject_date_namespace(object);
@@ -874,29 +888,44 @@ impl Printer {
 
     fn builtin_key<'a>(&self, callee: &'a Expr) -> Option<Cow<'a, str>> {
         match strip_grouping(callee) {
-            Expr::Identifier(id) if !self.declared.contains(&id.name) => Some(Cow::Borrowed(&id.name)),
-            Expr::Member { object, property, .. } => self.console_key(object, &property.name).map(Cow::Owned),
-            _ => None,
+            Expr::Member { object, property, .. } => self.namespace_key(object, &property.name).map(Cow::Owned),
+            other => self.free_namespace(other).map(Cow::Borrowed),
         }
     }
 
-    fn console_key(&self, object: &Expr, property: &str) -> Option<String> {
+    fn free_namespace<'a>(&self, object: &'a Expr) -> Option<&'a str> {
         match strip_grouping(object) {
-            Expr::Identifier(id)
-                if id.name == "сказать" && !self.declared.contains(&id.name) && CONSOLE_MEMBERS.contains(&property) =>
-            {
-                Some(format!("сказать.{property}"))
-            }
+            Expr::Identifier(id) if !self.declared.contains(&id.name) => Some(&id.name),
             _ => None,
         }
     }
 
-    fn console_member(&self, object: &Expr, property: &str) -> Option<&'static str> {
-        let key = self.console_key(object, property)?;
-        match lookup(&key)? {
-            Builtin::Plain(js) => Some(js),
-            _ => None,
+    fn namespace_key(&self, object: &Expr, property: &str) -> Option<String> {
+        let namespace = self.free_namespace(object)?;
+        namespace_member(namespace, property)?;
+        Some(format!("{namespace}.{property}"))
+    }
+
+    fn namespace_builtin(&self, object: &Expr, property: &str) -> Option<Builtin> {
+        namespace_member(self.free_namespace(object)?, property)
+    }
+
+    fn unknown_namespace_member<'a>(&self, object: &'a Expr, property: &str) -> Option<&'a str> {
+        let namespace = self.free_namespace(object)?;
+        if !is_supported_namespace(namespace) || namespace_member(namespace, property).is_some() {
+            return None;
         }
+        Some(namespace)
+    }
+
+    fn report_unknown_member(&mut self, namespace: &str, property: &str, span: Span) {
+        self.fail(
+            format!(
+                "у пространства имён '{namespace}' нет члена '{property}', поддерживаемого транспайлером в JS: \
+                 проверьте имя (регистр значим), само пространство имён поддерживается"
+            ),
+            span,
+        );
     }
 
     fn print_call(&mut self, callee: &Expr, piped: Option<&Expr>, args: &[Expr], span: Span) {
@@ -1599,6 +1628,96 @@ mod tests {
 
         let err = js_err("гыы б = захуярить Ц8Массив(4);\n");
         assert_contains(&err.message, "Ц8Массив");
+    }
+
+    #[test]
+    fn math_namespace_maps_to_js_math() {
+        let out = js("гыы п = Матан.ПИ;\nгыы к = Матан.КОРЕНЬ0_5;\n");
+        assert_contains(&out, "let п = Math.PI;");
+        assert_contains(&out, "let к = Math.SQRT1_2;");
+
+        let out = js("сказать(Матан.округлить(1.5));\n");
+        assert_contains(&out, "console.log(__ypsRound(1.5));");
+
+        let out = js("сказать(Матан.степень(2, 10));\n");
+        assert_contains(&out, "console.log(Math.pow(2, 10));");
+
+        let out = js("сказать(Матан.мин(3, 1, 2), Матан.гипотенуза(3, 4, 12));\n");
+        assert_contains(&out, "console.log(Math.min(3, 1, 2), __ypsHypot(3, 4, 12));");
+
+        let out = js("сказать(Матан.арктангенс2(1, 2));\n");
+        assert_contains(&out, "console.log(Math.atan2(1, 2));");
+
+        let out = js("сказать(Матан.умножить32(3, 4), Матан.нулиСлева32(1), Матан.дробь32(1.5));\n");
+        assert_contains(&out, "console.log(Math.imul(3, 4), Math.clz32(1), Math.fround(1.5));");
+    }
+
+    #[test]
+    fn json_namespace_maps_to_js_json() {
+        let out = js("гыы с = Жсон.вСтроку(о);\nгыы з = Жсон.разобрать(с);\n");
+        assert_contains(&out, "let с = JSON.stringify(о);");
+        assert_contains(&out, "let з = JSON.parse(с);");
+    }
+
+    #[test]
+    fn reflect_namespace_maps_to_js_reflect() {
+        let out = js(
+            "сказать(Отражение.получить(о, \"к\"));\nОтражение.установить(о, \"к\", 1);\nсказать(Отражение.есть(о, \"к\"), Отражение.собственныеКлючи(о));\n",
+        );
+        assert_contains(&out, "console.log(Reflect.get(о, \"к\"));");
+        assert_contains(&out, "Reflect.set(о, \"к\", 1);");
+        assert_contains(&out, "console.log(Reflect.has(о, \"к\"), Reflect.ownKeys(о));");
+    }
+
+    #[test]
+    fn supported_namespace_stays_unsupported_as_a_bare_value() {
+        let err = js_err("гыы м = Матан;\n");
+        assert_contains(&err.message, "Матан");
+        assert_contains(&err.message, "не поддерживается");
+
+        let err = js_err("сказать(Жсон);\n");
+        assert_contains(&err.message, "Жсон");
+    }
+
+    #[test]
+    fn unknown_member_of_a_supported_namespace_blames_the_member() {
+        let err = js_err("сказать(Отражение.нетТакого(1));\n");
+        assert_contains(&err.message, "Отражение");
+        assert_contains(&err.message, "нетТакого");
+        assert!(!err.message.contains("глобальный объект"), "message: {}", err.message);
+
+        let err = js_err("сказать(Матан.пи);\n");
+        assert_contains(&err.message, "Матан");
+        assert_contains(&err.message, "пи");
+        assert!(!err.message.contains("глобальный объект"), "message: {}", err.message);
+
+        let err = js_err("сказать(Жсон.нетТакого(1));\n");
+        assert_contains(&err.message, "Жсон");
+        assert_contains(&err.message, "нетТакого");
+    }
+
+    #[test]
+    fn round_and_hypot_use_shims_instead_of_native_math() {
+        let out = js("сказать(Матан.округлить(-1.5), Матан.округлить(1.5));\n");
+        assert_contains(&out, "console.log(__ypsRound(-1.5), __ypsRound(1.5));");
+        assert_contains(&out, "function __ypsRound(x) {");
+        assert!(!out.contains("console.log(Math.round"), "out: {out}");
+
+        let out = js("сказать(Матан.гипотенуза(1e200, 1e200));\n");
+        assert_contains(&out, "console.log(__ypsHypot(1e200, 1e200));");
+        assert_contains(&out, "function __ypsHypot(...args) {");
+        assert!(!out.contains("Math.hypot"), "out: {out}");
+
+        let out = js("гыы о = Матан.округлить;\nгыы г = Матан.гипотенуза;\n");
+        assert_contains(&out, "let о = __ypsRound;");
+        assert_contains(&out, "let г = __ypsHypot;");
+    }
+
+    #[test]
+    fn shadowed_namespace_is_not_rewritten() {
+        let out = js("гыы Матан = { ПИ: 1 };\nсказать(Матан.ПИ);\n");
+        assert_contains(&out, "let Матан = { ПИ: 1 };");
+        assert_contains(&out, "console.log(Матан.ПИ);");
     }
 
     #[test]

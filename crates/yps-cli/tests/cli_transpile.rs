@@ -50,13 +50,28 @@ fn transpile_writes_output_file() {
 }
 
 #[test]
-fn transpile_reports_unsupported_global_with_position() {
-    let path = write_temp("unsupported.yopta", "сказать(Матан.пи);\n");
+fn transpile_reports_unknown_member_of_a_supported_namespace() {
+    let path = write_temp("unknown_member.yopta", "сказать(Матан.пи);\n");
     let output =
         Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Матан"), "stderr: {stderr}");
+    assert!(stderr.contains("пи"), "stderr: {stderr}");
+    assert!(stderr.contains("нет члена"), "stderr: {stderr}");
+    assert!(!stderr.contains("глобальный объект"), "stderr: {stderr}");
+    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn transpile_reports_unsupported_global_with_position() {
+    let path = write_temp("unsupported.yopta", "сказать(Помойка.ключи(о));\n");
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Помойка"), "stderr: {stderr}");
     assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
     let _ = fs::remove_file(&path);
 }
@@ -135,6 +150,46 @@ fn typeof_of_a_class_matches_interpreter_under_node() {
     assert_node_matches_interpreter(
         "typeof_class",
         "клёво К {}\nйопта ф() {}\nсказать(тип(К));\nсказать(тип(ф));\nсказать(тип(Косяк));\n",
+    );
+}
+
+#[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
+fn math_namespace_matches_interpreter_under_node() {
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
+    assert_node_matches_interpreter(
+        "math_ns",
+        "сказать(Матан.ПИ, Матан.КОРЕНЬ2);\nсказать(Матан.округлить(1.5), Матан.пол(-1.2), Матан.потолок(1.2));\nсказать(Матан.степень(2, 10), Матан.корень(144), Матан.модуль(-7));\nсказать(Матан.мин(3, 1, 2), Матан.макс(3, 1, 2), Матан.гипотенуза(3, 4));\nсказать(Матан.арктангенс2(1, 1), Матан.знак(-5), Матан.обрезать(4.9));\nсказать(Матан.умножить32(3, 4), Матан.нулиСлева32(1), Матан.дробь32(1.5));\n",
+    );
+}
+
+#[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
+fn math_round_and_hypot_shims_match_interpreter_under_node() {
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
+    assert_node_matches_interpreter(
+        "math_round_hypot",
+        "сказать(Матан.округлить(-1.5), Матан.округлить(-0.5), Матан.округлить(-2.5));\nсказать(Матан.округлить(1.5), Матан.округлить(0.5), Матан.округлить(2.5));\nсказать(Матан.округлить(-1.4), Матан.округлить(-1.6), Матан.округлить(0));\nсказать(Матан.гипотенуза(1e200, 1e200));\nсказать(Матан.гипотенуза(3e150, 4e150), Матан.гипотенуза(3, 4));\nсказать(Матан.гипотенуза(1e-200, 1e-200));\n",
+    );
+}
+
+#[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
+fn json_namespace_matches_interpreter_under_node() {
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
+    assert_node_matches_interpreter(
+        "json_ns",
+        "гыы о = { а: 1, б: [1, 2, 3], в: \"текст\" };\nгыы с = Жсон.вСтроку(о);\nсказать(с);\nгыы з = Жсон.разобрать(с);\nсказать(з.а, з.в, Жсон.вСтроку(з.б));\n",
+    );
+}
+
+#[test]
+#[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
+fn reflect_namespace_matches_interpreter_under_node() {
+    assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
+    assert_node_matches_interpreter(
+        "reflect_ns",
+        "гыы о = { а: 1, б: 2 };\nсказать(Отражение.получить(о, \"а\"));\nОтражение.установить(о, \"в\", 3);\nсказать(Отражение.есть(о, \"в\"), Отражение.есть(о, \"г\"));\nсказать(длина(Отражение.собственныеКлючи(о)));\nОтражение.удалить(о, \"б\");\nсказать(Отражение.есть(о, \"б\"), Отражение.расширяем(о));\n",
     );
 }
 
