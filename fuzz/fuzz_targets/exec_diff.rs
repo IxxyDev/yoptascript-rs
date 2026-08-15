@@ -11,11 +11,11 @@ use yps_parser::ast::Program;
 
 const TIMER_MARKERS: [&str; 3] = ["чутка", "интервал", "подождать"];
 
-const KNOWN_DIVERGENCES: [&str; 2] = ["найтиВсе", "RegExp"];
+const KNOWN_DIVERGENCES: [&str; 0] = [];
 
 const KNOWN_VM_ONLY_ERRORS: [&str; 1] = ["недопустимая цель присваивания в VM"];
 
-const KNOWN_INTERP_ONLY_ERRORS: [&str; 1] = ["Операция требует числа"];
+const KNOWN_INTERP_ONLY_ERRORS: [&str; 0] = [];
 
 const STEP_LIMIT: u64 = 1_000_000;
 
