@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use yps_lexer::Span;
 
 use crate::error::VmError;
@@ -25,7 +28,35 @@ pub fn is_builtin(name: &str) -> bool {
             | "сОчередить"
             | "отменаЧутки"
             | "отменаИнтервала"
+            | "RegExp"
     )
+}
+
+fn construct_regexp(args: &[Value], span: Span) -> Result<Value, VmError> {
+    let Some(first) = args.first() else {
+        return Err(VmError::new("RegExp требует pattern", span));
+    };
+    let flags_override = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.to_string()),
+        None | Some(Value::Undefined) | Some(Value::Null) => None,
+        Some(other) => {
+            return Err(VmError::new(format!("RegExp ожидает строку flags, получено '{}'", other.type_name()), span));
+        }
+    };
+    let (pattern, flags) = match first {
+        Value::Str(s) => (Rc::clone(s), flags_override.unwrap_or_default()),
+        Value::RegExp { pattern, flags, .. } => {
+            (Rc::clone(pattern), flags_override.unwrap_or_else(|| flags.to_string()))
+        }
+        other => {
+            return Err(VmError::new(
+                format!("RegExp ожидает строку или regex как pattern, получено '{}'", other.type_name()),
+                span,
+            ));
+        }
+    };
+    let compiled = crate::regexp::compile(&pattern, &flags, span)?;
+    Ok(Value::RegExp { pattern, flags: Rc::from(flags.as_str()), compiled, last_index: Rc::new(RefCell::new(0)) })
 }
 
 pub fn call_builtin(out: &mut dyn std::io::Write, name: &str, args: Vec<Value>, span: Span) -> Result<Value, VmError> {
@@ -33,6 +64,7 @@ pub fn call_builtin(out: &mut dyn std::io::Write, name: &str, args: Vec<Value>, 
         return console_method(out, method, &args, span);
     }
     match name {
+        "RegExp" => construct_regexp(&args, span),
         "сказать" => {
             let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             let _ = writeln!(out, "{}", parts.join(" "));

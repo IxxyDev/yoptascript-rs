@@ -281,6 +281,10 @@ impl Vm {
                     let v = self.peek(0).clone();
                     self.stack.push(v);
                 }
+                Op::Pick(depth) => {
+                    let v = self.peek(depth as usize).clone();
+                    self.stack.push(v);
+                }
                 Op::Dup2 => {
                     let a = self.peek(1).clone();
                     let b = self.peek(0).clone();
@@ -1878,6 +1882,10 @@ impl Vm {
             let iv = iv.clone();
             return crate::bridge::host_iterate(self, &iv, span);
         }
+        if let Value::ForIter(rc) = src {
+            let rc = Rc::clone(rc);
+            return self.drain_for_iter(&rc, span);
+        }
         if let Some(values) = self.user_iterator_values(src, span)? {
             return Ok(values);
         }
@@ -2849,6 +2857,20 @@ impl Vm {
             Value::Host(iv) => {
                 let iv = iv.clone();
                 crate::bridge::host_member_set(self, &iv, name, &value, span)?;
+                self.stack.push(value);
+                Ok(())
+            }
+            Value::RegExp { last_index, .. } if matches!(name, "последнийИндекс" | "lastIndex") => {
+                let n = match &value {
+                    Value::Number(n) => *n,
+                    other => {
+                        return Err(VmError::new(
+                            format!("lastIndex требует число, получено '{}'", other.type_name()),
+                            span,
+                        ));
+                    }
+                };
+                *last_index.borrow_mut() = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
                 self.stack.push(value);
                 Ok(())
             }

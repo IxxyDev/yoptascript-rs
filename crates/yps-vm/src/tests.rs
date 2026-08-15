@@ -706,6 +706,142 @@ fn regex_test_exec_tostring() {
 }
 
 #[test]
+fn match_all_iterator_is_iterable() {
+    let src = r#"
+        го (м сашаГрей "foo=1, bar=2".найтиВсе(/(\w+)=(\d+)/g)) {
+            сказать(м["1"] + "=" + м["2"]);
+        }
+    "#;
+    let out = run(src);
+    assert_eq!(out, "foo=1\nbar=2\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn match_all_iterator_spreads_and_destructures() {
+    let src = r#"
+        гыы все = [..."x=7, y=8".найтиВсе(/(\w+)=(\d+)/g)];
+        сказать(все.длина);
+        сказать(все[0]["0"]);
+        сказать(все[1]["2"]);
+        гыы [первый, второй] = [..."a=1, b=2".найтиВсе(/(\w+)=(\d+)/g)];
+        сказать(первый["1"] + второй["1"]);
+    "#;
+    let out = run(src);
+    assert_eq!(out, "2\nx=7\n8\nab\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn dynamic_regexp_constructor() {
+    assert_eq!(run(r#"сказать(RegExp("\\d+", "g").флаги);"#), "g\n");
+    assert_eq!(run(r#"сказать("год 2026 век 21".совпадает(RegExp("\\d+", "g")));"#), "[2026, 21]\n");
+    assert_eq!(run(r#"сказать(RegExp(/ab/i).вСтроку());"#), "/ab/i\n");
+    assert_eq!(run(r#"сказать(RegExp(/ab/i, "g").вСтроку());"#), "/ab/g\n");
+    assert!(run_err(r#"RegExp(42);"#).contains("RegExp ожидает строку или regex"));
+}
+
+#[test]
+fn regexp_last_index_is_assignable() {
+    let src = r#"
+        гыы р = /\d/g;
+        р.последнийИндекс = 2;
+        сказать(р.найти("a1b2")["0"]);
+        сказать(р.последнийИндекс);
+    "#;
+    let out = run(src);
+    assert_eq!(out, "2\n4\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn destructuring_assignment_expressions() {
+    let src = r#"
+        гыы а = 0; гыы б = 0; гыы остаток = [];
+        [а, б] = [1, 2];
+        сказать(а + " " + б);
+        [а, ...остаток] = [10, 20, 30];
+        сказать(а);
+        сказать(остаток);
+        гыы п = 0;
+        [п = 9] = [];
+        сказать(п);
+        [п = 9] = [4];
+        сказать(п);
+        гыы об = {};
+        [об.поле] = [77];
+        сказать(об.поле);
+        гыы масс = [0, 0];
+        [масс[1], масс[0]] = ["a", "b"];
+        сказать(масс);
+    "#;
+    let out = run(src);
+    assert_eq!(out, "1 2\n10\n[20, 30]\n9\n4\n77\n[b, a]\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn destructuring_assignment_objects_and_nesting() {
+    let src = r#"
+        гыы х = 0; гыы у = 0;
+        ({х, у} = {х: 5, у: 6});
+        сказать(х + " " + у);
+        гыы пр = 0; гыы ост = {};
+        ({пр: пр, ...ост} = {пр: 1, ещё: 2, третий: 3});
+        сказать(пр);
+        сказать(ост);
+        гыы вложА = 0; гыы вложБ = 0;
+        [[вложА], {к: вложБ}] = [[8], {к: 9}];
+        сказать(вложА + " " + вложБ);
+        гыы клч = "динам"; гыы знач = 0;
+        ({[клч]: знач} = {динам: 42});
+        сказать(знач);
+        гыы а = 0; гыы б = 0;
+        сказать([а, б] = [7, 8]);
+        (а) = 100;
+        сказать(а);
+    "#;
+    let out = run(src);
+    assert_eq!(out, "5 6\n1\n{ещё: 2, третий: 3}\n8 9\n42\n[7, 8]\n100\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn destructuring_assignment_inside_expressions_and_scopes() {
+    let src = r#"
+        йопта ф() {
+            гыы л = 1;
+            гыы а = 0; гыы б = 0; гыы ост = {};
+            гыы к1 = "п1"; гыы к2 = "п2";
+            сказать(л + 1);
+            ({[к1]: а, [к2]: б, ...ост} = {п1: 1, п2: 2, п3: 3, п4: 4});
+            сказать(а + " " + б);
+            сказать(ост);
+            гыы масс = [0, 0];
+            сказать(1 + ([масс[0], масс[1]] = [3, 4]).длина);
+            сказать(масс);
+            гыы сч = 0;
+            йопта поб() { сч += 1; отвечаю "к" + сч; }
+            гыы з1 = 0; гыы ост2 = {};
+            ({[поб()]: з1, ...ост2} = {к1: 11, к2: 22});
+            сказать(з1);
+            сказать(ост2);
+            сказать(сч);
+        }
+        ф();
+    "#;
+    let out = run(src);
+    assert_eq!(out, "2\n1 2\n{п3: 3, п4: 4}\n3\n[3, 4]\n11\n{к2: 22}\n1\n");
+    assert_eq!(run_interp(src), out);
+}
+
+#[test]
+fn invalid_assignment_targets_still_rejected() {
+    assert!(run_err("5 = 1;").contains("недопустимая цель присваивания"));
+    assert!(run_err("йопта ф() { отвечаю 1; } ф() = 1;").contains("недопустимая цель присваивания"));
+}
+
+#[test]
 fn try_catch_finally_paths() {
     let src = r#"
         хапнуть {

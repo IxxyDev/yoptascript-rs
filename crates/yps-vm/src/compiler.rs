@@ -7,13 +7,18 @@ use yps_parser::ast::{
 };
 
 use crate::chunk::{
-    Chunk, ClassBlueprint, ClassMemberDesc, Constant, FnProto, ImportBinding, ImportRequest, MemberKind, Op, Slot,
-    TemplateStrings, UpvalueDesc,
+    Chunk, ClassBlueprint, ClassMemberDesc, ConstIdx, Constant, FnProto, ImportBinding, ImportRequest, MemberKind, Op,
+    Slot, TemplateStrings, UpvalueDesc,
 };
 use crate::error::CompileError;
 use crate::value::{string_to_number, to_int32, to_uint32};
 
 const THIS_LOCAL: &str = "\0this";
+
+enum DestructKey {
+    Const(ConstIdx),
+    Held(u32),
+}
 
 struct Local {
     name: String,
@@ -1871,8 +1876,130 @@ impl Compiler {
                 self.emit(Op::SetProp(idx), span);
                 Ok(())
             }
+            Expr::Grouping { expr, .. } => self.compile_assign(expr, rhs, span),
+            Expr::Literal(Literal::Array { .. }) | Expr::Literal(Literal::Object { .. }) => {
+                self.compile_expr(rhs)?;
+                self.emit(Op::Dup, span);
+                self.compile_destructure_target(lhs, span)?;
+                Ok(())
+            }
             _ => Err(CompileError::new("недопустимая цель присваивания в VM", span)),
         }
+    }
+
+    fn compile_destructure_target(&mut self, target: &Expr, span: Span) -> Result<(), CompileError> {
+        match target {
+            Expr::Grouping { expr, .. } => self.compile_destructure_target(expr, span),
+            Expr::Identifier(id) => {
+                self.compile_var_set(&id.name, span)?;
+                self.emit(Op::Pop, span);
+                Ok(())
+            }
+            Expr::Member { object, property, .. } => {
+                self.compile_expr(object)?;
+                self.emit(Op::Pick(1), span);
+                let idx = self.str_const(&property.name);
+                self.emit(Op::SetProp(idx), span);
+                self.emit(Op::Pop, span);
+                self.emit(Op::Pop, span);
+                Ok(())
+            }
+            Expr::Index { object, index, .. } => {
+                self.compile_expr(object)?;
+                self.compile_expr(index)?;
+                self.emit(Op::Pick(2), span);
+                self.emit(Op::SetIndex, span);
+                self.emit(Op::Pop, span);
+                self.emit(Op::Pop, span);
+                Ok(())
+            }
+            Expr::Literal(Literal::Array { elements, .. }) => self.compile_destructure_array(elements, span),
+            Expr::Literal(Literal::Object { entries, .. }) => self.compile_destructure_object(entries, span),
+            _ => Err(CompileError::new("недопустимая цель присваивания в VM", span)),
+        }
+    }
+
+    fn compile_destructure_array(&mut self, elements: &[Expr], span: Span) -> Result<(), CompileError> {
+        self.emit(Op::NormalizeIterable, span);
+        for (i, elem) in elements.iter().enumerate() {
+            if let Expr::Spread { expr, .. } = elem {
+                self.emit(Op::Dup, span);
+                self.emit(Op::ArrayRest(i as u32), span);
+                self.compile_destructure_target(expr, span)?;
+                break;
+            }
+            self.emit(Op::Dup, span);
+            let idx = self.cur().chunk.add_constant(Constant::Number(i as f64));
+            self.emit(Op::Constant(idx), span);
+            self.emit(Op::GetIndex, span);
+            self.compile_destructure_with_default(elem, span)?;
+        }
+        self.emit(Op::Pop, span);
+        Ok(())
+    }
+
+    fn compile_destructure_object(&mut self, entries: &[ObjectEntry], span: Span) -> Result<(), CompileError> {
+        let mut held = 0u32;
+        let mut used_keys: Vec<DestructKey> = Vec::new();
+        for entry in entries {
+            match entry {
+                ObjectEntry::Property { key, value: target } => {
+                    match key {
+                        PropKey::Identifier(id) => {
+                            let kidx = self.str_const(&id.name);
+                            self.emit(Op::Pick(held), span);
+                            self.emit(Op::GetProp(kidx), span);
+                            used_keys.push(DestructKey::Const(kidx));
+                        }
+                        PropKey::Computed(key_expr) => {
+                            self.compile_expr(key_expr)?;
+                            held += 1;
+                            self.emit(Op::Pick(held), span);
+                            self.emit(Op::Pick(1), span);
+                            self.emit(Op::GetIndex, span);
+                            used_keys.push(DestructKey::Held(held));
+                        }
+                    }
+                    self.compile_destructure_with_default(target, span)?;
+                }
+                ObjectEntry::Spread(target) => {
+                    self.emit(Op::Pick(held), span);
+                    for (pushed, key) in used_keys.iter().enumerate() {
+                        match key {
+                            DestructKey::Const(idx) => self.emit(Op::Constant(*idx), span),
+                            DestructKey::Held(pos) => self.emit(Op::Pick(held - pos + 1 + pushed as u32), span),
+                        };
+                    }
+                    self.emit(Op::ObjectRest(used_keys.len() as u32), span);
+                    self.compile_destructure_target(target, span)?;
+                }
+                ObjectEntry::Getter { .. } | ObjectEntry::Setter { .. } => {
+                    return Err(CompileError::new(
+                        "Геттеры и сеттеры недопустимы в цели деструктурирующего присваивания",
+                        span,
+                    ));
+                }
+            }
+        }
+        for _ in 0..=held {
+            self.emit(Op::Pop, span);
+        }
+        Ok(())
+    }
+
+    fn compile_destructure_with_default(&mut self, target: &Expr, span: Span) -> Result<(), CompileError> {
+        if let Expr::Binary { op: BinaryOp::Assign, lhs, rhs, .. } = target {
+            self.emit(Op::Dup, span);
+            self.emit(Op::Undefined, span);
+            self.emit(Op::StrictEq, span);
+            let skip = self.emit(Op::JumpIfFalse(0), span);
+            self.emit(Op::Pop, span);
+            self.compile_expr(rhs)?;
+            let here = self.cur().chunk.code.len();
+            self.cur().chunk.patch_jump(skip, here);
+            return self.compile_destructure_target(lhs, span);
+        }
+        self.compile_destructure_target(target, span)
     }
 
     fn compile_compound_assign(
