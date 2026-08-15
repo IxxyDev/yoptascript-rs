@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-08-15
+
+### Added
+
+- **`yps transpile` namespace support** — `Матан`, `Жсон` and `Отражение`
+  now transpile to native `Math`, `JSON` and `Reflect` instead of always
+  raising `TranspileError`, covering all Math constants/methods, both
+  JSON methods and all thirteen Reflect methods. `округлить` and
+  `гипотенуза` route through small JS shims (`__ypsRound`/`__ypsHypot`)
+  so half-value rounding and large-magnitude sums match the interpreter's
+  Rust semantics exactly instead of silently diverging from bare
+  `Math.round`/`Math.hypot`. Referencing an unknown member on one of
+  these namespaces now reports that the member is unsupported, distinct
+  from the "namespace not supported" diagnostic used for `Карта` and
+  friends.
+
 ## [1.12.0] - 2026-08-11
 
 ### Added
