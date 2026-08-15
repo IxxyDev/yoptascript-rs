@@ -22,20 +22,8 @@ pub(super) enum RelOp {
 }
 
 impl Interpreter {
-    pub(super) fn numeric_op(
-        &mut self,
-        left: &Value,
-        right: &Value,
-        span: Span,
-        f: fn(f64, f64) -> f64,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(f(*a, *b))),
-            _ => Err(RuntimeError::new(
-                format!("Операция требует числа, получено '{}' и '{}'", left.type_name(), right.type_name()),
-                span,
-            )),
-        }
+    pub(super) fn numeric_op(left: &Value, right: &Value, f: fn(f64, f64) -> f64) -> Value {
+        Value::Number(f(coercion::to_number(left), coercion::to_number(right)))
     }
 
     pub(super) fn compare_op(

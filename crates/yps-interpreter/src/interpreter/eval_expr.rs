@@ -642,11 +642,11 @@ impl Interpreter {
 
         match op {
             BinaryOp::Add => self.add_values(&left, &right, span),
-            BinaryOp::Sub => self.numeric_op(&left, &right, span, |a, b| a - b),
-            BinaryOp::Mul => self.numeric_op(&left, &right, span, |a, b| a * b),
-            BinaryOp::Div => self.numeric_op(&left, &right, span, |a, b| a / b),
-            BinaryOp::Mod => self.numeric_op(&left, &right, span, |a, b| a % b),
-            BinaryOp::Exp => self.numeric_op(&left, &right, span, |a, b| a.powf(b)),
+            BinaryOp::Sub => Ok(Self::numeric_op(&left, &right, |a, b| a - b)),
+            BinaryOp::Mul => Ok(Self::numeric_op(&left, &right, |a, b| a * b)),
+            BinaryOp::Div => Ok(Self::numeric_op(&left, &right, |a, b| a / b)),
+            BinaryOp::Mod => Ok(Self::numeric_op(&left, &right, |a, b| a % b)),
+            BinaryOp::Exp => Ok(Self::numeric_op(&left, &right, |a, b| a.powf(b))),
             BinaryOp::StrictEquals => Ok(Value::Boolean(left == right)),
             BinaryOp::StrictNotEquals => Ok(Value::Boolean(left != right)),
             BinaryOp::Equals => Ok(Value::Boolean(self.abstract_equals(&left, &right, span)?)),

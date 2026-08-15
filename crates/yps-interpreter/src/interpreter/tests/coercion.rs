@@ -94,6 +94,52 @@ fn add_numeric_and_mixed() {
 }
 
 #[test]
+fn arithmetic_operators_coerce_to_number() {
+    let interp = run_code(
+        r#"
+        гыы вычСтр = "5" - 2;
+        гыы умнБул = правда * 3;
+        гыы делСтр = "10" / "4";
+        гыы остСтр = "7" % 3;
+        гыы степСтр = "2" ** "10";
+        гыы вычЛож = лож - 1;
+        гыы умнНоль = ноль * 5;
+        гыы вычНеибу = неибу - 1;
+        гыы вычМусор = "abc" - 1;
+        гыы вычПусто = "" - 1;
+        "#,
+    );
+    assert_eq!(interp.get("вычСтр").unwrap(), Value::Number(3.0));
+    assert_eq!(interp.get("умнБул").unwrap(), Value::Number(3.0));
+    assert_eq!(interp.get("делСтр").unwrap(), Value::Number(2.5));
+    assert_eq!(interp.get("остСтр").unwrap(), Value::Number(1.0));
+    assert_eq!(interp.get("степСтр").unwrap(), Value::Number(1024.0));
+    assert_eq!(interp.get("вычЛож").unwrap(), Value::Number(-1.0));
+    assert_eq!(interp.get("умнНоль").unwrap(), Value::Number(0.0));
+    assert_eq!(interp.get("вычПусто").unwrap(), Value::Number(-1.0));
+    let Some(Value::Number(n)) = interp.get("вычНеибу") else { panic!("ожидалось число") };
+    assert!(n.is_nan());
+    let Some(Value::Number(n)) = interp.get("вычМусор") else { panic!("ожидалось число") };
+    assert!(n.is_nan());
+}
+
+#[test]
+fn bigint_arithmetic_unaffected_by_number_coercion() {
+    let interp = run_code(
+        r#"
+        гыы вычБиг = 5n - 2n;
+        гыы степБиг = 2n ** 3n;
+        гыы смеш = "нет";
+        хапнуть { гыы плохо = 5n - 2; } гоп (е) { смеш = е.message; }
+        "#,
+    );
+    assert_eq!(interp.get("вычБиг").unwrap(), Value::BigInt(3));
+    assert_eq!(interp.get("степБиг").unwrap(), Value::BigInt(8));
+    let Some(Value::String(msg)) = interp.get("смеш") else { panic!("ожидалась строка") };
+    assert!(msg.contains("Нельзя смешивать"), "неожиданное сообщение: {msg}");
+}
+
+#[test]
 fn switch_uses_strict_equality_not_abstract() {
     let interp = run_code(
         r#"
