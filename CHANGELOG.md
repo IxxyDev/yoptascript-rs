@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] - 2026-08-15
+
+### Fixed
+
+- **`--vm` regex iteration** — the bytecode VM couldn't iterate a
+  `найтиВсе`/matchAll result via `for-of` or spread (`Нельзя
+  итерировать по типу 'итератор'`); it now drains the iterator like
+  the tree-walking interpreter does. Fixing this also surfaced that
+  `RegExp(...)` had no native VM constructor and that
+  `последнийИндекс`/`lastIndex` assignment on a `RegExp` wasn't
+  handled — both added.
+- **`--vm` destructuring-assignment expressions** — `[a, b] = pair;`
+  and `{x, y} = point;` used as a standalone assignment (not a
+  `гыы`/`ясенХуй` declaration) previously failed to compile under
+  `--vm` while working under the interpreter; the VM compiler now
+  supports rest elements, default values and object rest for this
+  form.
+- **Mixed-type arithmetic** — `"5" - 2`, `true * 3` and similar raised
+  a runtime error in the interpreter instead of coercing operands to
+  numbers like `+`, the VM, and JavaScript already do; `-`, `*`, `/`,
+  `%` and `**` now perform the same coercion.
+
 ## [1.13.0] - 2026-08-15
 
 ### Added
