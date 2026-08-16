@@ -10,7 +10,7 @@ The language surface tracks ES6–ES2026: closures, classes, generators, async/a
 
 > ⚠️ The language uses Russian slang/profanity for keywords. This is an engineering exercise, not the language itself; semantics mirror JavaScript.
 
-**Try it in your browser:** the WASM-powered playground runs the real lexer → parser → interpreter pipeline client-side at <https://ixxydev.github.io/yoptascript-rs/> — no install needed.
+**Try it in your browser:** the WASM-powered playground (`yps-wasm` crate) runs the real lexer → parser → interpreter pipeline client-side at <https://ixxydev.github.io/yoptascript-rs/> — no install needed.
 
 ## Why this exists
 
@@ -22,7 +22,7 @@ I was contributing to [Biome](https://github.com/biomejs/biome) (a Rust-based li
 
 ## Architecture
 
-A Cargo workspace with eight crates:
+A Cargo workspace with twelve crates:
 
 ```
 crates/
@@ -30,10 +30,14 @@ crates/
 ├── yps-parser       # Recursive descent parser: tokens → AST
 ├── yps-interpreter  # Tree-walking interpreter: evaluates AST
 ├── yps-vm           # Bytecode compiler + stack VM (parity backend)
+├── yps-jsgen        # AST → JavaScript transpiler
 ├── yps-fmt          # AST-based formatter with round-trip self-check
 ├── yps-lsp          # Language server (diagnostics, hover, completion, symbols, formatting, navigation, code actions)
 ├── yps-lint         # Linter: unused variables, unreachable code, shadowed declarations
-└── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt, lint, ast, disasm)
+├── yps-dap          # Debug Adapter Protocol server over stdio
+├── yps-wasm         # WASM bindings for the browser playground
+├── yps-bench        # Criterion benchmarks
+└── yps-cli          # Command-line entry point (run a file, --vm, repl, fmt, lint, ast, disasm, transpile)
 ```
 
 Pipeline: `source code → lexer → tokens → parser → AST → interpreter` (or `→ bytecode → VM`) `→ result`
@@ -43,6 +47,10 @@ The formatter (`yps fmt`) pretty-prints a `.yopta` file to canonical style. It r
 The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics (parser errors plus `yps-lint` warnings), hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt`, go-to-definition, find references, scope-aware rename, semantic highlighting (`textDocument/semanticTokens`), signature help and quick fixes for lint findings (`textDocument/codeAction`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
 The linter (`yps-lint`, also `yps lint`) walks the AST with a scope stack and reports unused variables and parameters (ESLint-style after-used semantics), unreachable statements after `отвечаю`/`кидай`/`харэ`/`двигай`, and declarations that shadow an outer binding.
+
+The JS transpiler (`yps-jsgen`, also `yps transpile`) prints the AST as modern JavaScript, rewriting the Russian-named builtins and standard-library namespaces to their JS/Node equivalents.
+
+The debug adapter (`yps-dap`, `yps-dap` binary) speaks the Debug Adapter Protocol over stdio, driving the tree-walking interpreter from any DAP-compatible editor (breakpoints, stepping, call stack, locals).
 
 A VS Code extension lives in [`editors/vscode`](editors/vscode): a TextMate grammar for `.yopta` syntax highlighting plus a thin `vscode-languageclient` that launches `yps-lsp`. It is published on the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=IxxyDev.yoptascript) — install it from the Extensions view by searching for "YoptaScript" or with `code --install-extension ixxydev.yoptascript`. See its [README](editors/vscode/README.md) to build it from source.
 
@@ -94,13 +102,21 @@ cargo run -p yps-cli
 # Format a .yopta file (--write to apply, --check for CI)
 cargo run -p yps-cli -- fmt path/to/program.yopta
 
-# Or use the Justfile shortcuts
+# Lint a .yopta file for unused/unreachable/shadowed code
+cargo run -p yps-cli -- lint path/to/program.yopta
+
+# Transpile a .yopta file to JavaScript
+cargo run -p yps-cli -- transpile path/to/program.yopta
+
+# Or use the Justfile shortcuts (just lint = cargo fmt --check + clippy over the Rust workspace,
+# not the yps-cli `lint` subcommand above, which lints .yopta source)
 just run path/to/program.yopta
 just test
 just lint
 
-# Fuzz the lexer/parser/formatter (requires nightly + cargo-fuzz)
+# Fuzz the lexer/parser/formatter/VM-parity targets (requires nightly + cargo-fuzz)
 just fuzz lexer
+just fuzz-all
 ```
 
 ## Status
@@ -115,7 +131,11 @@ just fuzz lexer
 - [x] Standard library: `Матан`, `Помойка`, `Строка`, `Кент`, `Хуйня`, `Жсон`, `Карта`, `Набор`, `Симбол`, `Косяк`
 - [x] Weak collections: `СлабаяКарта`, `СлабыйНабор`, `СлабаяСсылка`, `РеестрФинализации`
 - [x] Formatter (`yps fmt`) with round-trip self-check and comment preservation
-- [x] Fuzzing: libFuzzer targets for lexer, parser and formatter round-trip (`fuzz/`, weekly CI job)
+- [x] Linter (`yps lint`): unused variables/parameters, unreachable code, shadowed declarations
+- [x] Language server (`yps-lsp`): diagnostics, hover, completion, outline, rename, semantic tokens, code actions
+- [x] JS transpiler (`yps transpile`): AST → modern JavaScript
+- [x] Debug adapter (`yps-dap`): DAP server for breakpoints/stepping/call stack
+- [x] Fuzzing: libFuzzer targets for lexer, parser, formatter round-trip and interpreter/VM parity (`fuzz/`, weekly CI job)
 - [x] Conformance suite: golden cases checked against Node.js semantics, plus a VM/interpreter parity suite (`crates/yps-cli/tests/`)
 
 This is an active learning project — see open issues for what's next.
@@ -144,7 +164,7 @@ Most cases have a hand-written Node.js mirror in `mirror/<name>.js`; `tools/gen-
 
 ```
 .
-├── crates/             # Workspace members (lexer, parser, interpreter, vm, fmt, lsp, cli)
+├── crates/             # Workspace members (lexer, parser, interpreter, vm, jsgen, fmt, lsp, lint, dap, wasm, bench, cli)
 ├── examples/           # Sample .yopta programs
 ├── docs/               # Language documentation
 ├── DICTIONARY.md       # Keyword mapping (JS ↔ YoptaScript)
