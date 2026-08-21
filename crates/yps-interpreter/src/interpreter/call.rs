@@ -100,20 +100,6 @@ impl Interpreter {
                 if self.call_stack.len() >= super::MAX_CALL_DEPTH {
                     return Err(RuntimeError::new("Превышена максимальная глубина рекурсии", span));
                 }
-                let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
-
-                if args.len() < required_count {
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Функция '{}' ожидает минимум {} аргумент(ов), получено {}",
-                            name,
-                            required_count,
-                            args.len()
-                        ),
-                        span,
-                    ));
-                }
-
                 let saved_env = self.env.clone();
                 self.env = Environment::from_snapshot(env, self.env.registry());
                 self.env.push_scope();

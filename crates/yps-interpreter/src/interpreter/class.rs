@@ -447,21 +447,6 @@ impl Interpreter {
                 self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(parent)), false);
             }
 
-            let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
-
-            if args.len() < required_count {
-                self.env = saved_env;
-                return Err(RuntimeError::new(
-                    format!(
-                        "Конструктор '{}' ожидает минимум {} аргумент(ов), получено {}",
-                        class_def.name,
-                        required_count,
-                        args.len()
-                    ),
-                    span,
-                ));
-            }
-
             self.bind_params(params, &args, false, span)?;
 
             self.push_frame(Rc::from(class_def.name.as_str()), span);
@@ -535,20 +520,6 @@ impl Interpreter {
         self.env.define(symbols::THIS.to_string(), child_instance.clone(), false);
         if let Some(grandparent) = &parent_def.parent {
             self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(grandparent)), false);
-        }
-
-        let required_count = params.iter().filter(|p| !p.is_rest && p.default.is_none()).count();
-        if args.len() < required_count {
-            self.env = saved_env;
-            return Err(RuntimeError::new(
-                format!(
-                    "Конструктор '{}' ожидает минимум {} аргумент(ов), получено {}",
-                    parent_def.name,
-                    required_count,
-                    args.len()
-                ),
-                span,
-            ));
         }
 
         self.bind_params(&params, &args, false, span)?;

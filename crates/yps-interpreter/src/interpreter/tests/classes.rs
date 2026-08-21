@@ -20,6 +20,23 @@ fn class_basic_constructor_and_fields() {
 }
 
 #[test]
+fn constructor_call_with_fewer_args_than_params_fills_missing_with_undefined() {
+    let i = run_code(
+        r#"
+        клёво Чел {
+            Чел(имя, возраст) {
+                тырыпыры.имя = имя;
+                тырыпыры.возраст = возраст;
+            }
+        }
+        гыы п = захуярить Чел("Вася");
+        гыы возраст = п.возраст;
+        "#,
+    );
+    assert_eq!(i.get("возраст"), Some(Value::Undefined));
+}
+
+#[test]
 fn class_method_call() {
     let i = run_code(
         r#"
@@ -84,6 +101,25 @@ fn class_implicit_constructor_forwards_to_parent() {
         "#,
     );
     assert_eq!(i.get("рез"), Some(Value::String("Камаз".into())));
+}
+
+#[test]
+fn class_implicit_constructor_forwards_fewer_args_than_parent_params() {
+    let i = run_code(
+        r#"
+        клёво Машина {
+            Машина(модель, цвет) {
+                тырыпыры.модель = модель;
+                тырыпыры.цвет = цвет;
+            }
+        }
+        клёво Грузовик батя Машина {
+        }
+        гыы г = захуярить Грузовик("Камаз");
+        гыы цвет = г.цвет;
+        "#,
+    );
+    assert_eq!(i.get("цвет"), Some(Value::Undefined));
 }
 
 #[test]

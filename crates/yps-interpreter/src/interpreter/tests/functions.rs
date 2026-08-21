@@ -323,16 +323,19 @@ fn default_and_rest_params_combined() {
 }
 
 #[test]
-fn too_few_args_without_defaults_error() {
-    let err = run_code_err(
+fn too_few_args_without_defaults_binds_missing_params_to_undefined_like_js() {
+    let interp = run_code(
         r#"
         йопта фн(а, б) {
             отвечаю а + б;
         }
-        фн(1);
+        гыы р = фн(1);
         "#,
     );
-    assert!(err.message.contains("минимум 2"));
+    match interp.get("р") {
+        Some(Value::Number(n)) => assert!(n.is_nan(), "ожидался NaN, получено {n}"),
+        other => panic!("ожидалось число, получено {other:?}"),
+    }
 }
 
 #[test]
@@ -346,6 +349,22 @@ fn extra_args_ignored_like_js() {
         "#,
     );
     assert_eq!(interp.get("р"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn call_with_fewer_args_than_params_fills_missing_with_undefined() {
+    let interp = run_code(
+        r#"
+        йопта фн(а, б) {
+            отвечаю а - б;
+        }
+        гыы р = фн(5);
+        "#,
+    );
+    match interp.get("р") {
+        Some(Value::Number(n)) => assert!(n.is_nan(), "ожидался NaN, получено {n}"),
+        other => panic!("ожидалось число, получено {other:?}"),
+    }
 }
 
 #[test]
