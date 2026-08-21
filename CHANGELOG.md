@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-08-21
+
+### Fixed
+
+- **Large hex/octal/binary literals** — `0xeeeeeeeeee001000` and similar
+  values above `i64::MAX` overflowed to `NaN` and were then rejected as
+  an "invalid number" runtime error, instead of coercing like real JS
+  (and like `--vm` already did).
+- **Calls with fewer arguments than parameters** — the interpreter threw
+  when a function or constructor call passed fewer arguments than its
+  non-default parameters, instead of binding the missing ones to
+  `undefined` like real JS (and like `--vm` already did).
+
 ## [1.14.0] - 2026-08-21
 
 ### Added
