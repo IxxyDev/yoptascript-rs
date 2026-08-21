@@ -7,9 +7,9 @@ use crate::rename::occurrences_at;
 #[must_use]
 pub fn quick_fix(text: &str, diag: &LintDiagnostic) -> Option<(String, Vec<TextEdit>)> {
     match diag.rule {
-        Rule::UnusedVariable => unused_variable_fix(text, diag),
+        Rule::UnusedVariable | Rule::UnusedImport => unused_variable_fix(text, diag),
         Rule::UnreachableCode => Some(unreachable_code_fix(text, diag)),
-        Rule::ShadowedDeclaration => None,
+        Rule::ShadowedDeclaration | Rule::DuplicateObjectKey | Rule::SelfAssignment | Rule::DuplicateParam => None,
     }
 }
 

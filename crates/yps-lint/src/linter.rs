@@ -41,6 +41,7 @@ enum DeclKind {
     Var,
     Const,
     Param,
+    Import,
     NonFlag,
 }
 
@@ -91,7 +92,7 @@ impl Linter {
                 continue;
             }
             match decl.kind {
-                DeclKind::Var | DeclKind::Const => self.report_unused(decl),
+                DeclKind::Var | DeclKind::Const | DeclKind::Import => self.report_unused(decl),
                 DeclKind::Param => {
                     let meta = decl.param.expect("параметр несёт метаданные");
                     if meta.rest {
@@ -108,18 +109,18 @@ impl Linter {
     }
 
     fn report_unused(&mut self, decl: &DeclInfo) {
-        let message = match decl.kind {
-            DeclKind::Var => format!("переменная «{}» объявлена, но не используется", decl.name),
-            DeclKind::Const => format!("константа «{}» объявлена, но не используется", decl.name),
-            DeclKind::Param => format!("параметр «{}» не используется", decl.name),
+        let (rule, message) = match decl.kind {
+            DeclKind::Var => {
+                (Rule::UnusedVariable, format!("переменная «{}» объявлена, но не используется", decl.name))
+            }
+            DeclKind::Const => {
+                (Rule::UnusedVariable, format!("константа «{}» объявлена, но не используется", decl.name))
+            }
+            DeclKind::Param => (Rule::UnusedVariable, format!("параметр «{}» не используется", decl.name)),
+            DeclKind::Import => (Rule::UnusedImport, format!("импорт «{}» не используется", decl.name)),
             DeclKind::NonFlag => return,
         };
-        self.diags.push(LintDiagnostic {
-            span: decl.span,
-            rule: Rule::UnusedVariable,
-            severity: LintSeverity::Warning,
-            message,
-        });
+        self.diags.push(LintDiagnostic { span: decl.span, rule, severity: LintSeverity::Warning, message });
     }
 
     fn declare(&mut self, name: &str, span: Span, kind: DeclKind, exported: bool, param: Option<ParamMeta>) {
@@ -211,7 +212,7 @@ impl Linter {
                         | ImportSpec::Named { local, .. }
                         | ImportSpec::Namespace { local } => local,
                     };
-                    self.declare(&local.name, local.span, DeclKind::NonFlag, exported, None);
+                    self.declare(&local.name, local.span, DeclKind::Import, exported, None);
                 }
             }
             Stmt::Export { kind: ExportKind::Declaration(inner), .. } => {
@@ -423,7 +424,46 @@ impl Linter {
         self.pop_scope();
     }
 
+    fn check_duplicate_object_keys(&mut self, entries: &[ObjectEntry]) {
+        let mut seen: Vec<&str> = Vec::new();
+        for entry in entries {
+            let ObjectEntry::Property { key: PropKey::Identifier(id), .. } = entry else {
+                continue;
+            };
+            if seen.contains(&id.name.as_str()) {
+                self.diags.push(LintDiagnostic {
+                    span: id.span,
+                    rule: Rule::DuplicateObjectKey,
+                    severity: LintSeverity::Warning,
+                    message: format!("ключ «{}» повторяется в объектном литерале", id.name),
+                });
+            } else {
+                seen.push(&id.name);
+            }
+        }
+    }
+
+    fn check_duplicate_params(&mut self, params: &[Param]) {
+        let mut seen: Vec<&str> = Vec::new();
+        for param in params {
+            if param.is_rest || param.pattern.is_some() {
+                continue;
+            }
+            if seen.contains(&param.name.name.as_str()) {
+                self.diags.push(LintDiagnostic {
+                    span: param.name.span,
+                    rule: Rule::DuplicateParam,
+                    severity: LintSeverity::Warning,
+                    message: format!("параметр «{}» повторяется в списке параметров", param.name.name),
+                });
+            } else {
+                seen.push(&param.name.name);
+            }
+        }
+    }
+
     fn declare_params(&mut self, params: &[Param]) {
+        self.check_duplicate_params(params);
         for (slot, param) in params.iter().enumerate() {
             match &param.pattern {
                 Some(pattern) => self.declare_param_pattern(pattern, slot, param.is_rest),
@@ -527,8 +567,18 @@ impl Linter {
             | Expr::Unary { expr, .. }
             | Expr::Postfix { expr, .. }
             | Expr::Spread { expr, .. } => self.visit_expr(expr),
-            Expr::Binary { op, lhs, rhs, .. } => {
+            Expr::Binary { op, lhs, rhs, span } => {
                 if matches!(op, BinaryOp::Assign) && matches!(lhs.as_ref(), Expr::Identifier(_)) {
+                    if let (Expr::Identifier(lhs_id), Expr::Identifier(rhs_id)) = (lhs.as_ref(), rhs.as_ref())
+                        && lhs_id.name == rhs_id.name
+                    {
+                        self.diags.push(LintDiagnostic {
+                            span: *span,
+                            rule: Rule::SelfAssignment,
+                            severity: LintSeverity::Warning,
+                            message: format!("присваивание «{}» самому себе не имеет эффекта", lhs_id.name),
+                        });
+                    }
                     self.visit_expr(rhs);
                 } else {
                     self.visit_expr(lhs);
@@ -597,6 +647,7 @@ impl Linter {
                 }
             }
             Literal::Object { entries, .. } => {
+                self.check_duplicate_object_keys(entries);
                 for entry in entries {
                     self.visit_object_entry(entry);
                 }

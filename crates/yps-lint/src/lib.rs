@@ -8,6 +8,10 @@ pub enum Rule {
     UnusedVariable,
     UnreachableCode,
     ShadowedDeclaration,
+    UnusedImport,
+    DuplicateObjectKey,
+    SelfAssignment,
+    DuplicateParam,
 }
 
 impl Rule {
@@ -17,6 +21,10 @@ impl Rule {
             Self::UnusedVariable => "unused-variable",
             Self::UnreachableCode => "unreachable-code",
             Self::ShadowedDeclaration => "shadowed-declaration",
+            Self::UnusedImport => "unused-import",
+            Self::DuplicateObjectKey => "duplicate-object-key",
+            Self::SelfAssignment => "self-assignment",
+            Self::DuplicateParam => "duplicate-param",
         }
     }
 }
@@ -91,6 +99,10 @@ mod tests {
         assert_eq!(Rule::UnusedVariable.code(), "unused-variable");
         assert_eq!(Rule::UnreachableCode.code(), "unreachable-code");
         assert_eq!(Rule::ShadowedDeclaration.code(), "shadowed-declaration");
+        assert_eq!(Rule::UnusedImport.code(), "unused-import");
+        assert_eq!(Rule::DuplicateObjectKey.code(), "duplicate-object-key");
+        assert_eq!(Rule::SelfAssignment.code(), "self-assignment");
+        assert_eq!(Rule::DuplicateParam.code(), "duplicate-param");
     }
 
     #[test]
@@ -301,5 +313,113 @@ mod tests {
     fn shadow_silent_for_distinct_names() {
         let src = "гыы а = 1;\nсказать(а);\nйопта ф() { гыы б = 2; сказать(б); }\n";
         assert_eq!(count(src, Rule::ShadowedDeclaration), 0);
+    }
+
+    #[test]
+    fn unused_import_fires_for_unread_default() {
+        let src = "спиздить кент из \"./модуль\";\n";
+        assert_eq!(only(src, Rule::UnusedImport), 1);
+    }
+
+    #[test]
+    fn unused_import_fires_for_unread_named() {
+        let src = "спиздить { фу, бар } из \"./м\";\nсказать(фу);\n";
+        assert_eq!(only(src, Rule::UnusedImport), 1);
+    }
+
+    #[test]
+    fn unused_import_silent_when_read() {
+        let src = "спиздить кент из \"./модуль\";\nсказать(кент);\n";
+        assert_eq!(count(src, Rule::UnusedImport), 0);
+    }
+
+    #[test]
+    fn unused_import_silent_when_reexported() {
+        let src = "спиздить кент из \"./модуль\";\nпредъява { кент };\n";
+        assert_eq!(count(src, Rule::UnusedImport), 0);
+    }
+
+    #[test]
+    fn duplicate_object_key_fires_for_repeated_identifier() {
+        let src = "гыы о = {а: 1, а: 2};\nсказать(о);\n";
+        assert_eq!(only(src, Rule::DuplicateObjectKey), 1);
+    }
+
+    #[test]
+    fn duplicate_object_key_fires_once_per_extra_occurrence() {
+        let src = "гыы о = {а: 1, а: 2, а: 3};\nсказать(о);\n";
+        assert_eq!(count(src, Rule::DuplicateObjectKey), 2);
+    }
+
+    #[test]
+    fn duplicate_object_key_silent_for_distinct_keys() {
+        let src = "гыы о = {а: 1, б: 2};\nсказать(о);\n";
+        assert_eq!(count(src, Rule::DuplicateObjectKey), 0);
+    }
+
+    #[test]
+    fn duplicate_object_key_silent_for_nested_literals() {
+        let src = "гыы о = {а: {б: 1}, в: {б: 2}};\nсказать(о);\n";
+        assert_eq!(count(src, Rule::DuplicateObjectKey), 0);
+    }
+
+    #[test]
+    fn duplicate_object_key_silent_for_computed_key() {
+        let src = "гыы к = \"а\";\nгыы о = {[к]: 1, [к]: 2};\nсказать(о);\n";
+        assert_eq!(count(src, Rule::DuplicateObjectKey), 0);
+    }
+
+    #[test]
+    fn self_assignment_fires_for_same_identifier() {
+        let src = "гыы х = 1;\nх = х;\n";
+        assert_eq!(only(src, Rule::SelfAssignment), 1);
+    }
+
+    #[test]
+    fn self_assignment_silent_for_different_identifier() {
+        let src = "гыы х = 1;\nгыы у = 2;\nх = у;\nсказать(х);\nсказать(у);\n";
+        assert_eq!(count(src, Rule::SelfAssignment), 0);
+    }
+
+    #[test]
+    fn self_assignment_silent_for_member_expression() {
+        let src = "гыы о = {х: 1};\nо.х = о.х;\nсказать(о);\n";
+        assert_eq!(count(src, Rule::SelfAssignment), 0);
+    }
+
+    #[test]
+    fn self_assignment_silent_for_compound_assign() {
+        let src = "гыы х = 1;\nх += х;\nсказать(х);\n";
+        assert_eq!(count(src, Rule::SelfAssignment), 0);
+    }
+
+    #[test]
+    fn duplicate_param_fires_for_repeated_name() {
+        let src = "йопта ф(а, а) { отвечаю а; }\n";
+        assert_eq!(only(src, Rule::DuplicateParam), 1);
+    }
+
+    #[test]
+    fn duplicate_param_silent_for_distinct_names() {
+        let src = "йопта ф(а, б) { отвечаю а + б; }\n";
+        assert_eq!(count(src, Rule::DuplicateParam), 0);
+    }
+
+    #[test]
+    fn duplicate_param_silent_for_destructured_params() {
+        let src = "йопта ф({а}, {а: б}) { отвечаю б; }\n";
+        assert_eq!(count(src, Rule::DuplicateParam), 0);
+    }
+
+    #[test]
+    fn duplicate_param_fires_once_per_extra_occurrence() {
+        let src = "йопта ф(а, а, а) { отвечаю а; }\n";
+        assert_eq!(count(src, Rule::DuplicateParam), 2);
+    }
+
+    #[test]
+    fn duplicate_param_silent_for_rest_param() {
+        let src = "йопта ф(а, ...а) { отвечаю а; }\n";
+        assert_eq!(count(src, Rule::DuplicateParam), 0);
     }
 }

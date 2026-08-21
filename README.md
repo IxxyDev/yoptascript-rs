@@ -46,7 +46,7 @@ The formatter (`yps fmt`) pretty-prints a `.yopta` file to canonical style. It r
 
 The language server (`yps-lsp`) speaks LSP over stdio and is ready to back an editor extension. It provides live diagnostics (parser errors plus `yps-lint` warnings), hover docs for keywords, completion (keywords, builtins and declarations from the current file), a document outline (`textDocument/documentSymbol`), whole-document formatting via `yps-fmt`, go-to-definition, find references, scope-aware rename, semantic highlighting (`textDocument/semanticTokens`), signature help and quick fixes for lint findings (`textDocument/codeAction`). All UTF-8 ↔ UTF-16 position mapping accounts for Cyrillic identifiers.
 
-The linter (`yps-lint`, also `yps lint`) walks the AST with a scope stack and reports unused variables and parameters (ESLint-style after-used semantics), unreachable statements after `отвечаю`/`кидай`/`харэ`/`двигай`, and declarations that shadow an outer binding.
+The linter (`yps-lint`, also `yps lint`) walks the AST with a scope stack and reports unused variables, parameters and imports (ESLint-style after-used semantics), unreachable statements after `отвечаю`/`кидай`/`харэ`/`двигай`, declarations that shadow an outer binding, duplicate object-literal keys, self-assignment (`x = x`), and duplicate parameter names.
 
 The JS transpiler (`yps-jsgen`, also `yps transpile`) prints the AST as modern JavaScript, rewriting the Russian-named builtins and standard-library namespaces to their JS/Node equivalents.
 
