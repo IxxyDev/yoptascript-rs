@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-08-21
+
+### Added
+
+- **`yps-lint` rule set** — four new lint rules, in addition to the
+  existing unused-variable, unreachable-code and shadowed-declaration
+  checks: `unused-import` (an imported binding that's never read),
+  `duplicate-object-key` (the same identifier key repeated in an
+  object literal), `self-assignment` (`x = x`), and `duplicate-param`
+  (the same simple parameter name declared twice in one function).
+  All four flow through to `yps lint` and the language server the
+  same way the existing rules do.
+
 ## [1.13.1] - 2026-08-15
 
 ### Fixed
