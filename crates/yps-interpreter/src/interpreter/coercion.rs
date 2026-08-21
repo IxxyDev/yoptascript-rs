@@ -28,15 +28,29 @@ pub fn string_to_number(s: &str) -> f64 {
         _ => {}
     }
     if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
-        return i64::from_str_radix(hex, 16).map(|v| v as f64).unwrap_or(f64::NAN);
+        return parse_radix_digits(hex, 16);
     }
     if let Some(oct) = trimmed.strip_prefix("0o").or_else(|| trimmed.strip_prefix("0O")) {
-        return i64::from_str_radix(oct, 8).map(|v| v as f64).unwrap_or(f64::NAN);
+        return parse_radix_digits(oct, 8);
     }
     if let Some(bin) = trimmed.strip_prefix("0b").or_else(|| trimmed.strip_prefix("0B")) {
-        return i64::from_str_radix(bin, 2).map(|v| v as f64).unwrap_or(f64::NAN);
+        return parse_radix_digits(bin, 2);
     }
     trimmed.parse::<f64>().unwrap_or(f64::NAN)
+}
+
+fn parse_radix_digits(digits: &str, radix: u32) -> f64 {
+    if digits.is_empty() {
+        return f64::NAN;
+    }
+    let mut acc = 0.0f64;
+    for c in digits.chars() {
+        match c.to_digit(radix) {
+            Some(d) => acc = acc * f64::from(radix) + f64::from(d),
+            None => return f64::NAN,
+        }
+    }
+    acc
 }
 
 pub(crate) fn to_ecma_string(value: &Value) -> String {
@@ -270,6 +284,18 @@ mod tests {
         assert_eq!(string_to_number("0o17"), 15.0);
         assert_eq!(string_to_number("1e3"), 1000.0);
         assert_eq!(string_to_number("1.5e-3"), 0.0015);
+    }
+
+    #[test]
+    fn string_to_number_radix_beyond_i64_does_not_overflow_to_nan() {
+        assert_eq!(string_to_number("0xeeeeeeeeee001000"), 0xeeeeeeeeee001000_u64 as f64);
+        assert_eq!(string_to_number("0xffffffffffffffffffff"), 0xffffffffffffffffffff_u128 as f64);
+    }
+
+    #[test]
+    fn string_to_number_radix_rejects_invalid_digits() {
+        assert!(string_to_number("0xg1").is_nan());
+        assert!(string_to_number("0x").is_nan());
     }
 
     #[test]
