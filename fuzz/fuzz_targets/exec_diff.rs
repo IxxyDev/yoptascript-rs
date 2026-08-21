@@ -13,7 +13,11 @@ const TIMER_MARKERS: [&str; 3] = ["чутка", "интервал", "подож�
 
 const KNOWN_DIVERGENCES: [&str; 0] = [];
 
-const KNOWN_VM_ONLY_ERRORS: [&str; 1] = ["недопустимая цель присваивания в VM"];
+const KNOWN_VM_ONLY_ERRORS: [&str; 3] = [
+    "недопустимая цель присваивания в VM",
+    "недопустимая цель составного присваивания в VM",
+    "значение типа 'регэксп' пока нельзя передать в stdlib интерпретатора",
+];
 
 const KNOWN_INTERP_ONLY_ERRORS: [&str; 0] = [];
 
