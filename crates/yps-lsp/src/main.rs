@@ -196,6 +196,12 @@ impl LanguageServer for Backend {
         Ok(signature_help(&analyzed.text, byte_pos))
     }
 
+    async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
+        let documents = self.documents.read().await;
+        let entries = documents.iter().map(|(uri, analyzed)| (uri, analyzed.symbols.as_slice()));
+        Ok(Some(yps_lsp::symbols::workspace_symbols(entries, &params.query)))
+    }
+
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri.clone();
 

@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::{DocumentSymbol, SymbolKind};
+use tower_lsp::lsp_types::{DocumentSymbol, Location, SymbolInformation, SymbolKind, Url};
 use yps_lexer::Span;
 use yps_parser::Program;
 use yps_parser::ast::{ClassMember, Identifier, Pattern, Stmt};
@@ -12,6 +12,47 @@ pub fn document_symbols(program: &Program, text: &str) -> Vec<DocumentSymbol> {
         collect(stmt, text, &mut out);
     }
     out
+}
+
+#[allow(deprecated)]
+#[must_use]
+pub fn workspace_symbols<'a>(
+    documents: impl IntoIterator<Item = (&'a Url, &'a [DocumentSymbol])>,
+    query: &str,
+) -> Vec<SymbolInformation> {
+    let query_lower = query.to_lowercase();
+    let mut out = Vec::new();
+    for (uri, symbols) in documents {
+        for symbol in symbols {
+            flatten_symbol(symbol, uri, None, &query_lower, &mut out);
+        }
+    }
+    out
+}
+
+#[allow(deprecated)]
+fn flatten_symbol(
+    symbol: &DocumentSymbol,
+    uri: &Url,
+    container_name: Option<&str>,
+    query_lower: &str,
+    out: &mut Vec<SymbolInformation>,
+) {
+    if symbol.name.to_lowercase().contains(query_lower) {
+        out.push(SymbolInformation {
+            name: symbol.name.clone(),
+            kind: symbol.kind,
+            tags: None,
+            deprecated: None,
+            location: Location { uri: uri.clone(), range: symbol.selection_range },
+            container_name: container_name.map(str::to_string),
+        });
+    }
+    if let Some(children) = &symbol.children {
+        for child in children {
+            flatten_symbol(child, uri, Some(&symbol.name), query_lower, out);
+        }
+    }
 }
 
 fn collect(stmt: &Stmt, text: &str, out: &mut Vec<DocumentSymbol>) {
@@ -180,5 +221,67 @@ mod tests {
         let syms = symbols_of(src);
         assert_eq!(names(&syms), vec!["ключ", "значение"]);
         assert!(syms.iter().all(|s| s.kind == SymbolKind::VARIABLE));
+    }
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn workspace_query_matches_top_level_function() {
+        let uri = url("file:///a.yopta");
+        let syms = symbols_of("йопта приветствие(имя) { отвечаю имя; }");
+        let results = workspace_symbols([(&uri, syms.as_slice())], "привет");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "приветствие");
+        assert_eq!(results[0].location.uri, uri);
+        assert_eq!(results[0].container_name, None);
+    }
+
+    #[test]
+    fn workspace_query_matches_nested_class_method_with_container() {
+        let uri = url("file:///a.yopta");
+        let syms = symbols_of("клёво Кот { constructor() {} мяу() {} }");
+        let results = workspace_symbols([(&uri, syms.as_slice())], "мяу");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "мяу");
+        assert_eq!(results[0].container_name.as_deref(), Some("Кот"));
+    }
+
+    #[test]
+    fn empty_query_returns_everything() {
+        let uri = url("file:///a.yopta");
+        let syms = symbols_of("клёво Кот { constructor() {} мяу() {} }");
+        let results = workspace_symbols([(&uri, syms.as_slice())], "");
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn no_match_returns_empty() {
+        let uri = url("file:///a.yopta");
+        let syms = symbols_of("йопта фу() {}");
+        let results = workspace_symbols([(&uri, syms.as_slice())], "нетакогонет");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn searches_symbols_from_multiple_documents() {
+        let uri_a = url("file:///a.yopta");
+        let uri_b = url("file:///b.yopta");
+        let syms_a = symbols_of("йопта первый() {}");
+        let syms_b = symbols_of("йопта второй() {}");
+        let results = workspace_symbols([(&uri_a, syms_a.as_slice()), (&uri_b, syms_b.as_slice())], "");
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|s| s.name == "первый" && s.location.uri == uri_a));
+        assert!(results.iter().any(|s| s.name == "второй" && s.location.uri == uri_b));
+    }
+
+    #[test]
+    fn matching_is_case_insensitive() {
+        let uri = url("file:///a.yopta");
+        let syms = symbols_of("йопта Foo() {}");
+        let results = workspace_symbols([(&uri, syms.as_slice())], "foo");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "Foo");
     }
 }
