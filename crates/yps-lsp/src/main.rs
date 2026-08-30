@@ -13,7 +13,7 @@ use yps_lsp::format::format_document;
 use yps_lsp::hover::{declaration_hover, keyword_hover};
 use yps_lsp::lint;
 use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
-use yps_lsp::references::references;
+use yps_lsp::references::{document_highlights, references};
 use yps_lsp::rename::{prepare, rename_edits};
 use yps_lsp::semantic_tokens::semantic_tokens_full;
 use yps_lsp::signature_help::signature_help;
@@ -171,6 +171,30 @@ impl LanguageServer for Backend {
             spans
                 .into_iter()
                 .map(|span| Location { uri: uri.clone(), range: span_to_range(&analyzed.text, span) })
+                .collect(),
+        ))
+    }
+
+    async fn document_highlight(&self, params: DocumentHighlightParams) -> Result<Option<Vec<DocumentHighlight>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        let Some(analyzed) = self.get_document(&uri).await else {
+            return Ok(None);
+        };
+
+        let byte_pos = pos_to_byte(&analyzed.text, pos);
+        let Some(spans) = document_highlights(&analyzed.text, byte_pos) else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            spans
+                .into_iter()
+                .map(|span| DocumentHighlight {
+                    range: span_to_range(&analyzed.text, span),
+                    kind: Some(DocumentHighlightKind::TEXT),
+                })
                 .collect(),
         ))
     }

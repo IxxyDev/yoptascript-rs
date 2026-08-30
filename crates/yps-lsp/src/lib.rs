@@ -43,6 +43,7 @@ pub fn server_capabilities() -> ServerCapabilities {
             work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
         references_provider: Some(OneOf::Left(true)),
+        document_highlight_provider: Some(OneOf::Left(true)),
         semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
             SemanticTokensOptions {
                 legend: semantic_tokens::legend(),
@@ -111,6 +112,7 @@ mod tests {
         assert!(caps.text_document_sync.is_some());
         assert!(caps.rename_provider.is_some());
         assert!(caps.references_provider.is_some());
+        assert!(caps.document_highlight_provider.is_some());
         assert!(caps.semantic_tokens_provider.is_some());
         assert_eq!(
             caps.signature_help_provider.as_ref().and_then(|s| s.trigger_characters.clone()),

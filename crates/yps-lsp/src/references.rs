@@ -11,6 +11,11 @@ pub fn references(text: &str, byte_pos: usize, include_declaration: bool) -> Opt
     Some(spans)
 }
 
+#[must_use]
+pub fn document_highlights(text: &str, byte_pos: usize) -> Option<Vec<Span>> {
+    occurrences_at(text, byte_pos)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +91,30 @@ mod tests {
         assert_eq!(spans.len(), 2);
         let member = src.find("массив.длина").unwrap() + "массив.".len();
         assert!(spans.iter().all(|s| s.start != member));
+    }
+
+    #[test]
+    fn highlights_all_occurrences_for_variable() {
+        let src = "ясенХуй x = 1;\nсказать(x);\nсказать(x + 1);";
+        let byte = src.rfind('x').unwrap();
+        let spans = document_highlights(src, byte).expect("should collect highlights");
+        assert_eq!(spans.len(), 3);
+        for text in spans_texts(src, &spans) {
+            assert_eq!(text, "x");
+        }
+    }
+
+    #[test]
+    fn highlights_all_occurrences_for_parameter() {
+        let src = "гыы арг = 99;\nйопта фу(арг) { отвечаю арг + 1; }\nсказать(арг);";
+        let param = src.find("фу(арг)").unwrap() + "фу(".len();
+        let spans = document_highlights(src, param).expect("should collect highlights");
+        assert_eq!(spans.len(), 2);
+    }
+
+    #[test]
+    fn highlights_on_whitespace_returns_none() {
+        let src = "гыы x = 1;   ";
+        assert!(document_highlights(src, src.len() - 1).is_none());
     }
 }
