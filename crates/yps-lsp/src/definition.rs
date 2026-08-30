@@ -7,9 +7,21 @@ use yps_parser::ast::{
 
 use crate::position::{pos_to_byte, word_at};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclKind {
+    Function { params: Vec<String> },
+    Var,
+    Const,
+    Param,
+    Class,
+    CatchParam,
+    Import,
+}
+
 pub struct Declaration {
     pub name: String,
     pub span: Span,
+    pub kind: DeclKind,
 }
 
 #[must_use]
@@ -32,44 +44,48 @@ pub fn goto_definition(declarations: &[Declaration], text: &str, pos: Position) 
     declarations.iter().find(|d| d.name == word).map(|d| d.span)
 }
 
-fn push_ident(ident: &Identifier, out: &mut Vec<Declaration>) {
-    out.push(Declaration { name: ident.name.clone(), span: ident.span });
+fn push_ident(ident: &Identifier, kind: DeclKind, out: &mut Vec<Declaration>) {
+    out.push(Declaration { name: ident.name.clone(), span: ident.span, kind });
 }
 
-fn collect_pattern(pattern: &Pattern, out: &mut Vec<Declaration>) {
+fn collect_pattern(pattern: &Pattern, kind: &DeclKind, out: &mut Vec<Declaration>) {
     match pattern {
-        Pattern::Identifier(ident) => push_ident(ident, out),
+        Pattern::Identifier(ident) => push_ident(ident, kind.clone(), out),
         Pattern::Array { elements, rest, .. } => {
             for el in elements.iter().flatten() {
-                collect_pattern(el, out);
+                collect_pattern(el, kind, out);
             }
             if let Some(rest) = rest {
-                collect_pattern(rest, out);
+                collect_pattern(rest, kind, out);
             }
         }
         Pattern::Object { properties, rest, .. } => {
             for prop in properties {
                 match &prop.value {
-                    Some(value) => collect_pattern(value, out),
-                    None => push_ident(&prop.key, out),
+                    Some(value) => collect_pattern(value, kind, out),
+                    None => push_ident(&prop.key, kind.clone(), out),
                 }
             }
             if let Some(rest) = rest {
-                collect_pattern(rest, out);
+                collect_pattern(rest, kind, out);
             }
         }
         Pattern::Default { pattern, default, .. } => {
-            collect_pattern(pattern, out);
+            collect_pattern(pattern, kind, out);
             collect_expr(default, out);
         }
     }
 }
 
+fn param_names(params: &[Param]) -> Vec<String> {
+    params.iter().map(|p| p.name.name.clone()).collect()
+}
+
 fn collect_params(params: &[Param], out: &mut Vec<Declaration>) {
     for param in params {
         match &param.pattern {
-            Some(pattern) => collect_pattern(pattern, out),
-            None => push_ident(&param.name, out),
+            Some(pattern) => collect_pattern(pattern, &DeclKind::Param, out),
+            None => push_ident(&param.name, DeclKind::Param, out),
         }
         if let Some(default) = &param.default {
             collect_expr(default, out);
@@ -127,8 +143,9 @@ fn collect_members(members: &[ClassMember], out: &mut Vec<Declaration>) {
 
 fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
     match stmt {
-        Stmt::VarDecl { pattern, init, .. } => {
-            collect_pattern(pattern, out);
+        Stmt::VarDecl { pattern, init, is_const, .. } => {
+            let kind = if *is_const { DeclKind::Const } else { DeclKind::Var };
+            collect_pattern(pattern, &kind, out);
             collect_expr(init, out);
         }
         Stmt::Expr { expr, .. } | Stmt::Throw { value: expr, .. } => collect_expr(expr, out),
@@ -159,7 +176,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
         }
         Stmt::Labeled { body, .. } => collect_stmt(body, out),
         Stmt::FunctionDecl { name, params, body, .. } => {
-            push_ident(name, out);
+            push_ident(name, DeclKind::Function { params: param_names(params) }, out);
             collect_params(params, out);
             collect_block(body, out);
         }
@@ -171,7 +188,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
         Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, .. } => {
             collect_block(try_block, out);
             if let Some(catch_param) = catch_param {
-                push_ident(catch_param, out);
+                push_ident(catch_param, DeclKind::CatchParam, out);
             }
             if let Some(catch_block) = catch_block {
                 collect_block(catch_block, out);
@@ -193,12 +210,12 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
         Stmt::ForIn { variable, iterable, body, .. }
         | Stmt::ForOf { variable, iterable, body, .. }
         | Stmt::ForAwaitOf { variable, iterable, body, .. } => {
-            collect_pattern(variable, out);
+            collect_pattern(variable, &DeclKind::Var, out);
             collect_expr(iterable, out);
             collect_stmt(body, out);
         }
         Stmt::ClassDecl { name, super_class, members, decorators, .. } => {
-            push_ident(name, out);
+            push_ident(name, DeclKind::Class, out);
             if let Some(super_class) = super_class {
                 collect_expr(super_class, out);
             }
@@ -208,7 +225,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
             }
         }
         Stmt::Using { name, init, .. } => {
-            push_ident(name, out);
+            push_ident(name, DeclKind::Var, out);
             collect_expr(init, out);
         }
         Stmt::Import { specifiers, .. } => {
@@ -216,7 +233,7 @@ fn collect_stmt(stmt: &Stmt, out: &mut Vec<Declaration>) {
                 match spec {
                     ImportSpec::Default { local }
                     | ImportSpec::Named { local, .. }
-                    | ImportSpec::Namespace { local } => push_ident(local, out),
+                    | ImportSpec::Namespace { local } => push_ident(local, DeclKind::Import, out),
                 }
             }
         }
@@ -306,7 +323,7 @@ fn collect_expr(expr: &Expr, out: &mut Vec<Declaration>) {
         }
         Expr::FunctionExpr { name, params, body, .. } => {
             if let Some(name) = name {
-                push_ident(name, out);
+                push_ident(name, DeclKind::Function { params: param_names(params) }, out);
             }
             collect_params(params, out);
             collect_block(body, out);

@@ -10,7 +10,7 @@ use yps_lsp::code_actions::quick_fix;
 use yps_lsp::completion::completion_items;
 use yps_lsp::definition::goto_definition;
 use yps_lsp::format::format_document;
-use yps_lsp::hover::keyword_hover;
+use yps_lsp::hover::{declaration_hover, keyword_hover};
 use yps_lsp::lint;
 use yps_lsp::position::{pos_to_byte, span_to_range, word_at};
 use yps_lsp::references::references;
@@ -106,6 +106,7 @@ impl LanguageServer for Backend {
 
         let doc = keyword_hover(word)
             .map(str::to_string)
+            .or_else(|| analyzed.declarations.iter().find(|d| d.name == word).map(declaration_hover))
             .or_else(|| builtin_doc(word).map(str::to_string))
             .or_else(|| type_doc(word))
             .or_else(|| member_doc(word));
