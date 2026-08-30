@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-08-30
+
+### Added
+
+- **`yps-lsp` hover for user-declared symbols** — hovering over a
+  user-declared function, variable, constant, parameter, catch
+  parameter, class, or import now shows its kind (and, for functions,
+  its parameter list), instead of only resolving keywords, builtins,
+  and stdlib types/members.
+- **`yps-lsp` `workspace/symbol`** — search for a symbol by name
+  across all open files (e.g. VS Code's Cmd+T/Ctrl+T "Go to Symbol in
+  Workspace"), including nested class members with their containing
+  class as `container_name`.
+- **`yps-lsp` `textDocument/documentHighlight`** — highlights every
+  occurrence of the symbol under the cursor within the current file.
+
 ## [1.14.1] - 2026-08-21
 
 ### Fixed
