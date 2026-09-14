@@ -1366,7 +1366,7 @@ impl Compiler {
     }
 
     fn emit_try_exits(&mut self, indices: &[usize], span: Span) -> Result<(), CompileError> {
-        let saved: Vec<TryCtx> = self.cur().try_ctxs.drain(..).collect();
+        let saved: Vec<TryCtx> = std::mem::take(&mut self.cur().try_ctxs);
         let mut result = Ok(());
         for &i in indices {
             for _ in 0..saved[i].handler_count {
