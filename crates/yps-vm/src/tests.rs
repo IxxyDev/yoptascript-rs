@@ -1292,6 +1292,15 @@ fn global_redefinition_takes_latest_value() {
 }
 
 #[test]
+fn nan_global_alias_matches_interpreter() {
+    for src in ["сказать(нихуя);", "сказать(Хуйня.нихуя(нихуя));", "сказать(нихуя == нихуя, нихуя + 1, тип(нихуя));"]
+    {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+    assert!(run_err("нихуя = 1;").contains("нихуя"));
+}
+
+#[test]
 fn recursive_getter_overflows_gracefully_not_crash() {
     let err = run_err(
         r#"

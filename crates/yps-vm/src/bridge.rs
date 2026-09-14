@@ -143,6 +143,7 @@ pub fn namespace_value(name: &str) -> Option<Value> {
         "Процесс" => yps_interpreter::stdlib::process::build_object(),
         "Сеть" => yps_interpreter::stdlib::network::build_object(),
         ERROR_CTOR => return Some(Value::Builtin(Rc::from(ERROR_CTOR))),
+        "нихуя" => return Some(Value::Number(f64::NAN)),
         _ if HOST_CONSTRUCTORS.contains(&name) => return Some(Value::Builtin(Rc::from(name))),
         _ => return None,
     };
