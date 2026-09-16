@@ -982,8 +982,12 @@ impl Vm {
                     self.stack.push(instance);
                 }
                 Op::Invoke(idx, argc) => {
-                    let name = self.const_str(chunk, idx);
-                    self.do_invoke(&name, argc as usize, span)?;
+                    let argc = argc as usize;
+                    let slot = &chunk.caches[ip];
+                    if !self.invoke_cached(argc, slot, span)? {
+                        let name = self.const_str(chunk, idx);
+                        self.do_invoke(&name, argc, Some(slot), span)?;
+                    }
                 }
                 Op::Instanceof => {
                     let target = self.pop();
@@ -2638,7 +2642,48 @@ impl Vm {
         self.invoke_dispose(resource, span)
     }
 
-    fn do_invoke(&mut self, name: &str, argc: usize, span: Span) -> Result<(), VmError> {
+    fn invoke_cached(
+        &mut self,
+        argc: usize,
+        slot: &RefCell<crate::chunk::InlineCache>,
+        span: Span,
+    ) -> Result<bool, VmError> {
+        let recv_idx = self.callee_slot(argc);
+        let Value::Object(map) = &self.stack[recv_idx] else {
+            return Ok(false);
+        };
+        let Some((method, owner)) = ic_invoke(map, slot) else {
+            return Ok(false);
+        };
+        self.push_method_frame(method, owner, argc, recv_idx, span)?;
+        Ok(true)
+    }
+
+    fn push_method_frame(
+        &mut self,
+        closure: MethodDef,
+        owner: Option<Rc<ClassDef>>,
+        argc: usize,
+        recv_idx: usize,
+        span: Span,
+    ) -> Result<(), VmError> {
+        if self.frames.len() >= MAX_CALL_DEPTH {
+            return Err(VmError::new("переполнение стека вызовов", span));
+        }
+        let args = self.pop_args(argc);
+        debug_assert_eq!(self.stack.len(), recv_idx + 1);
+        self.bind_args(&closure.proto, &args);
+        self.frames.push(CallFrame { closure, ip: 0, base: recv_idx, owner });
+        Ok(())
+    }
+
+    fn do_invoke(
+        &mut self,
+        name: &str,
+        argc: usize,
+        slot: Option<&RefCell<crate::chunk::InlineCache>>,
+        span: Span,
+    ) -> Result<(), VmError> {
         let recv_idx = self.callee_slot(argc);
         let receiver = self.stack[recv_idx].clone();
 
@@ -2693,11 +2738,23 @@ impl Vm {
             && let Some(method) = cls.find_method(name)
         {
             let owner = cls.find_method_owner(name);
-            let args: Vec<Value> = self.pop_args(argc);
-            self.pop();
-            let result = self.call_closure_sync(method, Some(receiver), owner, &args, span)?;
-            self.stack.push(result);
-            return Ok(());
+            if method.proto.is_generator || method.proto.is_async {
+                let args: Vec<Value> = self.pop_args(argc);
+                self.pop();
+                let result = self.call_closure_sync(method, Some(receiver), owner, &args, span)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+            if let Some(slot) = slot {
+                *slot.borrow_mut() = crate::chunk::InlineCache::Method {
+                    class_ptr: Rc::as_ptr(&cls) as usize,
+                    class: Rc::downgrade(&cls),
+                    name: Rc::from(name),
+                    method: Rc::clone(&method),
+                    owner: owner.clone(),
+                };
+            }
+            return self.push_method_frame(method, owner, argc, recv_idx, span);
         }
 
         if let Value::Class(cls) = &receiver
@@ -3414,6 +3471,27 @@ fn set_index(obj: &Value, index: &Value, value: Value, span: Span) -> Result<(),
         }
         other => Err(VmError::new(format!("нельзя индексировать тип '{}'", other.type_name()), span)),
     }
+}
+
+fn ic_invoke(
+    map: &Rc<RefCell<ObjMap>>,
+    slot: &RefCell<crate::chunk::InlineCache>,
+) -> Option<(MethodDef, Option<Rc<ClassDef>>)> {
+    let cache = slot.borrow();
+    let crate::chunk::InlineCache::Method { class_ptr, class, name, method, owner } = &*cache else {
+        return None;
+    };
+    let borrowed = map.borrow();
+    let Some(Value::Class(cls)) = borrowed.get(crate::value::CLASS_TAG) else {
+        return None;
+    };
+    if Rc::as_ptr(cls) as usize != *class_ptr || !class.upgrade().is_some_and(|alive| Rc::ptr_eq(&alive, cls)) {
+        return None;
+    }
+    if borrowed.get(name).is_some() {
+        return None;
+    }
+    Some((Rc::clone(method), owner.clone()))
 }
 
 fn ic_get(map: &Rc<RefCell<ObjMap>>, slot: &RefCell<crate::chunk::InlineCache>) -> Option<Value> {

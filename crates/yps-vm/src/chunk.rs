@@ -3,7 +3,7 @@ use std::rc::{Rc, Weak};
 
 use yps_lexer::Span;
 
-use crate::value::ObjMap;
+use crate::value::{ClassDef, MethodDef, ObjMap};
 
 pub type ConstIdx = u32;
 pub type Slot = u32;
@@ -17,6 +17,13 @@ pub enum InlineCache {
         obj: Weak<RefCell<ObjMap>>,
         generation: u32,
         index: u32,
+    },
+    Method {
+        class_ptr: usize,
+        class: Weak<ClassDef>,
+        name: Rc<str>,
+        method: MethodDef,
+        owner: Option<Rc<ClassDef>>,
     },
 }
 
