@@ -111,11 +111,20 @@ impl EnvFrame {
         if self.init_mask & (1u64 << index) != 0 { Some(&self.slots[index]) } else { None }
     }
 
+    #[inline]
+    fn live_slot(&self, name: &str) -> Option<usize> {
+        let index = self.slot_index(name)?;
+        if self.init_mask & (1u64 << index) != 0 { Some(index) } else { None }
+    }
+
+    #[inline]
+    fn slot_is_const(&self, index: usize) -> bool {
+        self.slot_const & (1u64 << index) != 0
+    }
+
     pub(crate) fn get_local(&self, name: &str) -> Option<Value> {
-        if let Some(index) = self.slot_index(name)
-            && let Some(value) = self.slot_value(index)
-        {
-            return Some(value.clone());
+        if let Some(index) = self.live_slot(name) {
+            return Some(self.slots[index].clone());
         }
         self.bindings.get(name).cloned()
     }
@@ -282,8 +291,6 @@ impl Environment {
         self.registry.register(&self.current);
     }
 
-    /// Applies the layout's TDZ mask to slots that are still uninitialised. Kept separate from
-    /// `push_scope_with` so that it lands exactly where `mark_tdz` used to, after parameter binding.
     pub(crate) fn apply_layout_tdz(&mut self) {
         let mut frame = self.current.borrow_mut();
         let Some(layout) = frame.layout.clone() else { return };
@@ -450,10 +457,8 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
-                if let Some(index) = frame.slot_index(name)
-                    && frame.init_mask & (1u64 << index) != 0
-                {
-                    return frame.slot_const & (1u64 << index) != 0;
+                if let Some(index) = frame.live_slot(name) {
+                    return frame.slot_is_const(index);
                 }
                 if frame.constants.contains(name) {
                     return true;
@@ -494,10 +499,8 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
-                if let Some(index) = frame.slot_index(name)
-                    && frame.init_mask & (1u64 << index) != 0
-                {
-                    return (frame.slot_const & (1u64 << index) != 0, Some(frame.slots[index].clone()));
+                if let Some(index) = frame.live_slot(name) {
+                    return (frame.slot_is_const(index), Some(frame.slots[index].clone()));
                 }
                 if let Some(v) = frame.bindings.get(name) {
                     return (frame.constants.contains(name), Some(v.clone()));
@@ -527,9 +530,7 @@ impl Environment {
         loop {
             let parent = {
                 let mut frame = frame_rc.borrow_mut();
-                if let Some(index) = frame.slot_index(name)
-                    && frame.init_mask & (1u64 << index) != 0
-                {
+                if let Some(index) = frame.live_slot(name) {
                     frame.slots[index] = value;
                     return true;
                 }

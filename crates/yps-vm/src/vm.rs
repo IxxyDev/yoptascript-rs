@@ -2411,11 +2411,8 @@ impl Vm {
             .parent
             .clone()
             .ok_or_else(|| VmError::new("'яга' (super) используется вне класса-наследника", span))?;
-        match parent.find_method(name) {
-            Some(method) => {
-                let mowner = parent.find_method_owner(name);
-                self.call_closure_sync(method, Some(this), mowner, &args, span)
-            }
+        match parent.find_method_with_owner(name) {
+            Some((method, mowner)) => self.call_closure_sync(method, Some(this), Some(mowner), &args, span),
             None => Err(VmError::new(format!("'{name}' не является методом родительского класса"), span)),
         }
     }
@@ -2608,11 +2605,10 @@ impl Vm {
         let result = if let Some(Value::Function(closure)) = direct {
             self.call_closure_sync(closure, Some(resource.clone()), None, &[], span)?
         } else if let Some(cls) = Self::resolve_class(map) {
-            let Some(method) = cls.find_method(method_name) else {
+            let Some((method, owner)) = cls.find_method_with_owner(method_name) else {
                 return Ok(false);
             };
-            let owner = cls.find_method_owner(method_name);
-            self.call_closure_sync(method, Some(resource.clone()), owner, &[], span)?
+            self.call_closure_sync(method, Some(resource.clone()), Some(owner), &[], span)?
         } else {
             return Ok(false);
         };

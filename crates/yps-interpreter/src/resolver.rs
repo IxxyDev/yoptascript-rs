@@ -98,8 +98,6 @@ pub(crate) fn resolve(program: &Program) -> RootResolution {
 const STACK_RED_ZONE: usize = 256 * 1024;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
-/// One runtime `EnvFrame` as predicted by the resolver. The stack must mirror the interpreter's
-/// `push_scope` / `fork_current` calls exactly, otherwise hop counts point at the wrong frame.
 struct ResolvedFrame {
     names: Vec<Rc<str>>,
     layout: Option<u32>,
@@ -546,8 +544,6 @@ fn prepend_name(layout: &mut ScopeLayout, name: &str) {
     layout.tdz_mask <<= 1;
 }
 
-/// Names a block-like frame owns: the lexical declarations that need TDZ marking, followed by the
-/// hoisted function declarations of the same statement list.
 fn scope_names(stmts: &[Stmt]) -> ScopeLayout {
     let mut names = Vec::new();
     collect_lexical_ordered(stmts, &mut names);

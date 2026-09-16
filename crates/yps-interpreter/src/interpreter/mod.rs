@@ -144,8 +144,6 @@ impl Interpreter {
         self.step_budget = Some(limit);
     }
 
-    /// Pushes a scope for the construct keyed by `key`, using the resolver's precomputed slot
-    /// layout when it modelled that construct. Returns `true` when slots are in play.
     #[inline]
     pub(super) fn push_scope_keyed(&mut self, key: usize) -> bool {
         match self.resolution.layout_at(key) {
