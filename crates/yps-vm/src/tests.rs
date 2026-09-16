@@ -2161,3 +2161,67 @@ fn ic_invoke_preserves_this_and_super() {
 "#;
     assert_eq!(run(src), "Е1! Е2ж! Е1! Е2ж!\n");
 }
+
+fn ops(src: &str) -> Vec<crate::chunk::Op> {
+    compile_program(&parse(src)).expect("компиляция").chunk.code.clone()
+}
+
+fn nested_ops(src: &str, name: &str) -> Vec<crate::chunk::Op> {
+    let proto = compile_program(&parse(src)).expect("компиляция");
+    proto
+        .chunk
+        .constants
+        .iter()
+        .find_map(|c| match c {
+            crate::chunk::Constant::Proto(p) if p.name == name => Some(p.chunk.code.clone()),
+            _ => None,
+        })
+        .expect("вложенный прототип")
+}
+
+#[test]
+fn peephole_folds_not_into_inverted_jump() {
+    let code = ops("гыы а = 1; вилкойвглаз (чобля а) { сказать(1); }");
+    assert!(!code.contains(&crate::chunk::Op::Not), "{code:?}");
+    assert!(code.iter().any(|op| matches!(op, crate::chunk::Op::JumpIfTrue(_))), "{code:?}");
+    assert_eq!(run("гыы а = 0; вилкойвглаз (чобля а) { сказать(\"да\"); }"), "да\n");
+    assert_eq!(run("гыы а = 1; потрещим (чобля а) { сказать(\"нет\"); }"), "");
+}
+
+#[test]
+fn peephole_drops_constant_if_branches() {
+    let taken = ops("вилкойвглаз (правда) { сказать(1); } иливжопураз { сказать(2); }");
+    assert!(!taken.iter().any(|op| matches!(op, crate::chunk::Op::JumpIfFalse(_))), "{taken:?}");
+    assert_eq!(taken, ops("{ сказать(1); }"));
+
+    let skipped = ops("вилкойвглаз (лож) { сказать(1); } иливжопураз { сказать(2); }");
+    assert_eq!(skipped, ops("{ сказать(2); }"));
+
+    assert_eq!(ops("вилкойвглаз (лож) { сказать(1); }"), ops(""));
+    assert_eq!(run("вилкойвглаз (1 хуёвей 2) { сказать(\"да\"); } иливжопураз { сказать(\"нет\"); }"), "да\n");
+}
+
+#[test]
+fn peephole_drops_constant_while_condition() {
+    let code = ops("потрещим (правда) { харэ; }");
+    assert!(!code.iter().any(|op| matches!(op, crate::chunk::Op::JumpIfFalse(_))), "{code:?}");
+    assert!(!code.contains(&crate::chunk::Op::True), "{code:?}");
+    assert_eq!(run("гыы и = 0; потрещим (правда) { и = и + 1; вилкойвглаз (и пизже 3) { харэ; } } сказать(и);"), "4\n");
+    assert_eq!(
+        run(
+            "гыы с = 0; гыы и = 0; потрещим (правда) { и = и + 1; вилкойвглаз (и пизже 5) { харэ; } двигай; с = 99; } сказать(и, с);"
+        ),
+        "6 0\n"
+    );
+}
+
+#[test]
+fn peephole_drops_dead_push_pop_pairs() {
+    let code = nested_ops("йопта ф() { гыы а = 1; а; }", "ф");
+    assert!(!code.iter().any(|op| matches!(op, crate::chunk::Op::GetLocal(_))), "{code:?}");
+    assert!(!code.contains(&crate::chunk::Op::Dup), "{code:?}");
+    let code = ops("1; правда; ноль; неибу;");
+    assert!(!code.contains(&crate::chunk::Op::Pop), "{code:?}");
+    assert_eq!(code, ops(""));
+    assert_eq!(run("йопта ф() { гыы а = 1; а; отвечаю а; } сказать(ф());"), "1\n");
+}

@@ -78,6 +78,7 @@ struct FnState {
     try_ctxs: Vec<TryCtx>,
     pending_label: Option<String>,
     using_counts: Vec<u32>,
+    fold_barrier: usize,
 }
 
 struct TryCtx {
@@ -106,6 +107,7 @@ impl FnState {
             try_ctxs: Vec::new(),
             pending_label: None,
             using_counts: vec![0],
+            fold_barrier: 0,
         }
     }
 }
@@ -148,7 +150,42 @@ impl Compiler {
         self.funcs.last_mut().expect("function frame")
     }
 
+    fn here(&mut self) -> usize {
+        let at = self.cur().chunk.code.len();
+        self.cur().fold_barrier = at;
+        at
+    }
+
+    fn peephole_prev(&mut self) -> Option<Op> {
+        let state = self.cur();
+        let last = state.chunk.code.len().checked_sub(1)?;
+        if last < state.fold_barrier {
+            return None;
+        }
+        state.chunk.code.last().copied()
+    }
+
     fn emit(&mut self, op: Op, span: Span) -> usize {
+        match op {
+            Op::Pop
+                if matches!(
+                    self.peephole_prev(),
+                    Some(Op::Dup | Op::Constant(_) | Op::GetLocal(_) | Op::True | Op::False | Op::Null | Op::Undefined)
+                ) =>
+            {
+                self.cur().chunk.pop_op();
+                return self.cur().chunk.code.len();
+            }
+            Op::JumpIfFalse(target) if matches!(self.peephole_prev(), Some(Op::Not)) => {
+                self.cur().chunk.pop_op();
+                return self.cur().chunk.push_op(Op::JumpIfTrue(target), span);
+            }
+            Op::JumpIfTrue(target) if matches!(self.peephole_prev(), Some(Op::Not)) => {
+                self.cur().chunk.pop_op();
+                return self.cur().chunk.push_op(Op::JumpIfFalse(target), span);
+            }
+            _ => {}
+        }
         self.cur().chunk.push_op(op, span)
     }
 
@@ -347,18 +384,28 @@ impl Compiler {
             }
             Stmt::Empty { .. } => Ok(()),
             Stmt::If { condition, then_branch, else_branch, span } => {
+                if let Some(taken) = fold_const(condition).map(|v| fold_val_is_truthy(&v)) {
+                    let dropped = if taken { else_branch.as_deref() } else { Some(then_branch.as_ref()) };
+                    if dropped.is_none_or(is_droppable_branch) {
+                        return match (taken, else_branch) {
+                            (true, _) => self.compile_stmt(then_branch),
+                            (false, Some(else_branch)) => self.compile_stmt(else_branch),
+                            (false, None) => Ok(()),
+                        };
+                    }
+                }
                 self.compile_expr(condition)?;
                 let else_jump = self.emit(Op::JumpIfFalse(0), *span);
                 self.compile_stmt(then_branch)?;
                 if let Some(else_branch) = else_branch {
                     let end_jump = self.emit(Op::Jump(0), *span);
-                    let here = self.cur().chunk.code.len();
+                    let here = self.here();
                     self.cur().chunk.patch_jump(else_jump, here);
                     self.compile_stmt(else_branch)?;
-                    let end = self.cur().chunk.code.len();
+                    let end = self.here();
                     self.cur().chunk.patch_jump(end_jump, end);
                 } else {
-                    let here = self.cur().chunk.code.len();
+                    let here = self.here();
                     self.cur().chunk.patch_jump(else_jump, here);
                 }
                 Ok(())
@@ -444,7 +491,7 @@ impl Compiler {
         let try_done = self.emit(Op::Jump(0), span);
 
         if let Some(inner_push) = inner_push {
-            let catch_start = self.cur().chunk.code.len();
+            let catch_start = self.here();
             self.cur().chunk.patch_jump(inner_push, catch_start);
             self.begin_scope();
             if let Some(param) = catch_param {
@@ -457,7 +504,7 @@ impl Compiler {
         }
         let catch_done = self.emit(Op::Jump(0), span);
 
-        let normal_target = self.cur().chunk.code.len();
+        let normal_target = self.here();
         self.cur().chunk.patch_jump(try_done, normal_target);
         self.cur().chunk.patch_jump(catch_done, normal_target);
 
@@ -468,12 +515,12 @@ impl Compiler {
             self.compile_block_scoped(finally_block.unwrap())?;
             let end_jump = self.emit(Op::Jump(0), span);
 
-            let finally_throw = self.cur().chunk.code.len();
+            let finally_throw = self.here();
             self.cur().chunk.patch_jump(outer_push, finally_throw);
             self.compile_block_scoped(finally_block.unwrap())?;
             self.emit(Op::Throw, span);
 
-            let end = self.cur().chunk.code.len();
+            let end = self.here();
             self.cur().chunk.patch_jump(end_jump, end);
         }
         Ok(())
@@ -498,7 +545,7 @@ impl Compiler {
             let skip = self.emit(Op::JumpIfFalse(0), span);
             let body_jump = self.emit(Op::Jump(0), span);
             body_jumps.push((i, body_jump));
-            let next = self.cur().chunk.code.len();
+            let next = self.here();
             self.cur().chunk.patch_jump(skip, next);
         }
 
@@ -506,7 +553,7 @@ impl Compiler {
         let mut end_jumps: Vec<usize> = Vec::new();
 
         for (i, case) in cases.iter().enumerate() {
-            let here = self.cur().chunk.code.len();
+            let here = self.here();
             for (ci, bj) in &body_jumps {
                 if *ci == i {
                     self.cur().chunk.patch_jump(*bj, here);
@@ -516,13 +563,13 @@ impl Compiler {
             end_jumps.push(self.emit(Op::Jump(0), span));
         }
 
-        let default_start = self.cur().chunk.code.len();
+        let default_start = self.here();
         self.cur().chunk.patch_jump(default_jump, default_start);
         if let Some(default_block) = default {
             self.compile_block_scoped(default_block)?;
         }
 
-        let end = self.cur().chunk.code.len();
+        let end = self.here();
         for j in end_jumps {
             self.cur().chunk.patch_jump(j, end);
         }
@@ -555,7 +602,7 @@ impl Compiler {
             self.emit(Op::Undefined, span);
             self.add_local(&id.name, false);
 
-            let cond_start = self.cur().chunk.code.len();
+            let cond_start = self.here();
             self.emit(Op::GetLocal(counter), span);
             self.emit(Op::GetLocal(len), span);
             self.emit(Op::Lt, span);
@@ -574,7 +621,7 @@ impl Compiler {
             self.push_loop(locals_count, label);
             self.compile_stmt(body)?;
 
-            let continue_target = self.cur().chunk.code.len();
+            let continue_target = self.here();
             if self.cur_ref().locals[var_slot as usize].is_captured {
                 self.emit(Op::CloseUpvalueTo(var_slot), span);
             }
@@ -586,14 +633,14 @@ impl Compiler {
             self.emit(Op::Pop, span);
             self.emit(Op::Jump(cond_start), span);
 
-            let exit = self.cur().chunk.code.len();
+            let exit = self.here();
             self.cur().chunk.patch_jump(exit_jump, exit);
             self.finish_loop(exit, continue_target);
             self.end_scope(span);
             return Ok(());
         }
 
-        let cond_start = self.cur().chunk.code.len();
+        let cond_start = self.here();
         self.emit(Op::GetLocal(counter), span);
         self.emit(Op::GetLocal(len), span);
         self.emit(Op::Lt, span);
@@ -610,7 +657,7 @@ impl Compiler {
         self.compile_stmt(body)?;
         self.end_scope(span);
 
-        let continue_target = self.cur().chunk.code.len();
+        let continue_target = self.here();
         self.emit(Op::GetLocal(counter), span);
         let one = self.cur().chunk.add_constant(Constant::Number(1.0));
         self.emit(Op::Constant(one), span);
@@ -619,7 +666,7 @@ impl Compiler {
         self.emit(Op::Pop, span);
         self.emit(Op::Jump(cond_start), span);
 
-        let exit = self.cur().chunk.code.len();
+        let exit = self.here();
         self.cur().chunk.patch_jump(exit_jump, exit);
         self.finish_loop(exit, continue_target);
         self.end_scope(span);
@@ -652,7 +699,7 @@ impl Compiler {
                 .map(|(s, _)| s)
                 .expect("loop var slot");
 
-            let loop_start = self.cur().chunk.code.len();
+            let loop_start = self.here();
             self.emit(Op::GetLocal(handle), span);
             let next = self.emit(Op::ForIterNext(0), span);
             if is_await {
@@ -665,13 +712,13 @@ impl Compiler {
             self.push_loop(locals_count, label);
             self.compile_stmt(body)?;
 
-            let continue_target = self.cur().chunk.code.len();
+            let continue_target = self.here();
             if self.cur_ref().locals[var_slot as usize].is_captured {
                 self.emit(Op::CloseUpvalueTo(var_slot), span);
             }
             self.emit(Op::Jump(loop_start), span);
 
-            let exit = self.cur().chunk.code.len();
+            let exit = self.here();
             self.cur().chunk.patch_jump(next, exit);
             self.finish_loop(exit, continue_target);
 
@@ -681,7 +728,7 @@ impl Compiler {
             return Ok(());
         }
 
-        let loop_start = self.cur().chunk.code.len();
+        let loop_start = self.here();
         self.emit(Op::GetLocal(handle), span);
         let next = self.emit(Op::ForIterNext(0), span);
         if is_await {
@@ -695,10 +742,10 @@ impl Compiler {
         self.compile_stmt(body)?;
         self.end_scope(span);
 
-        let continue_target = self.cur().chunk.code.len();
+        let continue_target = self.here();
         self.emit(Op::Jump(loop_start), span);
 
-        let exit = self.cur().chunk.code.len();
+        let exit = self.here();
         self.cur().chunk.patch_jump(next, exit);
         self.finish_loop(exit, continue_target);
 
@@ -834,7 +881,7 @@ impl Compiler {
                 let skip = self.emit(Op::JumpIfFalse(0), span);
                 self.emit(Op::Pop, span);
                 self.compile_expr(default)?;
-                let here = self.cur().chunk.code.len();
+                let here = self.here();
                 self.cur().chunk.patch_jump(skip, here);
                 self.destructure_pattern(inner, is_const, global, span)
             }
@@ -1017,7 +1064,7 @@ impl Compiler {
                 self.compile_expr(default)?;
                 self.emit(Op::SetLocal(slot), span);
                 self.emit(Op::Pop, span);
-                let here = self.cur().chunk.code.len();
+                let here = self.here();
                 self.cur().chunk.patch_jump(skip, here);
             }
         }
@@ -1199,7 +1246,7 @@ impl Compiler {
         });
         self.compile_stmt(body)?;
         let ctx = self.cur().loops.pop().expect("labeled context");
-        let here = self.cur().chunk.code.len();
+        let here = self.here();
         for j in ctx.break_jumps {
             self.cur().chunk.patch_jump(j, here);
         }
@@ -1223,30 +1270,37 @@ impl Compiler {
 
     fn compile_while(&mut self, condition: &Expr, body: &Stmt, span: Span) -> Result<(), CompileError> {
         let label = self.take_pending_label();
-        let loop_start = self.cur().chunk.code.len();
-        self.compile_expr(condition)?;
-        let exit_jump = self.emit(Op::JumpIfFalse(0), span);
+        let loop_start = self.here();
+        let always_true = fold_const(condition).is_some_and(|v| fold_val_is_truthy(&v));
+        let exit_jump = if always_true {
+            None
+        } else {
+            self.compile_expr(condition)?;
+            Some(self.emit(Op::JumpIfFalse(0), span))
+        };
         let locals_count = self.cur().locals.len();
         self.push_loop(locals_count, label);
         self.compile_stmt(body)?;
         self.emit(Op::Jump(loop_start), span);
-        let exit = self.cur().chunk.code.len();
-        self.cur().chunk.patch_jump(exit_jump, exit);
+        let exit = self.here();
+        if let Some(exit_jump) = exit_jump {
+            self.cur().chunk.patch_jump(exit_jump, exit);
+        }
         self.finish_loop(exit, loop_start);
         Ok(())
     }
 
     fn compile_do_while(&mut self, body: &Stmt, condition: &Expr, span: Span) -> Result<(), CompileError> {
         let label = self.take_pending_label();
-        let loop_start = self.cur().chunk.code.len();
+        let loop_start = self.here();
         let locals_count = self.cur().locals.len();
         self.push_loop(locals_count, label);
         self.compile_stmt(body)?;
-        let continue_target = self.cur().chunk.code.len();
+        let continue_target = self.here();
         self.compile_expr(condition)?;
         let exit_jump = self.emit(Op::JumpIfFalse(0), span);
         self.emit(Op::Jump(loop_start), span);
-        let exit = self.cur().chunk.code.len();
+        let exit = self.here();
         self.cur().chunk.patch_jump(exit_jump, exit);
         self.finish_loop(exit, continue_target);
         Ok(())
@@ -1266,7 +1320,7 @@ impl Compiler {
         if let Some(init) = init {
             self.compile_stmt(init)?;
         }
-        let cond_start = self.cur().chunk.code.len();
+        let cond_start = self.here();
         let exit_after_cond = if let Some(cond) = condition {
             self.compile_expr(cond)?;
             Some(self.emit(Op::JumpIfFalse(0), span))
@@ -1274,13 +1328,13 @@ impl Compiler {
             None
         };
         let body_jump = self.emit(Op::Jump(0), span);
-        let update_start = self.cur().chunk.code.len();
+        let update_start = self.here();
         if let Some(update) = update {
             self.compile_expr(update)?;
             self.emit(Op::Pop, span);
         }
         self.emit(Op::Jump(cond_start), span);
-        let body_start = self.cur().chunk.code.len();
+        let body_start = self.here();
         self.cur().chunk.patch_jump(body_jump, body_start);
 
         let locals_count = self.cur().locals.len();
@@ -1289,7 +1343,7 @@ impl Compiler {
         let locals_len = self.cur_ref().locals.len();
         let captures_loop_var = (init_local_start..locals_len).any(|i| self.cur_ref().locals[i].is_captured);
         let continue_target = if captures_loop_var {
-            let target = self.cur().chunk.code.len();
+            let target = self.here();
             self.emit(Op::CloseUpvalueTo(init_local_start as Slot), span);
             self.emit(Op::Jump(update_start), span);
             target
@@ -1297,7 +1351,7 @@ impl Compiler {
             self.emit(Op::Jump(update_start), span);
             update_start
         };
-        let exit = self.cur().chunk.code.len();
+        let exit = self.here();
         if let Some(exit_jump) = exit_after_cond {
             self.cur().chunk.patch_jump(exit_jump, exit);
         }
@@ -1433,10 +1487,10 @@ impl Compiler {
                 let else_jump = self.emit(Op::JumpIfFalse(0), *span);
                 self.compile_expr(then_expr)?;
                 let end_jump = self.emit(Op::Jump(0), *span);
-                let else_start = self.cur().chunk.code.len();
+                let else_start = self.here();
                 self.cur().chunk.patch_jump(else_jump, else_start);
                 self.compile_expr(else_expr)?;
-                let end = self.cur().chunk.code.len();
+                let end = self.here();
                 self.cur().chunk.patch_jump(end_jump, end);
                 Ok(())
             }
@@ -1789,7 +1843,7 @@ impl Compiler {
                 let jump = self.emit(Op::JumpIfFalsePeek(0), span);
                 self.emit(Op::Pop, span);
                 self.compile_expr(rhs)?;
-                let end = self.cur().chunk.code.len();
+                let end = self.here();
                 self.cur().chunk.patch_jump(jump, end);
                 return Ok(());
             }
@@ -1798,7 +1852,7 @@ impl Compiler {
                 let jump = self.emit(Op::JumpIfTruePeek(0), span);
                 self.emit(Op::Pop, span);
                 self.compile_expr(rhs)?;
-                let end = self.cur().chunk.code.len();
+                let end = self.here();
                 self.cur().chunk.patch_jump(jump, end);
                 return Ok(());
             }
@@ -1806,11 +1860,11 @@ impl Compiler {
                 self.compile_expr(lhs)?;
                 let jump = self.emit(Op::JumpIfNullishPeek(0), span);
                 let end_jump = self.emit(Op::Jump(0), span);
-                let rhs_start = self.cur().chunk.code.len();
+                let rhs_start = self.here();
                 self.cur().chunk.patch_jump(jump, rhs_start);
                 self.emit(Op::Pop, span);
                 self.compile_expr(rhs)?;
-                let end = self.cur().chunk.code.len();
+                let end = self.here();
                 self.cur().chunk.patch_jump(end_jump, end);
                 return Ok(());
             }
@@ -1995,7 +2049,7 @@ impl Compiler {
             let skip = self.emit(Op::JumpIfFalse(0), span);
             self.emit(Op::Pop, span);
             self.compile_expr(rhs)?;
-            let here = self.cur().chunk.code.len();
+            let here = self.here();
             self.cur().chunk.patch_jump(skip, here);
             return self.compile_destructure_target(lhs, span);
         }
@@ -2052,7 +2106,7 @@ impl Compiler {
         };
         self.emit(Op::Pop, span);
         self.compile_assign(lhs, rhs, span)?;
-        let end = self.cur().chunk.code.len();
+        let end = self.here();
         self.cur().chunk.patch_jump(short_circuit, end);
         Ok(())
     }
@@ -2134,11 +2188,11 @@ impl Compiler {
         let nullish = self.emit(Op::JumpIfNullishPeek(0), span);
         emit_access(self)?;
         let done = self.emit(Op::Jump(0), span);
-        let nullish_here = self.cur().chunk.code.len();
+        let nullish_here = self.here();
         self.cur().chunk.patch_jump(nullish, nullish_here);
         self.emit(Op::Pop, span);
         self.emit(Op::Undefined, span);
-        let end = self.cur().chunk.code.len();
+        let end = self.here();
         self.cur().chunk.patch_jump(done, end);
         Ok(())
     }
@@ -2299,6 +2353,10 @@ fn fold_val_is_truthy(v: &FoldVal) -> bool {
         FoldVal::Str(s) => !s.is_empty(),
         FoldVal::Bool(b) => *b,
     }
+}
+
+fn is_droppable_branch(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Block { .. })
 }
 
 fn fold_const(expr: &Expr) -> Option<FoldVal> {

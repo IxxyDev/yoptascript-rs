@@ -165,6 +165,7 @@ pub enum Op {
 
     Jump(usize),
     JumpIfFalse(usize),
+    JumpIfTrue(usize),
     JumpIfFalsePeek(usize),
     JumpIfTruePeek(usize),
     JumpIfNullishPeek(usize),
@@ -248,6 +249,12 @@ impl Chunk {
         self.code.len() - 1
     }
 
+    pub fn pop_op(&mut self) -> Option<Op> {
+        self.spans.pop();
+        self.caches.pop();
+        self.code.pop()
+    }
+
     pub fn add_constant(&mut self, value: Constant) -> ConstIdx {
         self.constants.push(value);
         (self.constants.len() - 1) as ConstIdx
@@ -257,6 +264,7 @@ impl Chunk {
         match &mut self.code[at] {
             Op::Jump(t)
             | Op::JumpIfFalse(t)
+            | Op::JumpIfTrue(t)
             | Op::JumpIfFalsePeek(t)
             | Op::JumpIfTruePeek(t)
             | Op::JumpIfNullishPeek(t)

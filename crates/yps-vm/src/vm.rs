@@ -520,6 +520,12 @@ impl Vm {
                         self.frames[frame_idx].ip = t;
                     }
                 }
+                Op::JumpIfTrue(t) => {
+                    let c = self.pop();
+                    if c.is_truthy() {
+                        self.frames[frame_idx].ip = t;
+                    }
+                }
                 Op::JumpIfFalsePeek(t) => {
                     if !self.peek(0).is_truthy() {
                         self.frames[frame_idx].ip = t;
