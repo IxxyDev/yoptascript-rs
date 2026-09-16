@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Interpreter locals are resolved to frame slots** — a post-parse
+  resolver assigns `(hops, slot)` coordinates to every identifier whose
+  binding is statically known, and `EnvFrame` stores those bindings in a
+  slot vector with bitmask-tracked TDZ/const state instead of hashing the
+  name up the scope chain on every read and write. Scopes with more than
+  64 bindings, classes, generators, async functions and imports keep the
+  previous name-map path. Criterion (interpreter variants): closures
+  −44%, arrays −19%, fib −17%, strings −16%, objects −15%.
+- **VM method calls are inline-cached** — `Op::Invoke` on a class instance
+  caches the resolved method per call site, keyed by class identity and
+  revalidated on every hit (own properties still shadow, getters, proxies,
+  host receivers, static and super calls never enter the cache). The GC
+  now marks cache tables through function prototypes. New `methods`
+  benchmark: VM −13%.
+- **VM compiler peephole pass** — emit-time rewrites with a fold barrier
+  at every captured jump target: `!cond` folds into an inverted jump
+  (`JumpIfTrue`), literal `вилкойвглаз`/`потрещим` conditions drop the
+  test or the dead block branch, and side-effect-free push/pop pairs are
+  not emitted. New `loops` benchmark: VM −13%.
+
+### Fixed
+
+- **Parenthesized arrow function spans** — `(а, б) => …` recorded a token
+  index instead of a byte offset as its span start, so diagnostics,
+  editor ranges and any span-keyed pass pointed at the wrong place.
+- **Scope frames leaked on error** — an exception thrown from a loop head
+  (`го` init/condition/update, `for-in`/`for-of` body or iterator) or a
+  failed parameter bind on a call, method, constructor or `super` call
+  left the callee/loop frame installed in the caller's environment.
+  Previously masked by name lookup walking past the extra frame.
+
+### Added
+
+- **`Value` size guards** — tests pin `size_of::<Value>()` to 32 bytes
+  for the interpreter and 64 for the VM so layout regressions fail CI.
+
 ## [1.15.1] - 2026-09-14
 
 ### Fixed
