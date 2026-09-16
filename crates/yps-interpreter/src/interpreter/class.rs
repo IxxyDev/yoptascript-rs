@@ -431,9 +431,10 @@ impl Interpreter {
             let saved = self.env.clone();
             self.env.push_scope();
             self.env.define(symbols::THIS, instance_val.clone(), false);
-            self.call_function(init.clone(), vec![], span)?;
+            let init_result = self.call_function(init.clone(), vec![], span);
             instance_val = self.env.get(symbols::THIS).unwrap_or(instance_val);
             self.env = saved;
+            init_result?;
         }
 
         if let Some(MethodDef { params, body, env }) = &class_def.constructor {
@@ -447,7 +448,10 @@ impl Interpreter {
                 self.env.define(symbols::SUPER, Value::Class(Rc::clone(parent)), false);
             }
 
-            self.bind_params(params, &args, false, span)?;
+            if let Err(e) = self.bind_params(params, &args, false, span) {
+                self.env = saved_env;
+                return Err(e);
+            }
 
             self.push_frame(Rc::from(class_def.name.as_str()), span);
             let mut result = self.exec_block_stmts(&body.stmts);
@@ -522,7 +526,10 @@ impl Interpreter {
             self.env.define(symbols::SUPER, Value::Class(Rc::clone(grandparent)), false);
         }
 
-        self.bind_params(&params, &args, false, span)?;
+        if let Err(e) = self.bind_params(&params, &args, false, span) {
+            self.env = saved_env;
+            return Err(e);
+        }
 
         let result = self.exec_block_stmts(&body.stmts);
         let this_after = self.env.get(symbols::THIS).unwrap_or(child_instance);

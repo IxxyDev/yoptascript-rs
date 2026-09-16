@@ -98,3 +98,34 @@ fn free_variable_without_import_is_root() {
     let res = resolved(src);
     assert!(res.is_root_read(nth_offset(src, "свободная", 0)));
 }
+
+#[test]
+fn root_layout_covers_exactly_sixty_four_names() {
+    let mut src = String::new();
+    for i in 0..64 {
+        src.push_str(&format!("гыы в{i} = {i};\n"));
+    }
+    let res = resolved(&src);
+    assert_eq!(res.root_layout().map(|l| l.names.len()), Some(64));
+}
+
+#[test]
+fn root_layout_is_refused_past_sixty_four_names() {
+    let mut src = String::new();
+    for i in 0..65 {
+        src.push_str(&format!("гыы в{i} = {i};\n"));
+    }
+    let res = resolved(&src);
+    assert!(res.root_layout().is_none());
+}
+
+#[test]
+fn oversized_function_scope_records_no_slot_uses() {
+    let mut body = String::new();
+    for i in 0..65 {
+        body.push_str(&format!("гыы л{i} = {i}; "));
+    }
+    let src = format!("йопта фн() {{ {body}отвечаю л0; }}");
+    let res = resolved(&src);
+    assert!(res.use_at(nth_offset(&src, "л0", 1)).is_none());
+}

@@ -104,7 +104,10 @@ impl Interpreter {
                 self.env = Environment::from_snapshot(env, self.env.registry());
                 let slotted = self.push_scope_keyed(body.span.start);
 
-                self.bind_params(&params, &args, true, span)?;
+                if let Err(e) = self.bind_params(&params, &args, true, span) {
+                    self.env = saved_env;
+                    return Err(e);
+                }
                 self.mark_scope_tdz(slotted, &body.stmts);
 
                 if is_generator {
@@ -231,7 +234,10 @@ impl Interpreter {
             self.env.define(symbols::SUPER, super_val, false);
         }
 
-        self.bind_params(params, &args, true, span)?;
+        if let Err(e) = self.bind_params(params, &args, true, span) {
+            self.env = saved_env;
+            return Err(e);
+        }
         self.mark_scope_tdz(slotted, &body.stmts);
 
         self.push_frame(name, span);

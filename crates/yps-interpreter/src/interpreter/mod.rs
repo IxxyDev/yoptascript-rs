@@ -160,6 +160,17 @@ impl Interpreter {
         }
     }
 
+    pub(super) fn in_scope<T>(
+        &mut self,
+        key: usize,
+        body: impl FnOnce(&mut Self) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        self.push_scope_keyed(key);
+        let result = body(self);
+        self.env.pop_scope();
+        result
+    }
+
     #[inline]
     pub(super) fn mark_scope_tdz(&mut self, slotted: bool, stmts: &[yps_parser::ast::Stmt]) {
         if slotted {
@@ -173,7 +184,7 @@ impl Interpreter {
     pub(super) fn lookup_read(&self, ident: &Identifier) -> crate::environment::Lookup {
         use crate::environment::Lookup;
         if let Some(var) = self.resolution.use_at(ident.span.start) {
-            return self.env.read_slot(var.hops, var.slot, &ident.name);
+            return self.env.read_slot(var, &ident.name);
         }
         if let Some(value) = self.env.get_shallow(&ident.name) {
             return Lookup::Found(value);

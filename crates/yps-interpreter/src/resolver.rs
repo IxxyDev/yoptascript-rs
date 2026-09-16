@@ -35,6 +35,7 @@ type SpanMap<V> = HashMap<usize, V, BuildHasherDefault<SpanHasher>>;
 pub(crate) struct VarUse {
     pub(crate) hops: u16,
     pub(crate) slot: u16,
+    pub(crate) layout: u32,
 }
 
 #[derive(Default)]
@@ -78,6 +79,7 @@ pub(crate) fn resolve(program: &Program) -> RootResolution {
         layouts: SpanMap::default(),
         disabled: false,
         slots_disabled: false,
+        next_layout_id: 0,
     };
     let root = resolver.open_frame(scope_names(&program.items));
     for stmt in &program.items {
@@ -90,7 +92,7 @@ pub(crate) fn resolve(program: &Program) -> RootResolution {
     if resolver.slots_disabled {
         return RootResolution { reads: resolver.reads, ..RootResolution::default() };
     }
-    RootResolution { reads: resolver.reads, uses: resolver.uses, layouts: resolver.layouts, root_layout: Some(root) }
+    RootResolution { reads: resolver.reads, uses: resolver.uses, layouts: resolver.layouts, root_layout: root }
 }
 
 const STACK_RED_ZONE: usize = 256 * 1024;
@@ -100,7 +102,7 @@ const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 /// `push_scope` / `fork_current` calls exactly, otherwise hop counts point at the wrong frame.
 struct ResolvedFrame {
     names: Vec<Rc<str>>,
-    slotted: bool,
+    layout: Option<u32>,
 }
 
 struct Resolver {
@@ -111,17 +113,22 @@ struct Resolver {
     layouts: SpanMap<Rc<ScopeLayout>>,
     disabled: bool,
     slots_disabled: bool,
+    next_layout_id: u32,
 }
 
 impl Resolver {
-    fn open_frame(&mut self, layout: ScopeLayout) -> Rc<ScopeLayout> {
-        let slotted = layout.names.len() <= MAX_SLOTS;
-        self.frames.push(ResolvedFrame { names: layout.names.clone(), slotted });
-        Rc::new(layout)
+    fn open_frame(&mut self, mut layout: ScopeLayout) -> Option<Rc<ScopeLayout>> {
+        let names = layout.names.clone();
+        self.next_layout_id += 1;
+        layout.id = self.next_layout_id;
+        let shared = (names.len() <= MAX_SLOTS).then(|| Rc::new(layout));
+        let id = shared.as_ref().map(|l| l.id);
+        self.frames.push(ResolvedFrame { names, layout: id });
+        shared
     }
 
     fn push_layout(&mut self, key: usize, layout: ScopeLayout) {
-        let rc = self.open_frame(layout);
+        let Some(rc) = self.open_frame(layout) else { return };
         if self.layouts.insert(key, rc).is_some() {
             self.slots_disabled = true;
         }
@@ -138,8 +145,8 @@ impl Resolver {
         let mut hops: u16 = 0;
         for frame in self.frames.iter().rev() {
             if let Some(index) = frame.names.iter().position(|n| &**n == name) {
-                if frame.slotted {
-                    self.uses.insert(start, VarUse { hops, slot: index as u16 });
+                if let Some(layout) = frame.layout {
+                    self.uses.insert(start, VarUse { hops, slot: index as u16, layout });
                 }
                 return;
             }
@@ -170,7 +177,7 @@ impl Resolver {
         self.scopes.push(locals);
 
         if let Some(name) = own_name {
-            let layout = ScopeLayout { names: vec![Rc::from(name.name.as_str())], tdz_mask: 0 };
+            let layout = ScopeLayout { names: vec![Rc::from(name.name.as_str())], tdz_mask: 0, id: 0 };
             self.push_layout(name.span.start, layout);
         }
         self.push_layout(body.span.start, function_scope_names(params, &body.stmts));
@@ -343,7 +350,7 @@ impl Resolver {
                 self.scopes.push(locals);
                 let mut names = Vec::new();
                 collect_pattern_names_ordered(variable, &mut names);
-                self.push_layout(span.start, ScopeLayout { names, tdz_mask: 0 });
+                self.push_layout(span.start, ScopeLayout { names, tdz_mask: 0, id: 0 });
                 self.walk_pattern_defaults(variable);
                 self.walk_stmt(body);
                 self.pop_frame();
@@ -546,13 +553,13 @@ fn scope_names(stmts: &[Stmt]) -> ScopeLayout {
     collect_lexical_ordered(stmts, &mut names);
     let tdz_mask = mask_for(names.len());
     collect_function_decls(stmts, &mut names);
-    ScopeLayout { names, tdz_mask }
+    ScopeLayout { names, tdz_mask, id: 0 }
 }
 
 fn head_names(stmts: &[Stmt]) -> ScopeLayout {
     let mut names = Vec::new();
     collect_lexical_ordered(stmts, &mut names);
-    ScopeLayout { names, tdz_mask: 0 }
+    ScopeLayout { names, tdz_mask: 0, id: 0 }
 }
 
 fn function_scope_names(params: &[Param], stmts: &[Stmt]) -> ScopeLayout {
@@ -564,7 +571,7 @@ fn function_scope_names(params: &[Param], stmts: &[Stmt]) -> ScopeLayout {
     collect_lexical_ordered(stmts, &mut names);
     let tdz_mask = mask_for(names.len()) & !mask_for(params_len);
     collect_function_decls(stmts, &mut names);
-    ScopeLayout { names, tdz_mask }
+    ScopeLayout { names, tdz_mask, id: 0 }
 }
 
 fn mask_for(count: usize) -> u64 {

@@ -514,7 +514,7 @@ impl Interpreter {
         let old = self
             .resolution
             .use_at(ident.span.start)
-            .and_then(|var| self.env.get_slot(var.hops, var.slot, &ident.name))
+            .and_then(|var| self.env.get_slot(var))
             .or_else(|| self.env.get(&ident.name))
             .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
         let Value::Number(n) = old else {
@@ -535,7 +535,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(var) = self.resolution.use_at(ident.span.start) {
-            match self.env.write_slot(var.hops, var.slot, &value, &ident.name) {
+            match self.env.write_slot(var, &value) {
                 SlotWrite::Done => return Ok(()),
                 SlotWrite::Const => {
                     return Err(RuntimeError::new(format!("Нельзя изменить константу '{}'", ident.name), span));

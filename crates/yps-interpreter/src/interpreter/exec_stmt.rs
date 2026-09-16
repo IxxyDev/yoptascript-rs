@@ -68,34 +68,31 @@ impl Interpreter {
             }
             Stmt::For { init, condition, update, body, span } => {
                 let label = incoming_label;
-                self.push_scope_keyed(span.start);
-                if let Some(init_stmt) = init {
-                    self.exec_stmt(init_stmt)?;
-                }
-                loop {
-                    if let Some(cond) = condition {
-                        let val = self.eval_expr(cond)?;
-                        if !val.is_truthy() {
-                            break;
-                        }
+                self.in_scope(span.start, |interp| {
+                    if let Some(init_stmt) = init {
+                        interp.exec_stmt(init_stmt)?;
                     }
-                    if let Some(cf) = self.exec_stmt(body)? {
-                        match cf.for_loop(label.as_deref()) {
-                            LoopOp::Break => break,
-                            LoopOp::Continue => {}
-                            LoopOp::Exit(cf) => {
-                                self.env.pop_scope();
-                                return Ok(Some(cf));
+                    loop {
+                        if let Some(cond) = condition {
+                            let val = interp.eval_expr(cond)?;
+                            if !val.is_truthy() {
+                                break;
                             }
                         }
+                        if let Some(cf) = interp.exec_stmt(body)? {
+                            match cf.for_loop(label.as_deref()) {
+                                LoopOp::Break => break,
+                                LoopOp::Continue => {}
+                                LoopOp::Exit(cf) => return Ok(Some(cf)),
+                            }
+                        }
+                        interp.env.fork_current();
+                        if let Some(upd) = update {
+                            interp.eval_expr(upd)?;
+                        }
                     }
-                    self.env.fork_current();
-                    if let Some(upd) = update {
-                        self.eval_expr(upd)?;
-                    }
-                }
-                self.env.pop_scope();
-                Ok(None)
+                    Ok(None)
+                })
             }
             Stmt::Break { label, .. } => Ok(Some(ControlFlow::Break(label.as_ref().map(|l| l.name.clone())))),
             Stmt::Continue { label, .. } => Ok(Some(ControlFlow::Continue(label.as_ref().map(|l| l.name.clone())))),
@@ -149,26 +146,20 @@ impl Interpreter {
                     }
                 };
                 let label = incoming_label;
-                self.push_scope_keyed(span.start);
-                for item in items {
-                    self.env.fork_current();
-                    if let Err(e) = self.destructure_pattern(variable, item, false, *span) {
-                        self.env.pop_scope();
-                        return Err(e);
-                    }
-                    if let Some(cf) = self.exec_stmt(body)? {
-                        match cf.for_loop(label.as_deref()) {
-                            LoopOp::Break => break,
-                            LoopOp::Continue => continue,
-                            LoopOp::Exit(cf) => {
-                                self.env.pop_scope();
-                                return Ok(Some(cf));
+                self.in_scope(span.start, |interp| {
+                    for item in items {
+                        interp.env.fork_current();
+                        interp.destructure_pattern(variable, item, false, *span)?;
+                        if let Some(cf) = interp.exec_stmt(body)? {
+                            match cf.for_loop(label.as_deref()) {
+                                LoopOp::Break => break,
+                                LoopOp::Continue => continue,
+                                LoopOp::Exit(cf) => return Ok(Some(cf)),
                             }
                         }
                     }
-                }
-                self.env.pop_scope();
-                Ok(None)
+                    Ok(None)
+                })
             }
             Stmt::DoWhile { body, condition, .. } => {
                 let label = incoming_label;
@@ -507,55 +498,51 @@ impl Interpreter {
             return self.exec_for_await_loop(&aiter, variable, body, span, label);
         }
         if let Value::Iterator(rc) = val {
-            self.push_scope_keyed(span.start);
-            loop {
-                let next_val = {
-                    let mut state = rc.borrow_mut();
-                    crate::stdlib::iterator::next(self, &mut state, span)?
-                };
-                let item = match next_val {
-                    Some(v) => v,
-                    None => break,
-                };
-                let item = if is_await { self.do_await(item, span)? } else { item };
-                self.env.fork_current();
-                if let Err(e) = self.destructure_pattern(variable, item, false, span) {
-                    let mut state = rc.borrow_mut();
-                    let _ = crate::stdlib::iterator::close(self, &mut state, span);
-                    self.env.pop_scope();
-                    return Err(e);
-                }
-                let body_result = self.exec_stmt(body);
-                let cf = match body_result {
-                    Ok(cf) => cf,
-                    Err(e) => {
+            return self.in_scope(span.start, |interp| {
+                loop {
+                    let next_val = {
                         let mut state = rc.borrow_mut();
-                        let _ = crate::stdlib::iterator::close(self, &mut state, span);
-                        self.env.pop_scope();
+                        crate::stdlib::iterator::next(interp, &mut state, span)?
+                    };
+                    let item = match next_val {
+                        Some(v) => v,
+                        None => break,
+                    };
+                    let item = if is_await { interp.do_await(item, span)? } else { item };
+                    interp.env.fork_current();
+                    if let Err(e) = interp.destructure_pattern(variable, item, false, span) {
+                        let mut state = rc.borrow_mut();
+                        let _ = crate::stdlib::iterator::close(interp, &mut state, span);
                         return Err(e);
                     }
-                };
-                if let Some(cf) = cf {
-                    match cf.for_loop(label.as_deref()) {
-                        LoopOp::Break => {
+                    let cf = match interp.exec_stmt(body) {
+                        Ok(cf) => cf,
+                        Err(e) => {
                             let mut state = rc.borrow_mut();
-                            crate::stdlib::iterator::close(self, &mut state, span)?;
-                            break;
+                            let _ = crate::stdlib::iterator::close(interp, &mut state, span);
+                            return Err(e);
                         }
-                        LoopOp::Continue => continue,
-                        LoopOp::Exit(cf) => {
-                            {
+                    };
+                    if let Some(cf) = cf {
+                        match cf.for_loop(label.as_deref()) {
+                            LoopOp::Break => {
                                 let mut state = rc.borrow_mut();
-                                crate::stdlib::iterator::close(self, &mut state, span)?;
+                                crate::stdlib::iterator::close(interp, &mut state, span)?;
+                                break;
                             }
-                            self.env.pop_scope();
-                            return Ok(Some(cf));
+                            LoopOp::Continue => continue,
+                            LoopOp::Exit(cf) => {
+                                {
+                                    let mut state = rc.borrow_mut();
+                                    crate::stdlib::iterator::close(interp, &mut state, span)?;
+                                }
+                                return Ok(Some(cf));
+                            }
                         }
                     }
                 }
-            }
-            self.env.pop_scope();
-            return Ok(None);
+                Ok(None)
+            });
         }
         let items: Vec<Value> = match val {
             Value::Array(elements) => elements.borrow().0.clone(),
@@ -568,47 +555,35 @@ impl Interpreter {
             Value::Object(_) => {
                 if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
                     let next_method_name = "следующий";
-                    self.push_scope_keyed(span.start);
-                    loop {
-                        let next_fn = self.eval_member(iterator_obj.clone(), next_method_name, span)?;
-                        let result = self.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
-                        let done = match &result {
-                            Value::Object(r) => r.borrow().get(crate::symbols::ITER_DONE).cloned(),
-                            _ => None,
-                        };
-                        if matches!(done, Some(Value::Boolean(true))) {
-                            break;
-                        }
-                        let item = match &result {
-                            Value::Object(r) => {
-                                r.borrow().get(crate::symbols::ITER_VALUE).cloned().unwrap_or(Value::Undefined)
+                    return self.in_scope(span.start, |interp| {
+                        loop {
+                            let next_fn = interp.eval_member(iterator_obj.clone(), next_method_name, span)?;
+                            let result = interp.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
+                            let done = match &result {
+                                Value::Object(r) => r.borrow().get(crate::symbols::ITER_DONE).cloned(),
+                                _ => None,
+                            };
+                            if matches!(done, Some(Value::Boolean(true))) {
+                                break;
                             }
-                            _ => Value::Undefined,
-                        };
-                        let item = if is_await { self.do_await(item, span)? } else { item };
-                        if let Err(e) = self.destructure_pattern(variable, item, false, span) {
-                            self.env.pop_scope();
-                            return Err(e);
-                        }
-                        let body_result = self.exec_stmt(body);
-                        match body_result {
-                            Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
-                                LoopOp::Break => break,
-                                LoopOp::Continue => continue,
-                                LoopOp::Exit(cf) => {
-                                    self.env.pop_scope();
-                                    return Ok(Some(cf));
+                            let item = match &result {
+                                Value::Object(r) => {
+                                    r.borrow().get(crate::symbols::ITER_VALUE).cloned().unwrap_or(Value::Undefined)
                                 }
-                            },
-                            Ok(None) => {}
-                            Err(e) => {
-                                self.env.pop_scope();
-                                return Err(e);
+                                _ => Value::Undefined,
+                            };
+                            let item = if is_await { interp.do_await(item, span)? } else { item };
+                            interp.destructure_pattern(variable, item, false, span)?;
+                            if let Some(cf) = interp.exec_stmt(body)? {
+                                match cf.for_loop(label.as_deref()) {
+                                    LoopOp::Break => break,
+                                    LoopOp::Continue => continue,
+                                    LoopOp::Exit(cf) => return Ok(Some(cf)),
+                                }
                             }
                         }
-                    }
-                    self.env.pop_scope();
-                    return Ok(None);
+                        Ok(None)
+                    });
                 }
                 return Err(RuntimeError::new(
                     "Нельзя итерировать по типу 'объект' (нет Symbol.iterator)".to_string(),
@@ -619,27 +594,21 @@ impl Interpreter {
                 return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span));
             }
         };
-        self.push_scope_keyed(span.start);
-        for item in items {
-            let item = if is_await { self.do_await(item, span)? } else { item };
-            self.env.fork_current();
-            if let Err(e) = self.destructure_pattern(variable, item, false, span) {
-                self.env.pop_scope();
-                return Err(e);
-            }
-            if let Some(cf) = self.exec_stmt(body)? {
-                match cf.for_loop(label.as_deref()) {
-                    LoopOp::Break => break,
-                    LoopOp::Continue => continue,
-                    LoopOp::Exit(cf) => {
-                        self.env.pop_scope();
-                        return Ok(Some(cf));
+        self.in_scope(span.start, |interp| {
+            for item in items {
+                let item = if is_await { interp.do_await(item, span)? } else { item };
+                interp.env.fork_current();
+                interp.destructure_pattern(variable, item, false, span)?;
+                if let Some(cf) = interp.exec_stmt(body)? {
+                    match cf.for_loop(label.as_deref()) {
+                        LoopOp::Break => break,
+                        LoopOp::Continue => continue,
+                        LoopOp::Exit(cf) => return Ok(Some(cf)),
                     }
                 }
             }
-        }
-        self.env.pop_scope();
-        Ok(None)
+            Ok(None)
+        })
     }
 
     fn exec_for_await_loop(
@@ -650,47 +619,38 @@ impl Interpreter {
         span: Span,
         label: Option<String>,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
-        self.push_scope_keyed(span.start);
-        loop {
-            let (done, item) = match self.async_iter_next(aiter, span) {
-                Ok(pair) => pair,
-                Err(e) => {
-                    self.env.pop_scope();
+        self.in_scope(span.start, |interp| {
+            loop {
+                let (done, item) = interp.async_iter_next(aiter, span)?;
+                if done {
+                    break;
+                }
+                interp.env.fork_current();
+                if let Err(e) = interp.destructure_pattern(variable, item, false, span) {
+                    let _ = interp.async_iter_close(aiter, span);
                     return Err(e);
                 }
-            };
-            if done {
-                break;
-            }
-            self.env.fork_current();
-            if let Err(e) = self.destructure_pattern(variable, item, false, span) {
-                let _ = self.async_iter_close(aiter, span);
-                self.env.pop_scope();
-                return Err(e);
-            }
-            match self.exec_stmt(body) {
-                Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
-                    LoopOp::Break => {
-                        self.async_iter_close(aiter, span)?;
-                        break;
+                match interp.exec_stmt(body) {
+                    Ok(Some(cf)) => match cf.for_loop(label.as_deref()) {
+                        LoopOp::Break => {
+                            interp.async_iter_close(aiter, span)?;
+                            break;
+                        }
+                        LoopOp::Continue => continue,
+                        LoopOp::Exit(cf) => {
+                            interp.async_iter_close(aiter, span)?;
+                            return Ok(Some(cf));
+                        }
+                    },
+                    Ok(None) => {}
+                    Err(e) => {
+                        let _ = interp.async_iter_close(aiter, span);
+                        return Err(e);
                     }
-                    LoopOp::Continue => continue,
-                    LoopOp::Exit(cf) => {
-                        self.async_iter_close(aiter, span)?;
-                        self.env.pop_scope();
-                        return Ok(Some(cf));
-                    }
-                },
-                Ok(None) => {}
-                Err(e) => {
-                    let _ = self.async_iter_close(aiter, span);
-                    self.env.pop_scope();
-                    return Err(e);
                 }
             }
-        }
-        self.env.pop_scope();
-        Ok(None)
+            Ok(None)
+        })
     }
 }
 

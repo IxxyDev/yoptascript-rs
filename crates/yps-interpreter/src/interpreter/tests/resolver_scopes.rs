@@ -378,3 +378,104 @@ fn proxy_trap_params_resolve_next_to_a_paren_arrow_target() {
     assert_eq!(i.get("р1"), Some(Value::Number(100.0)));
     assert_eq!(i.get("р2"), Some(Value::Number(15.0)));
 }
+
+#[test]
+fn more_than_sixty_four_root_bindings_fall_back_to_names() {
+    let mut src = String::new();
+    for i in 0..70 {
+        src.push_str(&format!("гыы в{i} = {i};\n"));
+    }
+    src.push_str("гыы рез = в0 + в69;");
+    let i = run_code(&src);
+    assert_eq!(i.get("рез"), Some(Value::Number(69.0)));
+}
+
+#[test]
+fn more_than_sixty_four_locals_fall_back_to_names() {
+    let mut body = String::new();
+    for i in 0..70 {
+        body.push_str(&format!("гыы л{i} = {i}; "));
+    }
+    let src = format!("йопта фн() {{ {body}отвечаю л0 + л69; }}\nгыы рез = фн();");
+    let i = run_code(&src);
+    assert_eq!(i.get("рез"), Some(Value::Number(69.0)));
+}
+
+#[test]
+fn sixty_fifth_binding_does_not_alias_const_flags() {
+    let mut src = String::new();
+    for i in 0..64 {
+        src.push_str(&format!("гыы в{i} = {i};\n"));
+    }
+    src.push_str("ясенХуй к64 = 999;\nв0 = 42;\nгыы рез = в0;");
+    let i = run_code(&src);
+    assert_eq!(i.get("рез"), Some(Value::Number(42.0)));
+}
+
+#[test]
+fn exactly_sixty_four_bindings_still_read_back() {
+    let mut src = String::new();
+    for i in 0..64 {
+        src.push_str(&format!("гыы в{i} = {i};\n"));
+    }
+    src.push_str("гыы рез = в0 + в63;");
+    let i = run_code(&src);
+    assert_eq!(i.get("рез"), Some(Value::Number(63.0)));
+}
+
+#[test]
+fn error_out_of_classic_for_head_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; го (гыы и = 0; и < 2; и = и + 1) { боом(); } } гоп (е) { }\nгыы рез = х;\nйопта ф() { отвечаю х; }\nгыы рез2 = ф();",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+    assert_eq!(i.get("рез2"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn error_in_for_update_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; го (гыы и = 0; и < 2; боом()) { } } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn error_out_of_for_in_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; го (гыы к из { а: 1, б: 2 }) { боом(); } } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn error_out_of_for_of_array_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; го (гыы э сашаГрей [7, 8]) { боом(); } } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn throwing_user_iterator_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; ясенХуй ит = { [Симбол.итератор]: () => ({ следующий: () => { кидай \"бум\"; } }) }; го (гыы э сашаГрей ит) { } } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn error_out_of_builtin_iterator_does_not_leak_a_frame() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; го (гыы э сашаГрей Итератор.от([1, 2])) { боом(); } } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}
+
+#[test]
+fn failed_parameter_binding_restores_the_caller_environment() {
+    let i = run_code(
+        "гыы х = \"ИКС\";\nхапнуть { гыы у = \"ИГРЕК\"; йопта ф({ а }) { отвечаю а; } ф(ноль); } гоп (е) { }\nгыы рез = х;",
+    );
+    assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
+}

@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 
+use crate::resolver::VarUse;
 use crate::value::Value;
 
 pub(crate) const MAX_SLOTS: usize = 64;
@@ -10,6 +11,7 @@ pub(crate) const MAX_SLOTS: usize = 64;
 pub(crate) struct ScopeLayout {
     pub(crate) names: Vec<Rc<str>>,
     pub(crate) tdz_mask: u64,
+    pub(crate) id: u32,
 }
 
 impl ScopeLayout {
@@ -99,6 +101,10 @@ impl EnvFrame {
 
     fn slot_index(&self, name: &str) -> Option<usize> {
         self.layout.as_ref()?.index_of(name)
+    }
+
+    fn layout_is(&self, expected: u32) -> bool {
+        self.layout.as_ref().is_some_and(|l| l.id == expected)
     }
 
     fn slot_value(&self, index: usize) -> Option<&Value> {
@@ -261,6 +267,10 @@ impl Environment {
     }
 
     pub(crate) fn push_scope_with(&mut self, layout: Rc<ScopeLayout>) {
+        if layout.names.len() > MAX_SLOTS {
+            self.push_scope();
+            return;
+        }
         let mut frame = EnvFrame::empty(Some(Rc::clone(&self.current)));
         frame.slots = vec![Value::Undefined; layout.names.len()];
         frame.layout = Some(layout);
@@ -281,6 +291,9 @@ impl Environment {
     }
 
     pub(crate) fn install_root_layout(&mut self, layout: Rc<ScopeLayout>) {
+        if layout.names.len() > MAX_SLOTS {
+            return;
+        }
         let mut frame = self.current.borrow_mut();
         frame.spill_slots();
         frame.slots = vec![Value::Undefined; layout.names.len()];
@@ -357,17 +370,18 @@ impl Environment {
         Some(frame)
     }
 
-    pub(crate) fn read_slot(&self, hops: u16, slot: u16, name: &str) -> Lookup {
+    pub(crate) fn read_slot(&self, var: VarUse, name: &str) -> Lookup {
+        let (hops, slot) = (var.hops, var.slot);
         let Some(frame_rc) = self.ancestor(hops) else {
             debug_assert!(false, "слот-резолюция вышла за пределы цепочки кадров");
             return self.lookup_read(name);
         };
         let frame = frame_rc.borrow();
-        debug_assert_eq!(
-            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
-            Some(name),
-            "слот-резолюция указывает на чужой слот"
-        );
+        if !frame.layout_is(var.layout) {
+            debug_assert!(false, "слот-резолюция указывает на чужой слот");
+            drop(frame);
+            return self.lookup_read(name);
+        }
         let index = slot as usize;
         let bit = 1u64 << index;
         if frame.init_mask & bit != 0 {
@@ -380,28 +394,27 @@ impl Environment {
         self.lookup_read(name)
     }
 
-    pub(crate) fn get_slot(&self, hops: u16, slot: u16, name: &str) -> Option<Value> {
-        let frame_rc = self.ancestor(hops)?;
+    pub(crate) fn get_slot(&self, var: VarUse) -> Option<Value> {
+        let frame_rc = self.ancestor(var.hops)?;
         let frame = frame_rc.borrow();
-        debug_assert_eq!(
-            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
-            Some(name),
-            "слот-резолюция указывает на чужой слот"
-        );
-        frame.slot_value(slot as usize).cloned()
+        if !frame.layout_is(var.layout) {
+            debug_assert!(false, "слот-резолюция указывает на чужой слот");
+            return None;
+        }
+        frame.slot_value(var.slot as usize).cloned()
     }
 
-    pub(crate) fn write_slot(&self, hops: u16, slot: u16, value: &Value, name: &str) -> SlotWrite {
+    pub(crate) fn write_slot(&self, var: VarUse, value: &Value) -> SlotWrite {
+        let (hops, slot) = (var.hops, var.slot);
         let Some(frame_rc) = self.ancestor(hops) else {
             debug_assert!(false, "слот-резолюция вышла за пределы цепочки кадров");
             return SlotWrite::Fallback;
         };
         let mut frame = frame_rc.borrow_mut();
-        debug_assert_eq!(
-            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
-            Some(name),
-            "слот-резолюция указывает на чужой слот"
-        );
+        if !frame.layout_is(var.layout) {
+            debug_assert!(false, "слот-резолюция указывает на чужой слот");
+            return SlotWrite::Fallback;
+        }
         let index = slot as usize;
         let bit = 1u64 << index;
         if frame.init_mask & bit == 0 {
