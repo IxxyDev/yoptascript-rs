@@ -9,6 +9,7 @@ const STRINGS: &str = include_str!("programs/strings.yopta");
 const OBJECTS: &str = include_str!("programs/objects.yopta");
 const CLOSURES: &str = include_str!("programs/closures.yopta");
 const ARRAYS: &str = include_str!("programs/arrays.yopta");
+const METHODS: &str = include_str!("programs/methods.yopta");
 
 fn parse(name: &str, source: &str) -> Program {
     let file = SourceFile::new(name.to_string(), source.to_string());
@@ -60,5 +61,9 @@ fn bench_arrays(c: &mut Criterion) {
     bench_program(c, "arrays", ARRAYS);
 }
 
-criterion_group!(benches, bench_fib, bench_strings, bench_objects, bench_closures, bench_arrays);
+fn bench_methods(c: &mut Criterion) {
+    bench_program(c, "methods", METHODS);
+}
+
+criterion_group!(benches, bench_fib, bench_strings, bench_objects, bench_closures, bench_arrays, bench_methods);
 criterion_main!(benches);
