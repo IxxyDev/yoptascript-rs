@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::{Rc, Weak};
 
+use crate::chunk::{Constant, FnProto, InlineCache};
 use crate::value::{
     AggregateState, ClassDef, Closure, Delegate, ForIter, GenState, ObjMap, PromiseState, UpvalueState, Value,
 };
@@ -164,6 +165,24 @@ impl Marker {
         if self.seen.insert(Rc::as_ptr(closure) as usize) {
             for up in &closure.upvalues {
                 self.push_upvalue(up);
+            }
+        }
+        self.mark_proto(&closure.proto);
+    }
+
+    fn mark_proto(&mut self, proto: &Rc<FnProto>) {
+        if !self.seen.insert(Rc::as_ptr(proto) as usize) {
+            return;
+        }
+        for slot in &proto.chunk.caches {
+            if let InlineCache::Method { method, owner, .. } = &*slot.borrow() {
+                self.work.push(Work::Closure(Rc::clone(method)));
+                self.work.push(Work::Class(Rc::clone(owner)));
+            }
+        }
+        for constant in &proto.chunk.constants {
+            if let Constant::Proto(nested) = constant {
+                self.mark_proto(nested);
             }
         }
     }

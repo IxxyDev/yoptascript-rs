@@ -2219,9 +2219,113 @@ fn peephole_drops_constant_while_condition() {
 fn peephole_drops_dead_push_pop_pairs() {
     let code = nested_ops("йопта ф() { гыы а = 1; а; }", "ф");
     assert!(!code.iter().any(|op| matches!(op, crate::chunk::Op::GetLocal(_))), "{code:?}");
-    assert!(!code.contains(&crate::chunk::Op::Dup), "{code:?}");
     let code = ops("1; правда; ноль; неибу;");
     assert!(!code.contains(&crate::chunk::Op::Pop), "{code:?}");
     assert_eq!(code, ops(""));
     assert_eq!(run("йопта ф() { гыы а = 1; а; отвечаю а; } сказать(ф());"), "1\n");
+}
+
+#[test]
+fn ic_invoke_survives_a_collection_between_calls() {
+    let src = r#"
+клёво Щ {
+  Щ(н) { тырыпыры.н = н; }
+  дай() { отвечаю тырыпыры.н; }
+}
+йопта зови(о) { отвечаю о.дай(); }
+йопта мусор() {
+    гыы а = {};
+    гыы б = {};
+    а.друг = б;
+    б.друг = а;
+}
+гыы сумма = 0;
+го (гыы к = 0; к < 3; к = к + 1) { сумма = сумма + зови(захуярить Щ(к)); }
+го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+сумма = сумма + зови(захуярить Щ(10));
+сказать(сумма);
+"#;
+    assert_eq!(run(src), "13\n");
+    let mut vm = run_vm(src);
+    let live = vm.live_objects();
+    assert!(live < 20000, "сборка не сработала, живых объектов: {live}");
+    vm.collect_cycles();
+}
+
+#[test]
+fn ic_invoke_depth_overflow_is_catchable() {
+    let src = r#"
+клёво Р {
+  дай() { отвечаю 7; }
+  глубже(н) { отвечаю тырыпыры.глубже(н + 1); }
+}
+гыы р = захуярить Р();
+хапнуть { р.глубже(0); } гоп(е) { сказать("поймал"); }
+сказать(р.дай());
+"#;
+    assert_eq!(run(src), "поймал\n7\n");
+}
+
+#[test]
+fn peephole_barrier_keeps_inverted_jump_target() {
+    let code = nested_ops("йопта ф(а) { вилкойвглаз (чобля а) { отвечаю 1; } иливжопураз { отвечаю 2; } }", "ф");
+    assert!(!code.contains(&crate::chunk::Op::Not), "{code:?}");
+    let (at, target) = code
+        .iter()
+        .enumerate()
+        .find_map(|(i, op)| match op {
+            crate::chunk::Op::JumpIfTrue(t) => Some((i, *t)),
+            _ => None,
+        })
+        .expect("инвертированный переход");
+    assert!(target > at && target < code.len(), "{code:?}");
+    assert!(matches!(code[target - 1], crate::chunk::Op::Jump(_)), "{code:?}");
+    assert_eq!(
+        run("йопта ф(а) { вилкойвглаз (чобля а) { отвечаю 1; } иливжопураз { отвечаю 2; } } сказать(ф(0), ф(1));"),
+        "1 2\n"
+    );
+}
+
+#[test]
+fn peephole_barrier_keeps_ternary_statement_pop() {
+    let code = ops("гыы а = 1; а ? 10 : 20;");
+    let pop_at = code.iter().position(|op| *op == crate::chunk::Op::Pop).expect("Pop после тернарника");
+    assert!(matches!(code[pop_at - 1], crate::chunk::Op::Constant(_)), "{code:?}");
+    assert_eq!(run("гыы а = 1; а ? 10 : 20; сказать(а);"), "1\n");
+}
+
+#[test]
+fn peephole_barrier_keeps_continue_target() {
+    let code = nested_ops("йопта ф() { гыы и = 0; потрещим (и хуёвей 5) { и = и + 1; 7; двигай; } отвечаю и; }", "ф");
+    let targets: Vec<usize> = code
+        .iter()
+        .filter_map(|op| match op {
+            crate::chunk::Op::Jump(t) => Some(*t),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(targets.len(), 2, "{code:?}");
+    assert!(targets.iter().all(|t| matches!(code[*t], crate::chunk::Op::GetLocal(_))), "{code:?}");
+    assert_eq!(
+        run("йопта ф() { гыы и = 0; потрещим (и хуёвей 5) { и = и + 1; 7; двигай; } отвечаю и; } сказать(ф());"),
+        "5\n"
+    );
+}
+
+#[test]
+fn peephole_labeled_break_leaves_constant_true_loop() {
+    let src = r#"
+гыы с = 0;
+внешний: потрещим (правда) {
+    потрещим (правда) {
+        с = с + 1;
+        вилкойвглаз (с пизже 3) { харэ внешний; }
+        харэ;
+    }
+    с = с + 10;
+}
+сказать(с);
+"#;
+    assert_eq!(run(src), "12\n");
+    assert_eq!(run(src), run_interp(src));
 }

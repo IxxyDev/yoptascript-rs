@@ -106,6 +106,17 @@ impl ClassDef {
         None
     }
 
+    pub fn find_method_with_owner(self: &Rc<Self>, name: &str) -> Option<(MethodDef, Rc<ClassDef>)> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(c) = cur {
+            if let Some(m) = c.members.methods.lookup(name) {
+                return Some((Rc::clone(m), Rc::clone(c)));
+            }
+            cur = c.parent.as_ref();
+        }
+        None
+    }
+
     pub fn find_method_owner(self: &Rc<Self>, name: &str) -> Option<Rc<ClassDef>> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {

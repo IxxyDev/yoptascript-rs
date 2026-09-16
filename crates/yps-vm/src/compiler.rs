@@ -170,7 +170,7 @@ impl Compiler {
             Op::Pop
                 if matches!(
                     self.peephole_prev(),
-                    Some(Op::Dup | Op::Constant(_) | Op::GetLocal(_) | Op::True | Op::False | Op::Null | Op::Undefined)
+                    Some(Op::Constant(_) | Op::GetLocal(_) | Op::True | Op::False | Op::Null | Op::Undefined)
                 ) =>
             {
                 self.cur().chunk.pop_op();

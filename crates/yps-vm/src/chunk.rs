@@ -19,11 +19,10 @@ pub enum InlineCache {
         index: u32,
     },
     Method {
-        class_ptr: usize,
         class: Weak<ClassDef>,
         name: Rc<str>,
         method: MethodDef,
-        owner: Option<Rc<ClassDef>>,
+        owner: Rc<ClassDef>,
     },
 }
 
