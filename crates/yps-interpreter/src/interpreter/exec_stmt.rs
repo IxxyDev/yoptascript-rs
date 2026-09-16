@@ -66,9 +66,9 @@ impl Interpreter {
                 }
                 Ok(None)
             }
-            Stmt::For { init, condition, update, body, .. } => {
+            Stmt::For { init, condition, update, body, span } => {
                 let label = incoming_label;
-                self.env.push_scope();
+                self.push_scope_keyed(span.start);
                 if let Some(init_stmt) = init {
                     self.exec_stmt(init_stmt)?;
                 }
@@ -118,7 +118,7 @@ impl Interpreter {
                     is_generator: *is_generator,
                     is_async: *is_async,
                 }));
-                self.env.define(name.name.clone(), func, false);
+                self.env.define(&name.name, func, false);
                 Ok(None)
             }
             Stmt::Return { value, .. } => {
@@ -149,7 +149,7 @@ impl Interpreter {
                     }
                 };
                 let label = incoming_label;
-                self.env.push_scope();
+                self.push_scope_keyed(span.start);
                 for item in items {
                     self.env.fork_current();
                     if let Err(e) = self.destructure_pattern(variable, item, false, *span) {
@@ -280,7 +280,7 @@ impl Interpreter {
                     }
                     self.env.add_disposable(value.clone(), *is_await);
                 }
-                self.env.define(name.name.clone(), value, true);
+                self.env.define(&name.name, value, true);
                 Ok(None)
             }
             Stmt::Import { specifiers, source, attributes, span } => {
@@ -296,7 +296,7 @@ impl Interpreter {
                     match spec {
                         ImportSpec::Default { local } => {
                             let val = exports.get("default").cloned().unwrap_or(Value::Undefined);
-                            self.env.define(local.name.clone(), val, true);
+                            self.env.define(&local.name, val, true);
                             if let Some(path) = &pending_module {
                                 self.register_module_link(path.clone(), &local.name, "default");
                             }
@@ -312,7 +312,7 @@ impl Interpreter {
                                     ));
                                 }
                             };
-                            self.env.define(local.name.clone(), val, true);
+                            self.env.define(&local.name, val, true);
                             if let Some(path) = &pending_module {
                                 self.register_module_link(path.clone(), &local.name, &imported.name);
                             }
@@ -322,7 +322,7 @@ impl Interpreter {
                             for (k, v) in exports.iter() {
                                 map.insert(k.clone(), v.clone());
                             }
-                            self.env.define(local.name.clone(), Value::object(map), true);
+                            self.env.define(&local.name, Value::object(map), true);
                         }
                     }
                 }
@@ -358,19 +358,19 @@ impl Interpreter {
         catch_param: Option<&Identifier>,
         thrown: Value,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
-        self.env.push_scope();
+        let slotted = self.push_scope_keyed(catch_block.span.start);
         if let Some(param) = catch_param {
-            self.env.define(param.name.clone(), thrown, false);
+            self.env.define(&param.name, thrown, false);
         }
-        self.env.mark_tdz(crate::resolver::lexical_declarations(&catch_block.stmts));
+        self.mark_scope_tdz(slotted, &catch_block.stmts);
         let r = self.exec_block_stmts(&catch_block.stmts);
         self.env.pop_scope();
         r
     }
 
     fn exec_block(&mut self, block: &Block) -> Result<Option<ControlFlow>, RuntimeError> {
-        self.env.push_scope();
-        self.env.mark_tdz(crate::resolver::lexical_declarations(&block.stmts));
+        let slotted = self.push_scope_keyed(block.span.start);
+        self.mark_scope_tdz(slotted, &block.stmts);
         let result = self.exec_block_stmts(&block.stmts);
         let dispose_result = self.dispose_current_scope(block.span);
         self.env.pop_scope();
@@ -402,7 +402,7 @@ impl Interpreter {
                     is_generator: *is_generator,
                     is_async: *is_async,
                 }));
-                self.env.define(name.name.clone(), func, false);
+                self.env.define(&name.name, func, false);
             }
         }
     }
@@ -416,7 +416,7 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         match pattern {
             Pattern::Identifier(ident) => {
-                self.env.define(ident.name.clone(), value, is_const);
+                self.env.define(&ident.name, value, is_const);
                 Ok(())
             }
             Pattern::Default { pattern: inner, default, .. } => {
@@ -475,7 +475,7 @@ impl Interpreter {
                     if let Some(ref value_pat) = prop.value {
                         self.destructure_pattern(value_pat, val, is_const, span)?;
                     } else {
-                        self.env.define(prop.key.name.clone(), val, is_const);
+                        self.env.define(&prop.key.name, val, is_const);
                     }
                 }
 
@@ -507,7 +507,7 @@ impl Interpreter {
             return self.exec_for_await_loop(&aiter, variable, body, span, label);
         }
         if let Value::Iterator(rc) = val {
-            self.env.push_scope();
+            self.push_scope_keyed(span.start);
             loop {
                 let next_val = {
                     let mut state = rc.borrow_mut();
@@ -568,7 +568,7 @@ impl Interpreter {
             Value::Object(_) => {
                 if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
                     let next_method_name = "следующий";
-                    self.env.push_scope();
+                    self.push_scope_keyed(span.start);
                     loop {
                         let next_fn = self.eval_member(iterator_obj.clone(), next_method_name, span)?;
                         let result = self.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
@@ -619,7 +619,7 @@ impl Interpreter {
                 return Err(RuntimeError::new(format!("Нельзя итерировать по типу '{}'", other.type_name()), span));
             }
         };
-        self.env.push_scope();
+        self.push_scope_keyed(span.start);
         for item in items {
             let item = if is_await { self.do_await(item, span)? } else { item };
             self.env.fork_current();
@@ -650,7 +650,7 @@ impl Interpreter {
         span: Span,
         label: Option<String>,
     ) -> Result<Option<ControlFlow>, RuntimeError> {
-        self.env.push_scope();
+        self.push_scope_keyed(span.start);
         loop {
             let (done, item) = match self.async_iter_next(aiter, span) {
                 Ok(pair) => pair,

@@ -212,7 +212,7 @@ impl Interpreter {
             }
             Expr::Assignment { target, value, span } => {
                 let val = self.eval_expr(value)?;
-                self.set_variable(&target.name, val.clone(), *span)?;
+                self.set_variable_at(target, val.clone(), *span)?;
                 Ok(val)
             }
             Expr::Postfix { op, expr, span } => self.eval_postfix(*op, expr, *span),
@@ -334,7 +334,10 @@ impl Interpreter {
             Expr::FunctionExpr { name, params, body, is_generator, is_async, .. } => match name {
                 Some(ident) => {
                     let mut fn_env = Environment::from_snapshot(self.env.snapshot(), self.env.registry());
-                    fn_env.push_scope();
+                    match self.resolution.layout_at(ident.span.start) {
+                        Some(layout) => fn_env.push_scope_with(layout),
+                        None => fn_env.push_scope(),
+                    }
                     let func = Value::Function(Rc::new(FunctionData {
                         name: Rc::from(ident.name.as_str()),
                         params: params.clone(),
@@ -343,7 +346,7 @@ impl Interpreter {
                         is_generator: *is_generator,
                         is_async: *is_async,
                     }));
-                    fn_env.define(ident.name.clone(), func.clone(), false);
+                    fn_env.define(&ident.name, func.clone(), false);
                     Ok(func)
                 }
                 None => Ok(Value::Function(Rc::new(FunctionData {

@@ -1,4 +1,4 @@
-use super::{Value, assert_struct_eq, run_code, run_code_err, run_more};
+use super::{Value, assert_struct_eq, run_code, run_code_err, run_more, run_script};
 use crate::Interpreter;
 
 #[test]
@@ -280,4 +280,85 @@ fn mutating_method_on_const_receiver_is_allowed() {
 fn const_rebinding_still_rejected() {
     let err = run_code_err("ясенХуй к = 1; к = 2;");
     assert!(err.message.contains("Нельзя изменить константу"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn slot_read_falls_through_to_outer_scope_before_declaration() {
+    let i = run_code("гыы х = 1; гыы рез = 0; го (гыы и = 0; и < 1; и++) { рез = х; }");
+    assert_eq!(i.get("рез"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn block_tdz_still_reported() {
+    let err = run_code_err("гыы х = 1; { сказать(х); гыы х = 2; }");
+    assert!(err.message.contains("до её инициализации"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn function_body_tdz_still_reported() {
+    let err = run_code_err("йопта ф() { отвечаю х; гыы х = 1; } ф();");
+    assert!(err.message.contains("до её инициализации"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn const_in_nested_scope_still_rejected() {
+    let err = run_code_err("йопта ф() { ясенХуй к = 1; к = 2; } ф();");
+    assert!(err.message.contains("Нельзя изменить константу"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn global_const_assigned_from_function_still_rejected() {
+    let err = run_code_err("ясенХуй к = 1; йопта ф() { к = 2; } ф();");
+    assert!(err.message.contains("Нельзя изменить константу"), "неожиданное сообщение: {}", err.message);
+}
+
+#[test]
+fn catch_parameter_shadows_outer_binding() {
+    let i = run_code("гыы е = 1; гыы рез = 0; хапнуть { кидай 42; } гоп (е) { рез = е; } рез += е;");
+    assert_eq!(i.get("рез"), Some(Value::Number(43.0)));
+}
+
+#[test]
+fn named_function_expression_sees_its_own_name() {
+    let i = run_code(
+        "гыы ф = йопта сам(н) { вилкойвглаз (н < 1) { отвечаю 0; } отвечаю н + сам(н - 1); }; гыы рез = ф(3);",
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(6.0)));
+}
+
+#[test]
+fn per_iteration_bindings_are_distinct_in_for_of() {
+    let i = run_code(
+        "гыы фн = []; го (гыы х сашаГрей [1, 2, 3]) { фн.push(() => х); } гыы рез = фн[0]() * 100 + фн[1]() * 10 + фн[2]();",
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(123.0)));
+}
+
+#[test]
+fn deeply_nested_closure_reads_enclosing_locals() {
+    let i = run_code(
+        "йопта внеш() { гыы а = 1; отвечаю () => { гыы б = 2; отвечаю () => а + б; }; } гыы рез = внеш()()();",
+    );
+    assert_eq!(i.get("рез"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn inner_block_shadowing_does_not_leak_outward() {
+    let i = run_code("гыы х = 1; { гыы х = 2; } гыы рез = х;");
+    assert_eq!(i.get("рез"), Some(Value::Number(1.0)));
+}
+
+#[test]
+fn second_script_run_keeps_earlier_root_bindings() {
+    let mut interp = Interpreter::new();
+    run_script(&mut interp, "гыы первая = 7;");
+    run_script(&mut interp, "гыы вторая = первая + 1;");
+    assert_eq!(interp.get("первая"), Some(Value::Number(7.0)));
+    assert_eq!(interp.get("вторая"), Some(Value::Number(8.0)));
+}
+
+#[test]
+fn shadowing_a_builtin_at_root_wins() {
+    let i = run_code("гыы длина = 5; гыы рез = длина;");
+    assert_eq!(i.get("рез"), Some(Value::Number(5.0)));
 }

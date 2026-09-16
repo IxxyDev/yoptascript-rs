@@ -87,6 +87,10 @@ fn parse_src(src: &str) -> yps_parser::ast::Program {
     program
 }
 
+fn run_script(interp: &mut Interpreter, src: &str) {
+    interp.run(&parse_src(src)).expect("Ошибка интерпретатора");
+}
+
 fn run_more(interp: &mut Interpreter, src: &str) -> Option<Value> {
     let source = SourceFile::new("test".to_string(), src.to_string());
     let (tokens, lex_diags) = Lexer::new(&source).tokenize();

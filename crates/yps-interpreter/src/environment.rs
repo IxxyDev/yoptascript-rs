@@ -4,8 +4,27 @@ use std::rc::{Rc, Weak};
 
 use crate::value::Value;
 
+pub(crate) const MAX_SLOTS: usize = 64;
+
+#[derive(Debug, Default)]
+pub(crate) struct ScopeLayout {
+    pub(crate) names: Vec<Rc<str>>,
+    pub(crate) tdz_mask: u64,
+}
+
+impl ScopeLayout {
+    pub(crate) fn index_of(&self, name: &str) -> Option<usize> {
+        self.names.iter().position(|n| &**n == name)
+    }
+}
+
 #[derive(Debug)]
 pub struct EnvFrame {
+    layout: Option<Rc<ScopeLayout>>,
+    slots: Vec<Value>,
+    init_mask: u64,
+    slot_tdz: u64,
+    slot_const: u64,
     bindings: HashMap<String, Value>,
     constants: HashSet<String>,
     tdz: HashSet<String>,
@@ -19,9 +38,36 @@ pub(crate) enum Lookup {
     Missing,
 }
 
+pub(crate) enum SlotWrite {
+    Done,
+    Const,
+    Fallback,
+}
+
 impl EnvFrame {
+    fn empty(parent: Option<Rc<RefCell<EnvFrame>>>) -> Self {
+        Self {
+            layout: None,
+            slots: Vec::new(),
+            init_mask: 0,
+            slot_tdz: 0,
+            slot_const: 0,
+            bindings: HashMap::new(),
+            constants: HashSet::new(),
+            tdz: HashSet::new(),
+            disposables: Vec::new(),
+            parent,
+        }
+    }
+
     pub(crate) fn gc_values(&self) -> impl Iterator<Item = &Value> {
-        self.bindings.values().chain(self.disposables.iter().map(|(v, _)| v))
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.init_mask & (1u64 << i) != 0)
+            .map(|(_, v)| v)
+            .chain(self.bindings.values())
+            .chain(self.disposables.iter().map(|(v, _)| v))
     }
 
     pub(crate) fn gc_parent(&self) -> Option<Rc<RefCell<EnvFrame>>> {
@@ -29,6 +75,11 @@ impl EnvFrame {
     }
 
     pub(crate) fn gc_clear(&mut self) {
+        self.layout = None;
+        self.slots.clear();
+        self.init_mask = 0;
+        self.slot_tdz = 0;
+        self.slot_const = 0;
         self.bindings.clear();
         self.constants.clear();
         self.tdz.clear();
@@ -37,15 +88,113 @@ impl EnvFrame {
     }
 
     pub(crate) fn rebind(&mut self, name: String, value: Value) {
+        if let Some(index) = self.slot_index(&name) {
+            self.slots[index] = value;
+            self.init_mask |= 1u64 << index;
+            self.slot_tdz &= !(1u64 << index);
+            return;
+        }
         self.bindings.insert(name, value);
     }
 
+    fn slot_index(&self, name: &str) -> Option<usize> {
+        self.layout.as_ref()?.index_of(name)
+    }
+
+    fn slot_value(&self, index: usize) -> Option<&Value> {
+        if self.init_mask & (1u64 << index) != 0 { Some(&self.slots[index]) } else { None }
+    }
+
     pub(crate) fn get_local(&self, name: &str) -> Option<Value> {
+        if let Some(index) = self.slot_index(name)
+            && let Some(value) = self.slot_value(index)
+        {
+            return Some(value.clone());
+        }
         self.bindings.get(name).cloned()
     }
 
+    fn local_read(&self, name: &str) -> Lookup {
+        if let Some(index) = self.slot_index(name) {
+            if let Some(value) = self.slot_value(index) {
+                return Lookup::Found(value.clone());
+            }
+            if self.slot_tdz & (1u64 << index) != 0 {
+                return Lookup::Tdz;
+            }
+        }
+        if let Some(value) = self.bindings.get(name) {
+            return Lookup::Found(value.clone());
+        }
+        if self.tdz.contains(name) {
+            return Lookup::Tdz;
+        }
+        Lookup::Missing
+    }
+
+    fn define_local(&mut self, name: &str, value: Value, is_const: bool) {
+        if let Some(index) = self.slot_index(name) {
+            let bit = 1u64 << index;
+            self.slots[index] = value;
+            self.init_mask |= bit;
+            self.slot_tdz &= !bit;
+            if is_const {
+                self.slot_const |= bit;
+            } else {
+                self.slot_const &= !bit;
+            }
+            if !self.bindings.is_empty() {
+                self.bindings.remove(name);
+            }
+            if !self.constants.is_empty() {
+                self.constants.remove(name);
+            }
+            if !self.tdz.is_empty() {
+                self.tdz.remove(name);
+            }
+            return;
+        }
+        if is_const {
+            self.constants.insert(name.to_string());
+        } else if !self.constants.is_empty() {
+            self.constants.remove(name);
+        }
+        if !self.tdz.is_empty() {
+            self.tdz.remove(name);
+        }
+        self.bindings.insert(name.to_string(), value);
+    }
+
+    fn spill_slots(&mut self) {
+        let Some(layout) = self.layout.take() else { return };
+        for (index, name) in layout.names.iter().enumerate() {
+            let bit = 1u64 << index;
+            if self.init_mask & bit != 0 {
+                let value = std::mem::replace(&mut self.slots[index], Value::Undefined);
+                self.bindings.insert(name.to_string(), value);
+                if self.slot_const & bit != 0 {
+                    self.constants.insert(name.to_string());
+                }
+            } else if self.slot_tdz & bit != 0 {
+                self.tdz.insert(name.to_string());
+            }
+        }
+        self.slots.clear();
+        self.init_mask = 0;
+        self.slot_tdz = 0;
+        self.slot_const = 0;
+    }
+
     pub fn debug_bindings(&self) -> Vec<(String, Value)> {
-        let mut out: Vec<(String, Value)> = self.bindings.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut out: Vec<(String, Value)> = Vec::new();
+        if let Some(layout) = &self.layout {
+            for (index, name) in layout.names.iter().enumerate() {
+                if let Some(value) = self.slot_value(index) {
+                    out.push((name.to_string(), value.clone()));
+                }
+            }
+        }
+        out.extend(self.bindings.iter().map(|(k, v)| (k.clone(), v.clone())));
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
     }
@@ -102,27 +251,40 @@ impl Default for Environment {
 impl Environment {
     pub fn new() -> Self {
         let registry = FrameRegistry::new();
-        let current = Rc::new(RefCell::new(EnvFrame {
-            bindings: HashMap::new(),
-            constants: HashSet::new(),
-            tdz: HashSet::new(),
-            disposables: Vec::new(),
-            parent: None,
-        }));
+        let current = Rc::new(RefCell::new(EnvFrame::empty(None)));
         registry.register(&current);
         Self { current, registry }
     }
 
     pub fn push_scope(&mut self) {
-        let new_frame = EnvFrame {
-            bindings: HashMap::new(),
-            constants: HashSet::new(),
-            tdz: HashSet::new(),
-            disposables: Vec::new(),
-            parent: Some(Rc::clone(&self.current)),
-        };
-        self.current = Rc::new(RefCell::new(new_frame));
+        self.push_frame(EnvFrame::empty(Some(Rc::clone(&self.current))));
+    }
+
+    pub(crate) fn push_scope_with(&mut self, layout: Rc<ScopeLayout>) {
+        let mut frame = EnvFrame::empty(Some(Rc::clone(&self.current)));
+        frame.slots = vec![Value::Undefined; layout.names.len()];
+        frame.layout = Some(layout);
+        self.push_frame(frame);
+    }
+
+    fn push_frame(&mut self, frame: EnvFrame) {
+        self.current = Rc::new(RefCell::new(frame));
         self.registry.register(&self.current);
+    }
+
+    /// Applies the layout's TDZ mask to slots that are still uninitialised. Kept separate from
+    /// `push_scope_with` so that it lands exactly where `mark_tdz` used to, after parameter binding.
+    pub(crate) fn apply_layout_tdz(&mut self) {
+        let mut frame = self.current.borrow_mut();
+        let Some(layout) = frame.layout.clone() else { return };
+        frame.slot_tdz |= layout.tdz_mask & !frame.init_mask;
+    }
+
+    pub(crate) fn install_root_layout(&mut self, layout: Rc<ScopeLayout>) {
+        let mut frame = self.current.borrow_mut();
+        frame.spill_slots();
+        frame.slots = vec![Value::Undefined; layout.names.len()];
+        frame.layout = Some(layout);
     }
 
     pub fn pop_scope(&mut self) {
@@ -136,6 +298,11 @@ impl Environment {
         let new_frame = {
             let frame = self.current.borrow();
             EnvFrame {
+                layout: frame.layout.clone(),
+                slots: frame.slots.clone(),
+                init_mask: frame.init_mask,
+                slot_tdz: frame.slot_tdz,
+                slot_const: frame.slot_const,
                 bindings: frame.bindings.clone(),
                 constants: frame.constants.clone(),
                 tdz: frame.tdz.clone(),
@@ -143,8 +310,7 @@ impl Environment {
                 parent: frame.parent.clone(),
             }
         };
-        self.current = Rc::new(RefCell::new(new_frame));
-        self.registry.register(&self.current);
+        self.push_frame(new_frame);
     }
 
     pub fn snapshot(&self) -> Rc<RefCell<EnvFrame>> {
@@ -159,26 +325,93 @@ impl Environment {
         Self { current: frame, registry }
     }
 
-    pub fn define(&mut self, name: String, value: Value, is_const: bool) {
-        let mut frame = self.current.borrow_mut();
-        if is_const {
-            frame.constants.insert(name.clone());
-        } else if !frame.constants.is_empty() {
-            frame.constants.remove(&name);
-        }
-        if !frame.tdz.is_empty() {
-            frame.tdz.remove(&name);
-        }
-        frame.bindings.insert(name, value);
+    pub fn define(&mut self, name: &str, value: Value, is_const: bool) {
+        self.current.borrow_mut().define_local(name, value, is_const);
     }
 
     pub(crate) fn mark_tdz(&mut self, names: impl IntoIterator<Item = String>) {
         let mut frame = self.current.borrow_mut();
         for name in names {
-            if !frame.bindings.contains_key(&name) {
-                frame.tdz.insert(name);
+            match frame.slot_index(&name) {
+                Some(index) => {
+                    let bit = 1u64 << index;
+                    if frame.init_mask & bit == 0 {
+                        frame.slot_tdz |= bit;
+                    }
+                }
+                None => {
+                    if !frame.bindings.contains_key(&name) {
+                        frame.tdz.insert(name);
+                    }
+                }
             }
         }
+    }
+
+    fn ancestor(&self, hops: u16) -> Option<Rc<RefCell<EnvFrame>>> {
+        let mut frame = Rc::clone(&self.current);
+        for _ in 0..hops {
+            let parent = frame.borrow().parent.clone();
+            frame = parent?;
+        }
+        Some(frame)
+    }
+
+    pub(crate) fn read_slot(&self, hops: u16, slot: u16, name: &str) -> Lookup {
+        let Some(frame_rc) = self.ancestor(hops) else {
+            debug_assert!(false, "слот-резолюция вышла за пределы цепочки кадров");
+            return self.lookup_read(name);
+        };
+        let frame = frame_rc.borrow();
+        debug_assert_eq!(
+            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
+            Some(name),
+            "слот-резолюция указывает на чужой слот"
+        );
+        let index = slot as usize;
+        let bit = 1u64 << index;
+        if frame.init_mask & bit != 0 {
+            return Lookup::Found(frame.slots[index].clone());
+        }
+        if frame.slot_tdz & bit != 0 {
+            return Lookup::Tdz;
+        }
+        drop(frame);
+        self.lookup_read(name)
+    }
+
+    pub(crate) fn get_slot(&self, hops: u16, slot: u16, name: &str) -> Option<Value> {
+        let frame_rc = self.ancestor(hops)?;
+        let frame = frame_rc.borrow();
+        debug_assert_eq!(
+            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
+            Some(name),
+            "слот-резолюция указывает на чужой слот"
+        );
+        frame.slot_value(slot as usize).cloned()
+    }
+
+    pub(crate) fn write_slot(&self, hops: u16, slot: u16, value: &Value, name: &str) -> SlotWrite {
+        let Some(frame_rc) = self.ancestor(hops) else {
+            debug_assert!(false, "слот-резолюция вышла за пределы цепочки кадров");
+            return SlotWrite::Fallback;
+        };
+        let mut frame = frame_rc.borrow_mut();
+        debug_assert_eq!(
+            frame.layout.as_ref().and_then(|l| l.names.get(slot as usize)).map(|n| &**n),
+            Some(name),
+            "слот-резолюция указывает на чужой слот"
+        );
+        let index = slot as usize;
+        let bit = 1u64 << index;
+        if frame.init_mask & bit == 0 {
+            return SlotWrite::Fallback;
+        }
+        if frame.slot_const & bit != 0 {
+            return SlotWrite::Const;
+        }
+        frame.slots[index] = value.clone();
+        SlotWrite::Done
     }
 
     pub(crate) fn lookup_read(&self, name: &str) -> Lookup {
@@ -186,13 +419,11 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
-                if let Some(value) = frame.bindings.get(name) {
-                    return Lookup::Found(value.clone());
+                match frame.local_read(name) {
+                    Lookup::Found(value) => return Lookup::Found(value),
+                    Lookup::Tdz => return Lookup::Tdz,
+                    Lookup::Missing => frame.parent.clone(),
                 }
-                if frame.tdz.contains(name) {
-                    return Lookup::Tdz;
-                }
-                frame.parent.clone()
             };
             match parent {
                 Some(p) => frame_rc = p,
@@ -206,6 +437,11 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
+                if let Some(index) = frame.slot_index(name)
+                    && frame.init_mask & (1u64 << index) != 0
+                {
+                    return frame.slot_const & (1u64 << index) != 0;
+                }
                 if frame.constants.contains(name) {
                     return true;
                 }
@@ -231,8 +467,8 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
-                if let Some(value) = frame.bindings.get(name) {
-                    return Some(value.clone());
+                if let Some(value) = frame.get_local(name) {
+                    return Some(value);
                 }
                 frame.parent.clone()
             };
@@ -245,6 +481,11 @@ impl Environment {
         loop {
             let parent = {
                 let frame = frame_rc.borrow();
+                if let Some(index) = frame.slot_index(name)
+                    && frame.init_mask & (1u64 << index) != 0
+                {
+                    return (frame.slot_const & (1u64 << index) != 0, Some(frame.slots[index].clone()));
+                }
                 if let Some(v) = frame.bindings.get(name) {
                     return (frame.constants.contains(name), Some(v.clone()));
                 }
@@ -273,6 +514,12 @@ impl Environment {
         loop {
             let parent = {
                 let mut frame = frame_rc.borrow_mut();
+                if let Some(index) = frame.slot_index(name)
+                    && frame.init_mask & (1u64 << index) != 0
+                {
+                    frame.slots[index] = value;
+                    return true;
+                }
                 if let Some(slot) = frame.bindings.get_mut(name) {
                     *slot = value;
                     return true;

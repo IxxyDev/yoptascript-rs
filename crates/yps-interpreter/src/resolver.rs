@@ -1,13 +1,48 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
+use std::rc::Rc;
 
 use yps_parser::ast::{
     Block, ClassMember, ExportKind, Expr, ImportSpec, Literal, ObjectEntry, Param, Pattern, Program, PropKey, Stmt,
     TemplatePart,
 };
 
+use crate::environment::{MAX_SLOTS, ScopeLayout};
+
+#[derive(Default)]
+pub(crate) struct SpanHasher(u64);
+
+impl Hasher for SpanHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        let mixed = (value as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.0 = mixed ^ (mixed >> 29);
+    }
+}
+
+type SpanMap<V> = HashMap<usize, V, BuildHasherDefault<SpanHasher>>;
+
+#[derive(Clone, Copy)]
+pub(crate) struct VarUse {
+    pub(crate) hops: u16,
+    pub(crate) slot: u16,
+}
+
 #[derive(Default)]
 pub(crate) struct RootResolution {
     reads: HashSet<usize>,
+    uses: SpanMap<VarUse>,
+    layouts: SpanMap<Rc<ScopeLayout>>,
+    root_layout: Option<Rc<ScopeLayout>>,
 }
 
 impl RootResolution {
@@ -18,43 +53,126 @@ impl RootResolution {
     pub(crate) fn is_root_read(&self, start: usize) -> bool {
         self.reads.contains(&start)
     }
+
+    #[inline]
+    pub(crate) fn use_at(&self, start: usize) -> Option<VarUse> {
+        if self.uses.is_empty() { None } else { self.uses.get(&start).copied() }
+    }
+
+    #[inline]
+    pub(crate) fn layout_at(&self, key: usize) -> Option<Rc<ScopeLayout>> {
+        if self.layouts.is_empty() { None } else { self.layouts.get(&key).cloned() }
+    }
+
+    pub(crate) fn root_layout(&self) -> Option<Rc<ScopeLayout>> {
+        self.root_layout.clone()
+    }
 }
 
 pub(crate) fn resolve(program: &Program) -> RootResolution {
-    let mut resolver = Resolver { reads: HashSet::new(), scopes: Vec::new(), disabled: false };
+    let mut resolver = Resolver {
+        reads: HashSet::new(),
+        scopes: Vec::new(),
+        frames: Vec::new(),
+        uses: SpanMap::default(),
+        layouts: SpanMap::default(),
+        disabled: false,
+        slots_disabled: false,
+    };
+    let root = resolver.open_frame(scope_names(&program.items));
     for stmt in &program.items {
         resolver.walk_stmt(stmt);
     }
-    if resolver.disabled { RootResolution::default() } else { RootResolution { reads: resolver.reads } }
+    resolver.frames.pop();
+    if resolver.disabled {
+        return RootResolution::default();
+    }
+    if resolver.slots_disabled {
+        return RootResolution { reads: resolver.reads, ..RootResolution::default() };
+    }
+    RootResolution { reads: resolver.reads, uses: resolver.uses, layouts: resolver.layouts, root_layout: Some(root) }
 }
 
 const STACK_RED_ZONE: usize = 256 * 1024;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
+/// One runtime `EnvFrame` as predicted by the resolver. The stack must mirror the interpreter's
+/// `push_scope` / `fork_current` calls exactly, otherwise hop counts point at the wrong frame.
+struct ResolvedFrame {
+    names: Vec<Rc<str>>,
+    slotted: bool,
+}
+
 struct Resolver {
     reads: HashSet<usize>,
     scopes: Vec<HashSet<String>>,
+    frames: Vec<ResolvedFrame>,
+    uses: SpanMap<VarUse>,
+    layouts: SpanMap<Rc<ScopeLayout>>,
     disabled: bool,
+    slots_disabled: bool,
 }
 
 impl Resolver {
+    fn open_frame(&mut self, layout: ScopeLayout) -> Rc<ScopeLayout> {
+        let slotted = layout.names.len() <= MAX_SLOTS;
+        self.frames.push(ResolvedFrame { names: layout.names.clone(), slotted });
+        Rc::new(layout)
+    }
+
+    fn push_layout(&mut self, key: usize, layout: ScopeLayout) {
+        let rc = self.open_frame(layout);
+        self.layouts.insert(key, rc);
+    }
+
+    fn pop_frame(&mut self) {
+        self.frames.pop();
+    }
+
+    fn record_use(&mut self, name: &str, start: usize) {
+        if self.slots_disabled {
+            return;
+        }
+        let mut hops: u16 = 0;
+        for frame in self.frames.iter().rev() {
+            if let Some(index) = frame.names.iter().position(|n| &**n == name) {
+                if frame.slotted {
+                    self.uses.insert(start, VarUse { hops, slot: index as u16 });
+                }
+                return;
+            }
+            hops = match hops.checked_add(1) {
+                Some(next) => next,
+                None => return,
+            };
+        }
+    }
+
     fn record_read(&mut self, name: &str, start: usize) {
+        self.record_use(name, start);
         if self.scopes.iter().any(|scope| scope.contains(name)) {
             return;
         }
         self.reads.insert(start);
     }
 
-    fn walk_function(&mut self, own_name: Option<&str>, params: &[Param], body: &Block) {
+    fn walk_function(&mut self, own_name: Option<&yps_parser::ast::Identifier>, params: &[Param], body: &Block) {
         let mut locals = HashSet::new();
         if let Some(name) = own_name {
-            locals.insert(name.to_string());
+            locals.insert(name.name.clone());
         }
         for param in params {
             collect_param_names(param, &mut locals);
         }
         collect_block_locals(body, &mut locals);
         self.scopes.push(locals);
+
+        if let Some(name) = own_name {
+            let layout = ScopeLayout { names: vec![Rc::from(name.name.as_str())], tdz_mask: 0 };
+            self.push_layout(name.span.start, layout);
+        }
+        self.push_layout(body.span.start, function_scope_names(params, &body.stmts));
+
         for param in params {
             if let Some(pattern) = &param.pattern {
                 self.walk_pattern_defaults(pattern);
@@ -65,6 +183,11 @@ impl Resolver {
         }
         for stmt in &body.stmts {
             self.walk_stmt(stmt);
+        }
+
+        self.pop_frame();
+        if own_name.is_some() {
+            self.pop_frame();
         }
         self.scopes.pop();
     }
@@ -101,9 +224,11 @@ impl Resolver {
         let mut locals = HashSet::new();
         collect_block_locals(block, &mut locals);
         self.scopes.push(locals);
+        self.push_layout(block.span.start, scope_names(&block.stmts));
         for stmt in &block.stmts {
             self.walk_stmt(stmt);
         }
+        self.pop_frame();
         self.scopes.pop();
     }
 
@@ -131,13 +256,18 @@ impl Resolver {
                 self.walk_stmt(body);
                 self.walk_expr(condition);
             }
-            Stmt::For { init, condition, update, body, .. } => {
+            Stmt::For { init, condition, update, body, span } => {
                 let mut locals = HashSet::new();
                 if let Some(init) = init {
                     collect_stmt_locals(init, &mut locals);
                 }
                 collect_stmt_locals(body, &mut locals);
                 self.scopes.push(locals);
+                let head = match init {
+                    Some(init) => head_names(std::slice::from_ref(init.as_ref())),
+                    None => ScopeLayout::default(),
+                };
+                self.push_layout(span.start, head);
                 if let Some(init) = init {
                     self.walk_stmt(init);
                 }
@@ -148,10 +278,16 @@ impl Resolver {
                     self.walk_expr(update);
                 }
                 self.walk_stmt(body);
+                self.pop_frame();
                 self.scopes.pop();
             }
             Stmt::Labeled { body, .. } => self.walk_stmt(body),
-            Stmt::FunctionDecl { params, body, .. } => self.walk_function(None, params, body),
+            Stmt::FunctionDecl { params, body, is_generator, is_async, .. } => {
+                if *is_generator || *is_async {
+                    self.slots_disabled = true;
+                }
+                self.walk_function(None, params, body);
+            }
             Stmt::Return { value, .. } => {
                 if let Some(value) = value {
                     self.walk_expr(value);
@@ -166,9 +302,15 @@ impl Resolver {
                     }
                     collect_block_locals(catch_block, &mut locals);
                     self.scopes.push(locals);
+                    let mut layout = scope_names(&catch_block.stmts);
+                    if let Some(param) = catch_param {
+                        prepend_name(&mut layout, &param.name);
+                    }
+                    self.push_layout(catch_block.span.start, layout);
                     for stmt in &catch_block.stmts {
                         self.walk_stmt(stmt);
                     }
+                    self.pop_frame();
                     self.scopes.pop();
                 }
                 if let Some(finally_block) = finally_block {
@@ -186,19 +328,27 @@ impl Resolver {
                     self.walk_block(default);
                 }
             }
-            Stmt::ForIn { variable, iterable, body, .. }
-            | Stmt::ForOf { variable, iterable, body, .. }
-            | Stmt::ForAwaitOf { variable, iterable, body, .. } => {
+            Stmt::ForIn { variable, iterable, body, span, .. }
+            | Stmt::ForOf { variable, iterable, body, span, .. }
+            | Stmt::ForAwaitOf { variable, iterable, body, span, .. } => {
+                if matches!(stmt, Stmt::ForAwaitOf { .. }) {
+                    self.slots_disabled = true;
+                }
                 self.walk_expr(iterable);
                 let mut locals = HashSet::new();
                 collect_pattern_names(variable, &mut locals);
                 collect_stmt_locals(body, &mut locals);
                 self.scopes.push(locals);
+                let mut names = Vec::new();
+                collect_pattern_names_ordered(variable, &mut names);
+                self.push_layout(span.start, ScopeLayout { names, tdz_mask: 0 });
                 self.walk_pattern_defaults(variable);
                 self.walk_stmt(body);
+                self.pop_frame();
                 self.scopes.pop();
             }
             Stmt::ClassDecl { super_class, members, decorators, .. } => {
+                self.slots_disabled = true;
                 if let Some(super_class) = super_class {
                     self.walk_expr(super_class);
                 }
@@ -267,7 +417,10 @@ impl Resolver {
                 self.walk_expr(lhs);
                 self.walk_expr(rhs);
             }
-            Expr::Assignment { value, .. } => self.walk_expr(value),
+            Expr::Assignment { target, value, .. } => {
+                self.record_use(&target.name, target.span.start);
+                self.walk_expr(value);
+            }
             Expr::Call { callee, args, .. }
             | Expr::OptionalCall { callee, args, .. }
             | Expr::New { callee, args, .. } => {
@@ -286,10 +439,17 @@ impl Resolver {
                 self.walk_expr(then_expr);
                 self.walk_expr(else_expr);
             }
-            Expr::ArrowFunction { params, body, .. } => self.walk_function(None, params, body),
-            Expr::FunctionExpr { name, params, body, .. } => {
-                let own_name = name.as_ref().map(|name| name.name.as_str());
-                self.walk_function(own_name, params, body);
+            Expr::ArrowFunction { params, body, is_async, .. } => {
+                if *is_async {
+                    self.slots_disabled = true;
+                }
+                self.walk_function(None, params, body);
+            }
+            Expr::FunctionExpr { name, params, body, is_generator, is_async, .. } => {
+                if *is_generator || *is_async {
+                    self.slots_disabled = true;
+                }
+                self.walk_function(name.as_ref(), params, body);
             }
             Expr::TemplateLiteral { parts, .. } => {
                 for part in parts {
@@ -306,11 +466,15 @@ impl Resolver {
             }
             Expr::This { .. } | Expr::Super { .. } => {}
             Expr::Yield { argument, .. } => {
+                self.slots_disabled = true;
                 if let Some(argument) = argument {
                     self.walk_expr(argument);
                 }
             }
-            Expr::Await { argument, .. } => self.walk_expr(argument),
+            Expr::Await { argument, .. } => {
+                self.slots_disabled = true;
+                self.walk_expr(argument);
+            }
             Expr::DynamicImport { source, .. } => {
                 self.disabled = true;
                 self.walk_expr(source);
@@ -355,6 +519,114 @@ impl Resolver {
     fn walk_prop_key(&mut self, key: &PropKey) {
         if let PropKey::Computed(expr) = key {
             self.walk_expr(expr);
+        }
+    }
+}
+
+fn push_name(names: &mut Vec<Rc<str>>, name: &str) {
+    if !names.iter().any(|n| &**n == name) {
+        names.push(Rc::from(name));
+    }
+}
+
+fn prepend_name(layout: &mut ScopeLayout, name: &str) {
+    if layout.names.iter().any(|n| &**n == name) {
+        return;
+    }
+    layout.names.insert(0, Rc::from(name));
+    layout.tdz_mask <<= 1;
+}
+
+/// Names a block-like frame owns: the lexical declarations that need TDZ marking, followed by the
+/// hoisted function declarations of the same statement list.
+fn scope_names(stmts: &[Stmt]) -> ScopeLayout {
+    let mut names = Vec::new();
+    collect_lexical_ordered(stmts, &mut names);
+    let tdz_mask = mask_for(names.len());
+    collect_function_decls(stmts, &mut names);
+    ScopeLayout { names, tdz_mask }
+}
+
+fn head_names(stmts: &[Stmt]) -> ScopeLayout {
+    let mut names = Vec::new();
+    collect_lexical_ordered(stmts, &mut names);
+    ScopeLayout { names, tdz_mask: 0 }
+}
+
+fn function_scope_names(params: &[Param], stmts: &[Stmt]) -> ScopeLayout {
+    let mut names = Vec::new();
+    for param in params {
+        collect_param_names_ordered(param, &mut names);
+    }
+    let params_len = names.len();
+    collect_lexical_ordered(stmts, &mut names);
+    let tdz_mask = mask_for(names.len()) & !mask_for(params_len);
+    collect_function_decls(stmts, &mut names);
+    ScopeLayout { names, tdz_mask }
+}
+
+fn mask_for(count: usize) -> u64 {
+    if count >= MAX_SLOTS { u64::MAX } else { (1u64 << count) - 1 }
+}
+
+fn collect_lexical_ordered(stmts: &[Stmt], out: &mut Vec<Rc<str>>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::VarDecl { pattern, .. } => collect_pattern_names_ordered(pattern, out),
+            Stmt::ClassDecl { name, .. } | Stmt::Using { name, .. } => push_name(out, &name.name),
+            Stmt::Export { kind: ExportKind::Declaration(decl), .. } => match decl.as_ref() {
+                Stmt::VarDecl { pattern, .. } => collect_pattern_names_ordered(pattern, out),
+                Stmt::ClassDecl { name, .. } => push_name(out, &name.name),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+fn collect_function_decls(stmts: &[Stmt], out: &mut Vec<Rc<str>>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::FunctionDecl { name, .. } => push_name(out, &name.name),
+            Stmt::Export { kind: ExportKind::Declaration(decl), .. } => {
+                if let Stmt::FunctionDecl { name, .. } = decl.as_ref() {
+                    push_name(out, &name.name);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_param_names_ordered(param: &Param, out: &mut Vec<Rc<str>>) {
+    match &param.pattern {
+        Some(pattern) => collect_pattern_names_ordered(pattern, out),
+        None => push_name(out, &param.name.name),
+    }
+}
+
+fn collect_pattern_names_ordered(pattern: &Pattern, out: &mut Vec<Rc<str>>) {
+    match pattern {
+        Pattern::Identifier(ident) => push_name(out, &ident.name),
+        Pattern::Default { pattern, .. } => collect_pattern_names_ordered(pattern, out),
+        Pattern::Array { elements, rest, .. } => {
+            for element in elements.iter().flatten() {
+                collect_pattern_names_ordered(element, out);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_names_ordered(rest, out);
+            }
+        }
+        Pattern::Object { properties, rest, .. } => {
+            for prop in properties {
+                match &prop.value {
+                    Some(value) => collect_pattern_names_ordered(value, out),
+                    None => push_name(out, &prop.key.name),
+                }
+            }
+            if let Some(rest) = rest {
+                collect_pattern_names_ordered(rest, out);
+            }
         }
     }
 }

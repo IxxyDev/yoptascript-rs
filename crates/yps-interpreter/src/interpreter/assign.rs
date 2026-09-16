@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use yps_lexer::Span;
 use yps_parser::ast::{BinaryOp, Block, Expr, Literal, ObjectEntry, PostfixOp};
 
-use crate::environment::{EnvFrame, Environment};
+use crate::environment::{EnvFrame, Environment, SlotWrite};
 use crate::error::RuntimeError;
 use crate::symbols;
 use crate::value::{MethodDef, Value};
@@ -65,7 +65,7 @@ impl Interpreter {
     pub(super) fn assign_to_target(&mut self, target: &Expr, value: Value, span: Span) -> Result<Value, RuntimeError> {
         match target {
             Expr::Identifier(ident) => {
-                self.set_variable(&ident.name, value.clone(), span)?;
+                self.set_variable_at(ident, value.clone(), span)?;
                 Ok(value)
             }
             Expr::Member { object, property, .. } => {
@@ -272,10 +272,10 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
-        self.env.push_scope();
-        self.env.define(symbols::THIS.to_string(), this_val.clone(), false);
+        self.push_scope_keyed(body.span.start);
+        self.env.define(symbols::THIS, this_val.clone(), false);
         if let Some(param) = params.first() {
-            self.env.define(param.name.name.clone(), value, false);
+            self.env.define(&param.name.name, value, false);
         }
         self.push_frame(name, span);
         let mut result = self.exec_block_stmts(&body.stmts);
@@ -512,8 +512,10 @@ impl Interpreter {
             return Err(RuntimeError::new("'++' / '--' можно применить только к переменной", span));
         };
         let old = self
-            .env
-            .get(&ident.name)
+            .resolution
+            .use_at(ident.span.start)
+            .and_then(|var| self.env.get_slot(var.hops, var.slot, &ident.name))
+            .or_else(|| self.env.get(&ident.name))
             .ok_or_else(|| RuntimeError::new(format!("Переменная '{}' не определена", ident.name), span))?;
         let Value::Number(n) = old else {
             return Err(RuntimeError::new(format!("'++' / '--' требует число, получено '{}'", old.type_name()), span));
@@ -522,8 +524,26 @@ impl Interpreter {
             PostfixOp::Increment => Value::Number(n + 1.0),
             PostfixOp::Decrement => Value::Number(n - 1.0),
         };
-        self.set_variable(&ident.name, new_val, span)?;
+        self.set_variable_at(ident, new_val, span)?;
         Ok(Value::Number(n))
+    }
+
+    pub(super) fn set_variable_at(
+        &mut self,
+        ident: &yps_parser::ast::Identifier,
+        value: Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if let Some(var) = self.resolution.use_at(ident.span.start) {
+            match self.env.write_slot(var.hops, var.slot, &value, &ident.name) {
+                SlotWrite::Done => return Ok(()),
+                SlotWrite::Const => {
+                    return Err(RuntimeError::new(format!("Нельзя изменить константу '{}'", ident.name), span));
+                }
+                SlotWrite::Fallback => {}
+            }
+        }
+        self.set_variable(&ident.name, value, span)
     }
 
     pub(super) fn set_variable(&mut self, name: &str, value: Value, span: Span) -> Result<(), RuntimeError> {

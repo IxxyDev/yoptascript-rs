@@ -102,10 +102,10 @@ impl Interpreter {
                 }
                 let saved_env = self.env.clone();
                 self.env = Environment::from_snapshot(env, self.env.registry());
-                self.env.push_scope();
+                let slotted = self.push_scope_keyed(body.span.start);
 
                 self.bind_params(&params, &args, true, span)?;
-                self.env.mark_tdz(crate::resolver::lexical_declarations(&body.stmts));
+                self.mark_scope_tdz(slotted, &body.stmts);
 
                 if is_generator {
                     let gen_env = std::mem::replace(&mut self.env, saved_env);
@@ -219,20 +219,20 @@ impl Interpreter {
         }
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
-        self.env.push_scope();
+        let slotted = self.push_scope_keyed(body.span.start);
 
         if let Some(this) = &this_val {
-            self.env.define(symbols::THIS.to_string(), this.clone(), false);
+            self.env.define(symbols::THIS, this.clone(), false);
         }
 
         if let Some(parent) = super_class {
-            self.env.define(symbols::SUPER.to_string(), Value::Class(parent), false);
+            self.env.define(symbols::SUPER, Value::Class(parent), false);
         } else if let Some(super_val) = saved_env.get(symbols::SUPER) {
-            self.env.define(symbols::SUPER.to_string(), super_val, false);
+            self.env.define(symbols::SUPER, super_val, false);
         }
 
         self.bind_params(params, &args, true, span)?;
-        self.env.mark_tdz(crate::resolver::lexical_declarations(&body.stmts));
+        self.mark_scope_tdz(slotted, &body.stmts);
 
         self.push_frame(name, span);
         let mut result = self.exec_block_stmts(&body.stmts);
@@ -352,7 +352,7 @@ impl Interpreter {
             if param.is_rest {
                 let rest_start = i.min(args.len());
                 let rest_values: Vec<Value> = args[rest_start..].to_vec();
-                self.env.define(param.name.name.clone(), Value::array(rest_values), false);
+                self.env.define(&param.name.name, Value::array(rest_values), false);
                 break;
             }
             let value = if i < args.len() {
@@ -365,7 +365,7 @@ impl Interpreter {
             if destructure && let Some(pat) = &param.pattern {
                 self.destructure_pattern(pat, value, false, span)?;
             } else {
-                self.env.define(param.name.name.clone(), value, false);
+                self.env.define(&param.name.name, value, false);
             }
         }
         Ok(())

@@ -98,12 +98,12 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut env = Environment::new();
         for name in builtin_names() {
-            env.define(name.to_string(), Value::BuiltinFunction(name.to_string()), true);
+            env.define(name, Value::BuiltinFunction(name.to_string()), true);
         }
         for (name, value) in crate::stdlib::build_globals() {
-            env.define(name, value, true);
+            env.define(&name, value, true);
         }
-        env.define("нихуя".to_string(), Value::Number(f64::NAN), true);
+        env.define("нихуя", Value::Number(f64::NAN), true);
         let global_root = env.snapshot();
         Self {
             env,
@@ -144,9 +144,37 @@ impl Interpreter {
         self.step_budget = Some(limit);
     }
 
+    /// Pushes a scope for the construct keyed by `key`, using the resolver's precomputed slot
+    /// layout when it modelled that construct. Returns `true` when slots are in play.
+    #[inline]
+    pub(super) fn push_scope_keyed(&mut self, key: usize) -> bool {
+        match self.resolution.layout_at(key) {
+            Some(layout) => {
+                self.env.push_scope_with(layout);
+                true
+            }
+            None => {
+                self.env.push_scope();
+                false
+            }
+        }
+    }
+
+    #[inline]
+    pub(super) fn mark_scope_tdz(&mut self, slotted: bool, stmts: &[yps_parser::ast::Stmt]) {
+        if slotted {
+            self.env.apply_layout_tdz();
+        } else {
+            self.env.mark_tdz(resolver::lexical_declarations(stmts));
+        }
+    }
+
     #[inline]
     pub(super) fn lookup_read(&self, ident: &Identifier) -> crate::environment::Lookup {
         use crate::environment::Lookup;
+        if let Some(var) = self.resolution.use_at(ident.span.start) {
+            return self.env.read_slot(var.hops, var.slot, &ident.name);
+        }
         if let Some(value) = self.env.get_shallow(&ident.name) {
             return Lookup::Found(value);
         }
@@ -218,6 +246,10 @@ impl Interpreter {
     fn run_internal(&mut self, program: &Program, mode: RunMode) -> Result<Option<Value>, RuntimeError> {
         self.call_stack.clear();
         self.resolution = if mode == RunMode::Script { resolver::resolve(program) } else { RootResolution::default() };
+        if let Some(layout) = self.resolution.root_layout() {
+            debug_assert!(Rc::ptr_eq(&self.env.snapshot(), &self.global_root), "корневой кадр сменился до запуска");
+            self.env.install_root_layout(layout);
+        }
         self.hoist_functions(&program.items);
         let mut last: Option<Value> = None;
         let mut since_gc = 0usize;

@@ -134,7 +134,7 @@ impl Interpreter {
             self.call_function(init.clone(), vec![], span)?;
         }
 
-        self.env.define(name.name.clone(), class_val, false);
+        self.env.define(&name.name, class_val, false);
         Ok(None)
     }
 
@@ -344,9 +344,9 @@ impl Interpreter {
         }
         let saved = self.env.clone();
         self.env.push_scope();
-        self.env.define(symbols::THIS.to_string(), class_val.clone(), false);
+        self.env.define(symbols::THIS, class_val.clone(), false);
         if let Some(parent) = &class_rc.parent {
-            self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(parent)), false);
+            self.env.define(symbols::SUPER, Value::Class(Rc::clone(parent)), false);
         }
         let result = self.run_static_init_actions_inner(class_rc, actions, span);
         self.env = saved;
@@ -430,7 +430,7 @@ impl Interpreter {
         for init in &class_def.instance_initializers {
             let saved = self.env.clone();
             self.env.push_scope();
-            self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
+            self.env.define(symbols::THIS, instance_val.clone(), false);
             self.call_function(init.clone(), vec![], span)?;
             instance_val = self.env.get(symbols::THIS).unwrap_or(instance_val);
             self.env = saved;
@@ -441,10 +441,10 @@ impl Interpreter {
             self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
             self.env.push_scope();
 
-            self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
+            self.env.define(symbols::THIS, instance_val.clone(), false);
 
             if let Some(parent) = &class_def.parent {
-                self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(parent)), false);
+                self.env.define(symbols::SUPER, Value::Class(Rc::clone(parent)), false);
             }
 
             self.bind_params(params, &args, false, span)?;
@@ -517,9 +517,9 @@ impl Interpreter {
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(env, self.env.registry());
         self.env.push_scope();
-        self.env.define(symbols::THIS.to_string(), child_instance.clone(), false);
+        self.env.define(symbols::THIS, child_instance.clone(), false);
         if let Some(grandparent) = &parent_def.parent {
-            self.env.define(symbols::SUPER.to_string(), Value::Class(Rc::clone(grandparent)), false);
+            self.env.define(symbols::SUPER, Value::Class(Rc::clone(grandparent)), false);
         }
 
         self.bind_params(&params, &args, false, span)?;
@@ -559,7 +559,7 @@ impl Interpreter {
             let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
                 self.env.push_scope();
-                self.env.define(symbols::THIS.to_string(), instance_val.clone(), false);
+                self.env.define(symbols::THIS, instance_val.clone(), false);
                 let result = self.exec_block_stmts(&body.stmts);
                 self.env = saved_env;
                 match result? {

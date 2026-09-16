@@ -170,7 +170,7 @@ fn pump_with_unwind(
 
 fn apply_bind(env: &mut Environment, target: BindTarget, sent: Value) {
     match target {
-        BindTarget::Variable { name, is_const } => env.define(name, sent, is_const),
+        BindTarget::Variable { name, is_const } => env.define(&name, sent, is_const),
         BindTarget::Reassign(name) => {
             env.set(&name, sent);
         }
@@ -838,7 +838,7 @@ fn unwind(
                             interp.env.pop_scope();
                             interp.env.push_scope();
                             if let Some(name) = catch_param {
-                                interp.env.define(name.clone(), v.clone(), false);
+                                interp.env.define(name, v.clone(), false);
                             }
                             interp.env.mark_tdz(crate::resolver::lexical_declarations(&cb));
                             g.frames.push(GenFrame::Block { stmts: cb, idx: 0, owns_scope: false, label: None });
