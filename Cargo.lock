@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "yps-bench"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "criterion",
  "yps-interpreter",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "yps-cli"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "rustyline",
  "yps-fmt",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "yps-dap"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "serde_json",
  "yps-interpreter",
@@ -1493,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "yps-fmt"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "yps-lexer",
  "yps-parser",
@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "yps-interpreter"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "fancy-regex",
  "indexmap",
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "yps-jsgen"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "yps-lexer",
  "yps-parser",
@@ -1523,11 +1523,11 @@ dependencies = [
 
 [[package]]
 name = "yps-lexer"
-version = "1.15.1"
+version = "1.16.0"
 
 [[package]]
 name = "yps-lint"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "yps-lexer",
  "yps-parser",
@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "yps-lsp"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "tokio",
  "tower-lsp",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "yps-parser"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "stacker",
  "yps-lexer",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "yps-vm"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "indexmap",
  "stacker",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "yps-wasm"
-version = "1.15.1"
+version = "1.16.0"
 dependencies = [
  "console_error_panic_hook",
  "wasm-bindgen",
