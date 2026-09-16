@@ -32,6 +32,7 @@ impl<'a> Parser<'a> {
         }
         let saved_pos = self.position;
         let saved_diag_len = self.diagnostics.len();
+        let start = self.current().span.start;
 
         self.advance();
 
@@ -41,7 +42,7 @@ impl<'a> Parser<'a> {
             self.advance();
             if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::Arrow)) {
                 self.advance();
-                return Ok(Some(self.parse_arrow_body(params, saved_pos)?));
+                return Ok(Some(self.parse_arrow_body(params, start)?));
             }
             self.position = saved_pos;
             self.diagnostics.truncate(saved_diag_len);
@@ -141,7 +142,7 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        Ok(Some(self.parse_arrow_body(params, saved_pos)?))
+        Ok(Some(self.parse_arrow_body(params, start)?))
     }
 
     pub(super) fn parse_single_param_arrow(&mut self) -> Result<Expr, ()> {

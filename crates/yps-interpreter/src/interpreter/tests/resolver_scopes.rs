@@ -362,3 +362,19 @@ fn shadowing_a_builtin_at_root_wins() {
     let i = run_code("гыы длина = 5; гыы рез = длина;");
     assert_eq!(i.get("рез"), Some(Value::Number(5.0)));
 }
+
+#[test]
+fn paren_arrow_body_does_not_alias_another_scope_layout() {
+    let i = run_code("йопта ч(к){отвечаю к;};;;;\nясенХуй г = (а, б) => а + б;\nгыы р1 = ч(5);\nгыы р2 = г(1, 2);");
+    assert_eq!(i.get("р1"), Some(Value::Number(5.0)));
+    assert_eq!(i.get("р2"), Some(Value::Number(3.0)));
+}
+
+#[test]
+fn proxy_trap_params_resolve_next_to_a_paren_arrow_target() {
+    let i = run_code(
+        "ясенХуй защ = захуярить Посредник({ баланс: 100 }, { получить: (цель, ключ) => { отвечаю цель[ключ]; } });\nясенХуй лог = захуярить Посредник((а, б) => а + б, { применить: (цель, этот, арг) => цель(арг[0], арг[1]) });\nгыы р1 = защ.баланс;\nгыы р2 = лог(7, 8);",
+    );
+    assert_eq!(i.get("р1"), Some(Value::Number(100.0)));
+    assert_eq!(i.get("р2"), Some(Value::Number(15.0)));
+}

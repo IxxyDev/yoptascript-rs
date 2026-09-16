@@ -323,3 +323,17 @@ fn test_parse_async_arrow() {
         other => panic!("Expected async ArrowFunction, got {other:?}"),
     }
 }
+
+#[test]
+fn test_paren_arrow_span_is_byte_offset() {
+    let src = "(а, б) => а + б";
+    let expr = parse_expr_from_source(src).unwrap();
+    match expr {
+        Expr::ArrowFunction { body, span, .. } => {
+            assert_eq!(span.start, 0);
+            assert_eq!(body.span.start, 0);
+            assert_eq!(span.end, src.len());
+        }
+        other => panic!("Expected ArrowFunction, got {other:?}"),
+    }
+}

@@ -122,7 +122,9 @@ impl Resolver {
 
     fn push_layout(&mut self, key: usize, layout: ScopeLayout) {
         let rc = self.open_frame(layout);
-        self.layouts.insert(key, rc);
+        if self.layouts.insert(key, rc).is_some() {
+            self.slots_disabled = true;
+        }
     }
 
     fn pop_frame(&mut self) {
