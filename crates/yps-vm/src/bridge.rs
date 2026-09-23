@@ -293,7 +293,7 @@ pub fn host_for_in_keys(vm: &mut Vm, receiver: &IValue, span: Span) -> Result<Ve
     })
 }
 
-fn map_err(e: yps_interpreter::RuntimeError) -> VmError {
+pub(crate) fn map_err(e: yps_interpreter::RuntimeError) -> VmError {
     if let Some(thrown) = &e.thrown {
         let vm_thrown = interp_to_vm(thrown).unwrap_or_else(|_| Value::Str(Rc::from(e.message.as_str())));
         return VmError::new(e.message, e.span).with_thrown(vm_thrown);

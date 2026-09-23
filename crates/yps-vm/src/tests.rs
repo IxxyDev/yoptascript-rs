@@ -1301,6 +1301,29 @@ fn nan_global_alias_matches_interpreter() {
 }
 
 #[test]
+fn is_error_builtin_matches_interpreter() {
+    for src in [
+        "сказать(тип(этоКосяк));",
+        "сказать(этоКосяк(Косяк(\"x\")), этоКосяк(1), этоКосяк({}), этоКосяк(ноль), этоКосяк(этоКосяк));",
+        "хапнуть { кидай Косяк(\"бум\"); } гоп (е) { сказать(этоКосяк(е)); }",
+        "хапнуть { кидай 1; } гоп (е) { сказать(этоКосяк(е)); }",
+        "гыы ф = этоКосяк; сказать(ф(Косяк(\"y\")));",
+        "+этоКосяк;",
+    ] {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+    assert!(run_err("этоКосяк();").contains("этоКосяк"));
+}
+
+#[test]
+fn stdin_builtins_resolve_as_functions() {
+    for src in ["сказать(тип(прочестьСтроку), тип(прочестьВсё));", "сказать(прочестьСтроку, прочестьВсё);"]
+    {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+}
+
+#[test]
 fn recursive_getter_overflows_gracefully_not_crash() {
     let err = run_err(
         r#"

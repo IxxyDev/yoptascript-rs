@@ -29,7 +29,28 @@ pub fn is_builtin(name: &str) -> bool {
             | "отменаЧутки"
             | "отменаИнтервала"
             | "RegExp"
+            | "этоКосяк"
+            | "прочестьСтроку"
+            | "прочестьВсё"
     )
+}
+
+fn is_error_object(value: &Value) -> bool {
+    let Value::Object(map) = value else {
+        return false;
+    };
+    matches!(
+        map.borrow().get(yps_interpreter::symbols::ERROR_NAME_FIELD),
+        Some(Value::Str(name)) if **name == *yps_interpreter::symbols::ERROR_NAME
+    )
+}
+
+fn stdio_result(
+    result: Result<yps_interpreter::value::Value, yps_interpreter::RuntimeError>,
+    span: Span,
+) -> Result<Value, VmError> {
+    let value = result.map_err(crate::bridge::map_err)?;
+    crate::bridge::interp_to_vm(&value).map_err(|m| VmError::new(m, span))
 }
 
 fn construct_regexp(args: &[Value], span: Span) -> Result<Value, VmError> {
@@ -93,6 +114,14 @@ pub fn call_builtin(out: &mut dyn std::io::Write, name: &str, args: Vec<Value>, 
         }
         "БигЦелое" => builtin_bigint(&args, span),
         "втолкнуть" => builtin_vtolknut(args, span),
+        "этоКосяк" => {
+            if args.is_empty() {
+                return Err(VmError::new("'этоКосяк' ожидает 1 аргумент", span));
+            }
+            Ok(Value::Bool(is_error_object(&args[0])))
+        }
+        "прочестьСтроку" => stdio_result(yps_interpreter::stdlib::stdio::read_line(span), span),
+        "прочестьВсё" => stdio_result(yps_interpreter::stdlib::stdio::read_all(span), span),
         other => Err(VmError::new(format!("встроенная функция '{other}' не поддерживается VM"), span)),
     }
 }
