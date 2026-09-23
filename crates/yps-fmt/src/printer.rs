@@ -908,7 +908,7 @@ impl Printer<'_> {
 
     fn print_arrow_body(&mut self, body: &Block) {
         if let [Stmt::Return { value: Some(value), .. }] = body.stmts.as_slice() {
-            let needs_parens = matches!(value, Expr::Literal(Literal::Object { .. }));
+            let needs_parens = matches!(starting_expr(value), Expr::Literal(Literal::Object { .. }));
             if needs_parens {
                 self.write("(");
             }

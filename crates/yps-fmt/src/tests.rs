@@ -51,6 +51,20 @@ mod suite {
     }
 
     #[test]
+    fn arrow_body_object_literal_keeps_parens() {
+        for (src, expected) in [
+            ("гыы н = () => ({ к: 1 });\n", "гыы н = () => ({ к: 1 });\n"),
+            ("гыы м = () => ({ к: 1 }).к;\n", "гыы м = () => ({ к: 1 }.к);\n"),
+            ("гыы л = () => (({ к: 1 }));\n", "гыы л = () => ({ к: 1 });\n"),
+            ("гыы о = (а) => ({ ...а, б: 2 })[\"б\"];\n", "гыы о = (а) => ({ ...а, б: 2 }[\"б\"]);\n"),
+        ] {
+            let out = crate::format_source(src).unwrap_or_else(|e| panic!("исходник {src:?}: {e}"));
+            assert_eq!(out.text, expected, "исходник: {src:?}");
+            assert!(programs_equivalent_str(src, &out.text), "исходник: {src:?}");
+        }
+    }
+
+    #[test]
     fn round_trip_abort() {
         assert_round_trip("abort.yopta");
         let out = parse_and_format(&read_example("abort.yopta"));
