@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Formatter keeps the parentheses around an arrow body that starts
+  with an object literal** — `() => ({ к: 1 })` and `() => ({ к: 1 }).к`
+  were printed without them, so the body re-parsed as a block and the
+  round-trip self-check refused the file. The check now looks through
+  grouping and member chains to the leftmost expression.
+- **RegExp values cross the VM stdlib bridge** — passing a regexp into
+  `Жсон`, `Кент`, `Матан` or a `Посредник` trap under `--vm` failed with
+  "значение типа 'регэксп' пока нельзя передать в stdlib интерпретатора".
+  Both directions now convert the value and share its `lastIndex` state,
+  and the `exec_diff` fuzz target no longer masks that message.
+- **VM resolves `этоКосяк`, `прочестьСтроку` and `прочестьВсё`** — the
+  interpreter exposed these three builtins as globals, but the VM reported
+  "переменная не определена" for them. The weekly `exec_diff` fuzz run
+  caught the divergence on `+этоКосяк;`. The VM now resolves all three
+  through its builtin table, checks error objects natively and reads stdin
+  through the interpreter's stdio helpers.
+
 ## [1.16.0] - 2026-09-17
 
 ### Changed
