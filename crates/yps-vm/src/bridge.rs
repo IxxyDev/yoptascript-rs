@@ -310,6 +310,14 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
         Value::Null => Ok(IValue::Null),
         Value::Undefined => Ok(IValue::Undefined),
         Value::Host(iv) => Ok(iv.clone()),
+        Value::RegExp { pattern, flags, compiled, last_index } => {
+            Ok(IValue::RegExp(Rc::new(yps_interpreter::value::RegExpData {
+                pattern: pattern.to_string(),
+                flags: flags.to_string(),
+                compiled: Rc::clone(compiled),
+                last_index: Rc::clone(last_index),
+            })))
+        }
         Value::Array(items) => {
             let converted: Vec<IValue> =
                 items.borrow().iter().map(|v| vm_to_interp(v, span)).collect::<Result<_, _>>()?;
@@ -395,6 +403,12 @@ pub fn interp_to_vm(value: &IValue) -> Result<Value, String> {
         IValue::Null => Ok(Value::Null),
         IValue::Undefined => Ok(Value::Undefined),
         IValue::BuiltinFunction(name) => Ok(Value::Builtin(Rc::from(name.as_str()))),
+        IValue::RegExp(re) => Ok(Value::RegExp {
+            pattern: Rc::from(re.pattern.as_str()),
+            flags: Rc::from(re.flags.as_str()),
+            compiled: Rc::clone(&re.compiled),
+            last_index: Rc::clone(&re.last_index),
+        }),
         IValue::Array(items) => {
             let converted: Vec<Value> = items.borrow().0.iter().map(interp_to_vm).collect::<Result<_, _>>()?;
             Ok(Value::Array(Rc::new(RefCell::new(converted))))

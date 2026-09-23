@@ -1316,6 +1316,22 @@ fn is_error_builtin_matches_interpreter() {
 }
 
 #[test]
+fn regexp_crosses_the_stdlib_bridge_both_ways() {
+    for src in [
+        "сказать(Жсон.вСтроку(/a/g), Жсон.вСтроку({р: /a/}));",
+        "сказать(Кент.значения({р: /x/i}), Кент.значения({р: /x/i})[0].flags);",
+        "гыы р = /b/g; сказать(Кент.ключи({р}), р.exec(\"abab\").index, р.lastIndex);",
+        "гыы р = /b/g; гыы к = Кент.значения({р})[0]; к.exec(\"abab\"); сказать(р.lastIndex, к.lastIndex, к.test(\"b\"));",
+        "гыы п = Посредник({}, { get: (ц, к) => /a/g }); сказать(п.x.test(\"a\"), п.x.source);",
+        "гыы п = Посредник({ р: /q/ }, {}); сказать(Кент.ключи(п), п.р.flags);",
+        "гыы п = Посредник({}, { set: (ц, к, з) => { сказать(тип(з), з.source); отвечаю правда; } }); п.р = /zz/;",
+    ] {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+    assert!(run_err("Матан.макс(/a/, 1);").contains("регэксп"));
+}
+
+#[test]
 fn stdin_builtins_resolve_as_functions() {
     for src in ["сказать(тип(прочестьСтроку), тип(прочестьВсё));", "сказать(прочестьСтроку, прочестьВсё);"]
     {
