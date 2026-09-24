@@ -35,6 +35,17 @@ fn run_interp(src: &str) -> String {
     sink.take()
 }
 
+fn run_interp_err(src: &str) -> String {
+    let program = parse(src);
+    let sink = yps_interpreter::BufferSink::new();
+    let mut interp = yps_interpreter::Interpreter::new();
+    interp.set_output_sink(Box::new(sink.clone()));
+    match interp.run(&program) {
+        Ok(()) => panic!("ожидалась ошибка интерпретатора, получен вывод: {:?}", sink.take()),
+        Err(e) => e.message,
+    }
+}
+
 #[test]
 fn arithmetic_and_precedence() {
     assert_eq!(run("сказать(1 + 2 * 3);"), "7\n");
@@ -1329,6 +1340,24 @@ fn regexp_crosses_the_stdlib_bridge_both_ways() {
         assert_eq!(run(src), run_interp(src), "исходник: {src}");
     }
     assert!(run_err("Матан.макс(/a/, 1);").contains("регэксп"));
+}
+
+#[test]
+fn object_pattern_on_non_object_matches_interpreter() {
+    for src in [
+        "гыы {длина, х, у = 7} = \"abc\"; сказать(длина, х, у);",
+        "гыы {длина: д} = [1, 2]; сказать(д);",
+        "гыы п = Посредник({}, { get: (ц, к) => к + \"!\" }); гыы {а, б} = п; сказать(а, б);",
+        "йопта ф({длина: л}) { отвечаю л; } сказать(ф(\"abcd\"));",
+        "гыы д = 0; ({длина: д} = \"xy\"); сказать(д);",
+    ] {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+    for src in ["гыы {х} = 42;", "гыы {х} = ноль;", "гыы {длина, ...р} = \"abc\";"] {
+        let vm_err = run_err(src);
+        let interp_err = run_interp_err(src);
+        assert!(!vm_err.is_empty() && !interp_err.is_empty(), "исходник: {src}");
+    }
 }
 
 #[test]

@@ -151,25 +151,29 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let map: IndexMap<String, Value> = match &value {
-            Value::Object(obj) => obj.borrow().map.clone(),
-            _ => {
-                return Err(RuntimeError::new(
-                    format!("Невозможно деструктурировать {} как объект", value.type_name()),
-                    span,
-                ));
-            }
+        let map: Option<IndexMap<String, Value>> = match &value {
+            Value::Object(obj) => Some(obj.borrow().map.clone()),
+            _ => None,
         };
         let mut used_keys = Vec::new();
         for entry in entries {
             match entry {
                 ObjectEntry::Property { key, value: target } => {
                     let key_str = self.eval_prop_key(key)?;
-                    let val = map.get(&key_str).cloned().unwrap_or(Value::Undefined);
+                    let val = match &map {
+                        Some(map) => map.get(&key_str).cloned().unwrap_or(Value::Undefined),
+                        None => self.eval_member(value.clone(), &key_str, span)?,
+                    };
                     used_keys.push(key_str);
                     self.assign_destructure_element(target, val, span)?;
                 }
                 ObjectEntry::Spread(target) => {
+                    let Some(map) = &map else {
+                        return Err(RuntimeError::new(
+                            format!("Невозможно деструктурировать {} как объект", value.type_name()),
+                            span,
+                        ));
+                    };
                     let mut rest_map = map.clone();
                     for key in &used_keys {
                         rest_map.shift_remove(key);

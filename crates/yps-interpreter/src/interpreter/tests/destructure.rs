@@ -126,13 +126,40 @@ fn destructure_object_rest() {
 }
 
 #[test]
-fn destructure_object_non_object_fails() {
-    let err = run_code_err(
+fn destructure_object_primitive_uses_member_semantics() {
+    let err = run_code_err("гыы {х} = 42;");
+    assert!(err.message.contains("Нельзя получить свойство у типа 'число'"), "{}", err.message);
+    let err = run_code_err("гыы {х} = ноль;");
+    assert!(err.message.contains("Нельзя получить свойство у типа 'нулл'"), "{}", err.message);
+
+    let interp = run_code(
         r#"
-        гыы {х} = 42;
+        гыы {длина, х, у = 7} = "abc";
+        гыы {длина: длинаМассива} = [1, 2];
+        гыы п = Посредник({}, { get: (ц, к) => к + "!" });
+        гыы {а, б} = п;
+        йопта ф({длина: л}) { отвечаю л; }
+        гыы изПараметра = ф("abcd");
+        гыы присв = 0;
+        ({длина: присв} = "xy");
         "#,
     );
-    assert!(err.message.contains("деструктурировать"));
+    assert_eq!(interp.get("длина"), Some(Value::Number(3.0)));
+    assert_eq!(interp.get("х"), Some(Value::Undefined));
+    assert_eq!(interp.get("у"), Some(Value::Number(7.0)));
+    assert_eq!(interp.get("длинаМассива"), Some(Value::Number(2.0)));
+    assert_eq!(interp.get("а").map(|v| v.to_string()), Some("а!".to_string()));
+    assert_eq!(interp.get("б").map(|v| v.to_string()), Some("б!".to_string()));
+    assert_eq!(interp.get("изПараметра"), Some(Value::Number(4.0)));
+    assert_eq!(interp.get("присв"), Some(Value::Number(2.0)));
+}
+
+#[test]
+fn destructure_object_rest_requires_object() {
+    let err = run_code_err("гыы {длина, ...р} = \"abc\";");
+    assert!(err.message.contains("Невозможно деструктурировать строка как объект"), "{}", err.message);
+    let err = run_code_err("гыы р = 0; гыы д = 0; ({длина: д, ...р} = [1]);");
+    assert!(err.message.contains("Невозможно деструктурировать массив как объект"), "{}", err.message);
 }
 
 #[test]

@@ -447,20 +447,18 @@ impl Interpreter {
                 Ok(())
             }
             Pattern::Object { properties, rest, .. } => {
-                let map: IndexMap<String, Value> = match value {
-                    Value::Object(map) => map.borrow().map.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Невозможно деструктурировать {} как объект", value.type_name()),
-                            span,
-                        ));
-                    }
+                let map: Option<IndexMap<String, Value>> = match &value {
+                    Value::Object(map) => Some(map.borrow().map.clone()),
+                    _ => None,
                 };
 
                 let mut used_keys = Vec::new();
 
                 for prop in properties {
-                    let val = map.get(&prop.key.name).cloned().unwrap_or(Value::Undefined);
+                    let val = match &map {
+                        Some(map) => map.get(&prop.key.name).cloned().unwrap_or(Value::Undefined),
+                        None => self.eval_member(value.clone(), &prop.key.name, span)?,
+                    };
                     used_keys.push(prop.key.name.clone());
 
                     if let Some(ref value_pat) = prop.value {
@@ -471,7 +469,12 @@ impl Interpreter {
                 }
 
                 if let Some(rest_pat) = rest {
-                    let mut rest_map = map;
+                    let Some(mut rest_map) = map else {
+                        return Err(RuntimeError::new(
+                            format!("Невозможно деструктурировать {} как объект", value.type_name()),
+                            span,
+                        ));
+                    };
                     for key in &used_keys {
                         rest_map.shift_remove(key);
                     }
