@@ -2092,6 +2092,7 @@ impl Compiler {
                 self.emit(Op::SetIndex, span);
                 Ok(())
             }
+            Expr::Grouping { expr, .. } => self.compile_compound_assign(op, expr, rhs, span),
             _ => Err(CompileError::new("недопустимая цель составного присваивания в VM", span)),
         }
     }

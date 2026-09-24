@@ -842,6 +842,19 @@ fn destructuring_assignment_inside_expressions_and_scopes() {
 }
 
 #[test]
+fn grouped_assignment_targets_match_interpreter() {
+    for src in [
+        "гыы х = [1]; (х[0]) += 1; сказать(х);",
+        "гыы о = {а: 1}; (о.а) *= 5; сказать(о.а);",
+        "гыы х = 0; (х) ||= 3; сказать(х);",
+        "гыы а = 0; гыы б = 0; [(а), (б)] = [1, 2]; сказать(а, б);",
+        "гыы а = 0; ({к: (а)} = {к: 9}); сказать(а);",
+    ] {
+        assert_eq!(run(src), run_interp(src), "исходник: {src}");
+    }
+}
+
+#[test]
 fn try_catch_finally_paths() {
     let src = r#"
         хапнуть {
