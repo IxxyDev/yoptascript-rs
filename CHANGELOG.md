@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-09-24
+
+### Changed
+
+- **Invalid assignment and update targets are parse errors** — `1 = 2`,
+  `!х += 1`, `о.а++` and `а?.б = 1` are reported by the parser, matching
+  the early errors JavaScript raises for the same code, instead of failing
+  at runtime in the interpreter and at compile time in the VM. Code such as
+  `1 || 1++` that only one backend used to reach now fails identically on
+  both. A plain assignment accepts identifiers, member and index
+  expressions, parenthesized targets and destructuring patterns; compound
+  and logical assignments accept identifiers, member and index
+  expressions; `++`/`--` accept an identifier.
+
+### Fixed
+
+- **Object patterns read from non-objects with member semantics** —
+  `гыы {длина} = "abc"` failed in the interpreter with "Невозможно
+  деструктурировать строка как объект" while the VM produced 3. Strings,
+  arrays and proxies now destructure the way a member access would in both
+  backends; primitives without properties fail with the usual member-access
+  error, and a rest element still requires a plain object.
+- **VM accepts parenthesized targets in compound assignment** —
+  `(х[0]) += 1` and `(о.а) *= 5` were rejected by the VM compiler.
+- **`exec_diff` fuzz target masks nothing** — the two masks for VM-only
+  assignment-target errors are gone.
+
 ## [1.17.0] - 2026-09-23
 
 ### Fixed
