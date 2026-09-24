@@ -99,10 +99,43 @@ impl<'a> Parser<'a> {
 
             let start = lhs.span().start;
             let end = rhs.span().end;
+            self.check_assignment_target(op, &lhs)?;
             lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span: Span { start, end } };
         }
 
         Ok(lhs)
+    }
+
+    fn check_assignment_target(&mut self, op: BinaryOp, lhs: &Expr) -> Result<(), ()> {
+        let valid = match op {
+            BinaryOp::Assign => is_assign_target(lhs),
+            BinaryOp::PlusAssign
+            | BinaryOp::MinusAssign
+            | BinaryOp::MulAssign
+            | BinaryOp::DivAssign
+            | BinaryOp::ExpAssign
+            | BinaryOp::ModAssign
+            | BinaryOp::NullishAssign
+            | BinaryOp::AndAssign
+            | BinaryOp::OrAssign
+            | BinaryOp::BitAndAssign
+            | BinaryOp::BitOrAssign
+            | BinaryOp::BitXorAssign
+            | BinaryOp::ShlAssign
+            | BinaryOp::ShrAssign
+            | BinaryOp::UshrAssign => is_simple_target(lhs),
+            _ => true,
+        };
+        if valid {
+            return Ok(());
+        }
+        let message = if matches!(op, BinaryOp::Assign) {
+            "Недопустимая цель присваивания"
+        } else {
+            "Недопустимая цель составного присваивания"
+        };
+        self.push_error(lhs.span(), message);
+        Err(())
     }
 
     pub(super) fn parse_unary(&mut self, op: UnaryOp) -> Result<Expr, ()> {
@@ -159,16 +192,23 @@ impl<'a> Parser<'a> {
                 expr = self.parse_optional_chain(expr)?;
             } else if matches!(self.current().kind, TokenKind::TemplateHead | TokenKind::TemplateNoSub) {
                 expr = self.parse_tagged_template(expr)?;
-            } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Increment)) {
+            } else if let TokenKind::Operator(op_kind @ (OperatorKind::Increment | OperatorKind::Decrement)) =
+                &self.current().kind
+            {
+                let op = if matches!(op_kind, OperatorKind::Increment) {
+                    PostfixOp::Increment
+                } else {
+                    PostfixOp::Decrement
+                };
+                if !matches!(expr, Expr::Identifier(_)) {
+                    let span = Span { start: expr.span().start, end: self.current().span.end };
+                    self.push_error(span, "'++' / '--' можно применить только к переменной");
+                    return Err(());
+                }
                 let start = expr.span().start;
                 let end = self.current().span.end;
                 self.advance();
-                expr = Expr::Postfix { op: PostfixOp::Increment, expr: Box::new(expr), span: Span { start, end } };
-            } else if matches!(self.current().kind, TokenKind::Operator(OperatorKind::Decrement)) {
-                let start = expr.span().start;
-                let end = self.current().span.end;
-                self.advance();
-                expr = Expr::Postfix { op: PostfixOp::Decrement, expr: Box::new(expr), span: Span { start, end } };
+                expr = Expr::Postfix { op, expr: Box::new(expr), span: Span { start, end } };
             } else {
                 break;
             }
@@ -337,5 +377,36 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(KeywordKind::In) => Some(BinaryOp::In),
             _ => None,
         }
+    }
+}
+
+fn is_simple_target(expr: &Expr) -> bool {
+    match expr {
+        Expr::Identifier(_) | Expr::Member { .. } | Expr::Index { .. } => true,
+        Expr::Grouping { expr, .. } => is_simple_target(expr),
+        _ => false,
+    }
+}
+
+fn is_assign_target(expr: &Expr) -> bool {
+    match expr {
+        Expr::Grouping { expr, .. } => is_assign_target(expr),
+        Expr::Literal(Literal::Array { elements, .. }) => elements.iter().all(|element| match element {
+            Expr::Spread { expr, .. } => is_assign_target(expr),
+            other => is_destructure_element(other),
+        }),
+        Expr::Literal(Literal::Object { entries, .. }) => entries.iter().all(|entry| match entry {
+            ObjectEntry::Property { value, .. } => is_destructure_element(value),
+            ObjectEntry::Spread(target) => is_assign_target(target),
+            ObjectEntry::Getter { .. } | ObjectEntry::Setter { .. } => false,
+        }),
+        other => is_simple_target(other),
+    }
+}
+
+fn is_destructure_element(expr: &Expr) -> bool {
+    match expr {
+        Expr::Binary { op: BinaryOp::Assign, lhs, .. } => is_assign_target(lhs),
+        other => is_assign_target(other),
     }
 }

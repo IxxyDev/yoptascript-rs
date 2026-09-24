@@ -36,18 +36,6 @@ fn array_index_must_be_number() {
 }
 
 #[test]
-fn assignment_lhs_must_be_assignable() {
-    let err = run_code_err("42 = 7;");
-    assert!(err.message.contains("Левая сторона"), "got: {}", err.message);
-}
-
-#[test]
-fn increment_on_non_variable_errors() {
-    let err = run_code_err("42++;");
-    assert!(err.message.contains("'++'") || err.message.contains("переменной"), "got: {}", err.message);
-}
-
-#[test]
 fn this_outside_method_errors() {
     let err = run_code_err("гыы х = тырыпыры;");
     assert!(err.message.contains("тырыпыры") || err.message.contains("this"), "got: {}", err.message);

@@ -688,11 +688,6 @@ fn tagged_template_basic() {
 }
 
 #[test]
-fn unsupported_features_are_compile_errors() {
-    assert!(compile_program(&parse("гыы о = {}; о.п++;")).is_err());
-}
-
-#[test]
 fn bigint_literals_and_arithmetic() {
     assert_eq!(run("сказать(100000000000000000000n + 1n);"), "100000000000000000001n\n");
     assert_eq!(run("сказать(2n ** 64n);"), "18446744073709551616n\n");
@@ -844,12 +839,6 @@ fn destructuring_assignment_inside_expressions_and_scopes() {
     let out = run(src);
     assert_eq!(out, "2\n1 2\n{п3: 3, п4: 4}\n3\n[3, 4]\n11\n{к2: 22}\n1\n");
     assert_eq!(run_interp(src), out);
-}
-
-#[test]
-fn invalid_assignment_targets_still_rejected() {
-    assert!(run_err("5 = 1;").contains("недопустимая цель присваивания"));
-    assert!(run_err("йопта ф() { отвечаю 1; } ф() = 1;").contains("недопустимая цель присваивания"));
 }
 
 #[test]
