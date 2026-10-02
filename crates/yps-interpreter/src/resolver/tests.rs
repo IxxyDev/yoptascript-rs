@@ -129,3 +129,12 @@ fn oversized_function_scope_records_no_slot_uses() {
     let res = resolved(&src);
     assert!(res.use_at(nth_offset(&src, "л0", 1)).is_none());
 }
+
+#[test]
+fn class_members_record_slot_uses() {
+    let src = "клёво К {\n  К(а) { гыы ктор = а; сказать(ктор); }\n  м(б) { гыы метод = б; отвечаю метод; }\n  попонятия { гыы стат = 1; сказать(стат); }\n}";
+    let res = resolved(src);
+    assert!(res.use_at(nth_offset(src, "ктор", 1)).is_some(), "локал конструктора");
+    assert!(res.use_at(nth_offset(src, "метод", 1)).is_some(), "локал метода");
+    assert!(res.use_at(nth_offset(src, "стат", 1)).is_some(), "локал статического блока");
+}

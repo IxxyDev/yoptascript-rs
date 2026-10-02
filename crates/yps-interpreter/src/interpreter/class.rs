@@ -372,7 +372,8 @@ impl Interpreter {
                     class_rc.static_fields.borrow_mut().insert(name.clone(), val);
                 }
                 StaticInitAction::Block { body } => {
-                    self.env.push_scope();
+                    let slotted = self.push_scope_keyed(body.span.start);
+                    self.mark_scope_tdz(slotted, &body.stmts);
                     let result = self.exec_block_stmts(&body.stmts);
                     self.env.pop_scope();
                     if let Some(ControlFlow::Throw(val)) = result? {
@@ -441,7 +442,7 @@ impl Interpreter {
         if let Some(MethodDef { params, body, env }) = &class_def.constructor {
             let saved_env = self.env.clone();
             self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
-            self.env.push_scope();
+            let slotted = self.push_scope_keyed(body.span.start);
 
             self.env.define(symbols::THIS, instance_val.clone(), false);
 
@@ -453,6 +454,7 @@ impl Interpreter {
                 self.env = saved_env;
                 return Err(e);
             }
+            self.mark_scope_tdz(slotted, &body.stmts);
 
             self.push_frame(Rc::from(class_def.name.as_str()), span);
             let mut result = self.exec_block_stmts(&body.stmts);
@@ -521,7 +523,7 @@ impl Interpreter {
 
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(env, self.env.registry());
-        self.env.push_scope();
+        let slotted = self.push_scope_keyed(body.span.start);
         self.env.define(symbols::THIS, child_instance.clone(), false);
         if let Some(grandparent) = &parent_def.parent {
             self.env.define(symbols::SUPER, Value::Class(Rc::clone(grandparent)), false);
@@ -531,6 +533,7 @@ impl Interpreter {
             self.env = saved_env;
             return Err(e);
         }
+        self.mark_scope_tdz(slotted, &body.stmts);
 
         let result = self.exec_block_stmts(&body.stmts);
         let this_after = self.env.get(symbols::THIS).unwrap_or(child_instance);

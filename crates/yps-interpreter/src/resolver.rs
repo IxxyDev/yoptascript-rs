@@ -355,7 +355,6 @@ impl Resolver {
                 self.scopes.pop();
             }
             Stmt::ClassDecl { super_class, members, decorators, .. } => {
-                self.slots_disabled = true;
                 if let Some(super_class) = super_class {
                     self.walk_expr(super_class);
                 }
@@ -363,8 +362,15 @@ impl Resolver {
                     self.walk_expr(decorator);
                 }
                 for member in members {
-                    self.walk_class_member(member);
+                    self.walk_member_decorators(member);
                 }
+                for member in members {
+                    if !is_initializer(member) {
+                        self.walk_class_member(member);
+                    }
+                }
+                self.walk_initializers(members.iter().filter(|m| is_initializer(m) && !is_static_member(m)));
+                self.walk_initializers(members.iter().filter(|m| is_initializer(m) && is_static_member(m)));
             }
             Stmt::Using { init, .. } => self.walk_expr(init),
             Stmt::Import { .. } => self.disabled = true,
@@ -375,37 +381,47 @@ impl Resolver {
         }
     }
 
+    fn walk_member_decorators(&mut self, member: &ClassMember) {
+        match member {
+            ClassMember::Method { decorators, .. }
+            | ClassMember::Field { decorators, .. }
+            | ClassMember::Getter { decorators, .. }
+            | ClassMember::Setter { decorators, .. } => {
+                for decorator in decorators {
+                    self.walk_expr(decorator);
+                }
+            }
+            ClassMember::Constructor { .. } | ClassMember::StaticBlock { .. } => {}
+        }
+    }
+
     fn walk_class_member(&mut self, member: &ClassMember) {
         match member {
-            ClassMember::Constructor { params, body, .. } => self.walk_function(None, params, body),
-            ClassMember::Method { params, body, decorators, .. } => {
-                for decorator in decorators {
-                    self.walk_expr(decorator);
-                }
-                self.walk_function(None, params, body);
+            ClassMember::Constructor { params, body, .. } | ClassMember::Method { params, body, .. } => {
+                self.walk_function(None, params, body)
             }
-            ClassMember::Field { init, decorators, .. } => {
-                for decorator in decorators {
-                    self.walk_expr(decorator);
-                }
-                if let Some(init) = init {
-                    self.walk_expr(init);
-                }
-            }
-            ClassMember::Getter { body, decorators, .. } => {
-                for decorator in decorators {
-                    self.walk_expr(decorator);
-                }
-                self.walk_function(None, &[], body);
-            }
-            ClassMember::Setter { param, body, decorators, .. } => {
-                for decorator in decorators {
-                    self.walk_expr(decorator);
-                }
-                self.walk_function(None, std::slice::from_ref(param), body);
-            }
-            ClassMember::StaticBlock { body, .. } => self.walk_function(None, &[], body),
+            ClassMember::Getter { body, .. } => self.walk_function(None, &[], body),
+            ClassMember::Setter { param, body, .. } => self.walk_function(None, std::slice::from_ref(param), body),
+            ClassMember::Field { .. } | ClassMember::StaticBlock { .. } => {}
         }
+    }
+
+    fn walk_initializers<'a>(&mut self, members: impl Iterator<Item = &'a ClassMember>) {
+        let mut members = members.peekable();
+        if members.peek().is_none() {
+            return;
+        }
+        self.scopes.push(HashSet::new());
+        self.open_frame(ScopeLayout::default());
+        for member in members {
+            match member {
+                ClassMember::Field { init: Some(init), .. } => self.walk_expr(init),
+                ClassMember::StaticBlock { body, .. } => self.walk_block(body),
+                _ => {}
+            }
+        }
+        self.pop_frame();
+        self.scopes.pop();
     }
 
     fn walk_expr(&mut self, expr: &Expr) {
@@ -528,6 +544,14 @@ impl Resolver {
             self.walk_expr(expr);
         }
     }
+}
+
+fn is_initializer(member: &ClassMember) -> bool {
+    matches!(member, ClassMember::Field { .. } | ClassMember::StaticBlock { .. })
+}
+
+fn is_static_member(member: &ClassMember) -> bool {
+    matches!(member, ClassMember::Field { is_static: true, .. } | ClassMember::StaticBlock { .. })
 }
 
 fn push_name(names: &mut Vec<Rc<str>>, name: &str) {

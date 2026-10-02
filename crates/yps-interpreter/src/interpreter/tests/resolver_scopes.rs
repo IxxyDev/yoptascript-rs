@@ -481,6 +481,130 @@ fn failed_parameter_binding_restores_the_caller_environment() {
 }
 
 #[test]
+fn class_members_read_enclosing_function_locals() {
+    let interp = run_code(
+        r#"
+        йопта сделать(база) {
+            гыы шаг = 2;
+            клёво Счёт {
+                поле = база + шаг;
+                попонятия старт = база * шаг;
+                попонятия { тырыпыры.блок = база - шаг; }
+                Счёт(доп) {
+                    гыы сумма = база + доп;
+                    тырыпыры.сумма = сумма;
+                }
+                взять(к) {
+                    гыы итого = тырыпыры.сумма + к + шаг;
+                    отвечаю итого;
+                }
+            }
+            отвечаю Счёт;
+        }
+        гыы база = 1000;
+        гыы шаг = 1000;
+        гыы К = сделать(10);
+        гыы о = захуярить К(5);
+        гыы вывод = [о.поле, К.старт, К.блок, о.сумма, о.взять(3)];
+        "#,
+    );
+    assert_struct_eq(
+        interp.get("вывод"),
+        Value::array(vec![
+            Value::Number(12.0),
+            Value::Number(20.0),
+            Value::Number(8.0),
+            Value::Number(15.0),
+            Value::Number(20.0),
+        ]),
+    );
+}
+
+#[test]
+fn subclass_constructor_locals_and_super_call() {
+    let interp = run_code(
+        r#"
+        гыы множитель = 3;
+        клёво База {
+            База(х) {
+                гыы двойной = х * 2;
+                тырыпыры.х = двойной;
+            }
+        }
+        клёво Дитя батя База {
+            Дитя(х) {
+                гыы тройной = х * множитель;
+                яга(тройной);
+                тырыпыры.у = тройной;
+            }
+        }
+        гыы д = захуярить Дитя(4);
+        гыы вывод = [д.х, д.у];
+        "#,
+    );
+    assert_struct_eq(interp.get("вывод"), Value::array(vec![Value::Number(24.0), Value::Number(12.0)]));
+}
+
+#[test]
+fn constructor_local_read_before_declaration_is_tdz() {
+    let err = run_code_err(
+        r#"
+        клёво К {
+            К() {
+                гыы а = б;
+                гыы б = 1;
+            }
+        }
+        захуярить К();
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "ошибка: {}", err.message);
+}
+
+#[test]
+fn static_block_local_read_before_declaration_is_tdz() {
+    let err = run_code_err(
+        r#"
+        гыы б = 0;
+        клёво К {
+            попонятия {
+                гыы а = б;
+                гыы б = 1;
+            }
+        }
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "ошибка: {}", err.message);
+}
+
+#[test]
+fn setter_destructures_parameter_and_marks_tdz() {
+    let interp = run_code(
+        r#"
+        гыы х = "внешний";
+        клёво К {
+            set з({ х }) { тырыпыры.в = х; }
+        }
+        гыы о = захуярить К();
+        о.з = { х: "из-аргумента" };
+        гыы вывод = о.в;
+        "#,
+    );
+    assert_eq!(interp.get("вывод"), Some(Value::String("из-аргумента".into())));
+    let err = run_code_err(
+        r#"
+        гыы б = 0;
+        клёво К {
+            set з(в) { гыы а = б; гыы б = в; }
+        }
+        гыы о = захуярить К();
+        о.з = 1;
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "ошибка: {}", err.message);
+}
+
+#[test]
 fn field_arrow_reads_function_local_through_this_frame() {
     let interp = run_code(
         r#"
@@ -518,31 +642,4 @@ fn parent_and_child_fields_use_their_own_definition_scopes() {
         "#,
     );
     assert_eq!(interp.get("вывод"), Some(Value::String("рд".into())));
-}
-
-#[test]
-fn setter_destructures_parameter_and_marks_tdz() {
-    let interp = run_code(
-        r#"
-        гыы х = "внешний";
-        клёво К {
-            set з({ х }) { тырыпыры.в = х; }
-        }
-        гыы о = захуярить К();
-        о.з = { х: "из-аргумента" };
-        гыы вывод = о.в;
-        "#,
-    );
-    assert_eq!(interp.get("вывод"), Some(Value::String("из-аргумента".into())));
-    let err = run_code_err(
-        r#"
-        гыы б = 0;
-        клёво К {
-            set з(в) { гыы а = б; гыы б = в; }
-        }
-        гыы о = захуярить К();
-        о.з = 1;
-        "#,
-    );
-    assert!(err.message.contains("до её инициализации"), "ошибка: {}", err.message);
 }
