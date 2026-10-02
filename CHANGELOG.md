@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.2] - 2026-10-02
+
+### Changed
+
+- **Class bodies are resolved to frame slots** — a class declaration no
+  longer switches the whole program back to the name-map path. Methods,
+  accessors, constructors, static blocks and field initializers now get
+  slot coordinates like ordinary functions; constructors and static blocks
+  also mark their lexical declarations as uninitialized (TDZ). Generators,
+  async functions and imports still keep the previous path. A
+  method-heavy loop over a small class runs about 23% faster.
+
+### Fixed
+
+- **Instance field initializers use the class definition scope** — the
+  interpreter evaluated `поле = у` in the scope where the instance was
+  created, so a class returned from a function read the caller's `у`
+  instead of the one it closed over. The VM already behaved correctly.
+- **Setter parameters are bound like any other call** — a destructuring
+  setter parameter such as `set з({ х })` left `х` unbound in the
+  interpreter, and the body read an outer variable instead, while the VM
+  bound it correctly. Setter bodies also gained TDZ checks.
+
 ## [1.17.1] - 2026-09-24
 
 ### Changed
