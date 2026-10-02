@@ -519,3 +519,30 @@ fn parent_and_child_fields_use_their_own_definition_scopes() {
     );
     assert_eq!(interp.get("вывод"), Some(Value::String("рд".into())));
 }
+
+#[test]
+fn setter_destructures_parameter_and_marks_tdz() {
+    let interp = run_code(
+        r#"
+        гыы х = "внешний";
+        клёво К {
+            set з({ х }) { тырыпыры.в = х; }
+        }
+        гыы о = захуярить К();
+        о.з = { х: "из-аргумента" };
+        гыы вывод = о.в;
+        "#,
+    );
+    assert_eq!(interp.get("вывод"), Some(Value::String("из-аргумента".into())));
+    let err = run_code_err(
+        r#"
+        гыы б = 0;
+        клёво К {
+            set з(в) { гыы а = б; гыы б = в; }
+        }
+        гыы о = захуярить К();
+        о.з = 1;
+        "#,
+    );
+    assert!(err.message.contains("до её инициализации"), "ошибка: {}", err.message);
+}

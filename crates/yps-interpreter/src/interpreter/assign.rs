@@ -276,11 +276,13 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         let saved_env = self.env.clone();
         self.env = Environment::from_snapshot(Rc::clone(env), self.env.registry());
-        self.push_scope_keyed(body.span.start);
+        let slotted = self.push_scope_keyed(body.span.start);
         self.env.define(symbols::THIS, this_val.clone(), false);
-        if let Some(param) = params.first() {
-            self.env.define(&param.name.name, value, false);
+        if let Err(e) = self.bind_params(&params[..params.len().min(1)], &[value], true, span) {
+            self.env = saved_env;
+            return Err(e);
         }
+        self.mark_scope_tdz(slotted, &body.stmts);
         self.push_frame(name, span);
         let mut result = self.exec_block_stmts(&body.stmts);
         if let Err(e) = &mut result {
