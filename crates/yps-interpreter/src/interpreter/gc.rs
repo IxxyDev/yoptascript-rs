@@ -321,6 +321,7 @@ impl Marker {
         for value in class.static_fields.borrow().values() {
             self.push_value(value);
         }
+        self.mark_frame(&class.field_env);
         for (_, _, default) in &class.field_inits {
             if let Some(value) = default {
                 self.push_value(value);

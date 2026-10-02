@@ -342,6 +342,7 @@ pub struct ClassDef {
     pub static_methods: HashMap<String, MethodDef>,
     pub static_fields: RefCell<HashMap<String, Value>>,
     pub field_inits: Vec<(String, Option<Rc<Block>>, Option<Value>)>,
+    pub field_env: Rc<RefCell<EnvFrame>>,
     pub getters: HashMap<String, MethodDef>,
     pub setters: HashMap<String, MethodDef>,
     pub static_getters: HashMap<String, MethodDef>,

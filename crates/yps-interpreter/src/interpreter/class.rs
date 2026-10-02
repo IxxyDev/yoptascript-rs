@@ -114,6 +114,7 @@ impl Interpreter {
             static_methods: parts.static_methods,
             static_fields: std::cell::RefCell::new(HashMap::new()),
             field_inits: parts.field_inits,
+            field_env: self.env.snapshot(),
             getters: parts.getters,
             setters: parts.setters,
             static_getters: parts.static_getters,
@@ -565,6 +566,7 @@ impl Interpreter {
         for (name, init_body, transform) in &class_def.field_inits {
             let base_val = if let Some(body) = init_body {
                 let saved_env = self.env.clone();
+                self.env = Environment::from_snapshot(Rc::clone(&class_def.field_env), self.env.registry());
                 self.env.push_scope();
                 self.env.define(symbols::THIS, instance_val.clone(), false);
                 let result = self.exec_block_stmts(&body.stmts);

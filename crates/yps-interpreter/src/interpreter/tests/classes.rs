@@ -651,3 +651,22 @@ fn class_static_block_throw_propagates() {
     );
     assert!(err.message.contains("бабах"), "ошибка: {}", err.message);
 }
+
+#[test]
+fn instance_field_initializer_uses_definition_scope() {
+    let i = run_code(
+        r#"
+        йопта сделать() {
+            гыы у = 5;
+            клёво К {
+                поле = у;
+            }
+            отвечаю К;
+        }
+        гыы у = 99;
+        гыы К2 = сделать();
+        гыы итог = захуярить К2().поле;
+        "#,
+    );
+    assert_eq!(i.get("итог"), Some(Value::Number(5.0)));
+}

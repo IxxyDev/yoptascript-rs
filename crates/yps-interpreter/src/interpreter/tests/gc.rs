@@ -189,3 +189,21 @@ fn repl_collect_keeps_returned_closure_alive() {
     let r = i.call_function(v, vec![], yps_lexer::Span { start: 0, end: 0 }).expect("вызов замыкания после сборки");
     assert_eq!(r, Value::Number(42.0));
 }
+
+#[test]
+fn field_initializer_scope_survives_cycle_collection() {
+    let mut i = run_code(
+        r#"
+        йопта сделать(х) {
+            гыы сам = {};
+            сам.я = сам;
+            клёво К { п = х; }
+            отвечаю К;
+        }
+        гыы К = сделать(42);
+        "#,
+    );
+    i.collect_cycles();
+    let v = run_more(&mut i, "захуярить К().п;");
+    assert_eq!(v, Some(Value::Number(42.0)));
+}

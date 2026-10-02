@@ -479,3 +479,43 @@ fn failed_parameter_binding_restores_the_caller_environment() {
     );
     assert_eq!(i.get("рез"), Some(Value::String("ИКС".into())));
 }
+
+#[test]
+fn field_arrow_reads_function_local_through_this_frame() {
+    let interp = run_code(
+        r#"
+        йопта сделать() {
+            гыы у = 7;
+            клёво К {
+                ф = () => у * 2;
+            }
+            отвечаю захуярить К();
+        }
+        гыы у = 100;
+        гыы вывод = сделать().ф();
+        "#,
+    );
+    assert_eq!(interp.get("вывод"), Some(Value::Number(14.0)));
+}
+
+#[test]
+fn parent_and_child_fields_use_their_own_definition_scopes() {
+    let interp = run_code(
+        r#"
+        йопта родитель() {
+            гыы п = "р";
+            клёво Р { а = п; }
+            отвечаю Р;
+        }
+        йопта ребёнок(Р) {
+            гыы п = "д";
+            клёво Д батя Р { б = п; }
+            отвечаю Д;
+        }
+        гыы п = "глоб";
+        гыы о = захуярить (ребёнок(родитель()))();
+        гыы вывод = о.а + о.б;
+        "#,
+    );
+    assert_eq!(interp.get("вывод"), Some(Value::String("рд".into())));
+}
