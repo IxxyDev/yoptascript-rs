@@ -31,7 +31,7 @@ type ModuleLoading = Rc<RefCell<std::collections::HashSet<std::path::PathBuf>>>;
 enum Step {
     Continue,
     Done,
-    Throw(Value),
+    Throw(Value, Span),
     Yield(Value),
     Await(Value),
     YieldDelegate(Value),
@@ -104,6 +104,7 @@ pub struct Vm {
     base_path: Option<std::path::PathBuf>,
     module_cache: ModuleCache,
     module_loading: ModuleLoading,
+    pending_throw_sites: Vec<(usize, Span)>,
     exports: ModuleExports,
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
     pub(crate) macrotasks: MacrotaskQueue,
@@ -138,6 +139,7 @@ impl Vm {
             base_path: None,
             module_cache: Rc::new(RefCell::new(std::collections::HashMap::new())),
             module_loading: Rc::new(RefCell::new(std::collections::HashSet::new())),
+            pending_throw_sites: Vec::new(),
             exports: std::collections::HashMap::new(),
             microtasks: std::collections::VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
@@ -216,15 +218,13 @@ impl Vm {
                         Some(v) => (**v).clone(),
                         None => self.error_to_value(err.clone()),
                     };
-                    if !self.unwind_to_handler_above(value, min_depth) {
+                    if !self.unwind_to_handler_above(value, min_depth, err.span) {
                         return Err(err);
                     }
                 }
-                Ok(Step::Throw(value)) => {
-                    if !self.unwind_to_handler_above(value.clone(), min_depth) {
-                        return Err(
-                            VmError::new(uncaught_message(&value), Span { start: 0, end: 0 }).with_thrown(value)
-                        );
+                Ok(Step::Throw(value, thrown_at)) => {
+                    if !self.unwind_to_handler_above(value.clone(), min_depth, thrown_at) {
+                        return Err(VmError::new(uncaught_message(&value), thrown_at).with_thrown(value));
                     }
                 }
                 Ok(Step::Yield(_) | Step::YieldDelegate(_)) => {
@@ -549,7 +549,12 @@ impl Vm {
 
                 Op::Throw => {
                     let value = self.pop();
-                    return Ok(Step::Throw(value));
+                    return Ok(Step::Throw(value, span));
+                }
+                Op::Rethrow => {
+                    let thrown_at = self.take_pending_throw_site().unwrap_or(span);
+                    let value = self.pop();
+                    return Ok(Step::Throw(value, thrown_at));
                 }
                 Op::PushHandler(target, is_finally) => {
                     self.handlers.push(Handler {
@@ -678,7 +683,7 @@ impl Vm {
                                 Some(v) => *v,
                                 None => self.error_to_value(VmError::new(e.message, span)),
                             };
-                            return Ok(Step::Throw(thrown));
+                            return Ok(Step::Throw(thrown, span));
                         }
                     }
                 }
@@ -1064,18 +1069,33 @@ impl Vm {
         Ok(Step::Continue)
     }
 
-    fn enter_handler(&mut self, handler: &Handler, value: Value) {
+    fn take_pending_throw_site(&mut self) -> Option<Span> {
+        let slot = self.stack.len().checked_sub(1)?;
+        while self.pending_throw_sites.last().is_some_and(|(index, _)| *index > slot) {
+            self.pending_throw_sites.pop();
+        }
+        self.pending_throw_sites.pop_if(|(index, _)| *index == slot).map(|(_, thrown_at)| thrown_at)
+    }
+
+    fn enter_handler(&mut self, handler: &Handler, value: Value, thrown_at: Span) {
         self.frames.truncate(handler.frame_len);
         if handler.stack_len <= self.stack.len() {
             self.close_upvalues(handler.stack_len);
             self.stack.truncate(handler.stack_len);
+        }
+        if handler.is_finally {
+            let slot = self.stack.len();
+            while self.pending_throw_sites.last().is_some_and(|(index, _)| *index >= slot) {
+                self.pending_throw_sites.pop();
+            }
+            self.pending_throw_sites.push((slot, thrown_at));
         }
         self.stack.push(value);
         let top = self.frames.len() - 1;
         self.frames[top].ip = handler.target;
     }
 
-    fn unwind_to_handler_above(&mut self, value: Value, min_depth: usize) -> bool {
+    fn unwind_to_handler_above(&mut self, value: Value, min_depth: usize, thrown_at: Span) -> bool {
         while let Some(handler) = self.handlers.last() {
             if handler.frame_len <= min_depth {
                 break;
@@ -1084,7 +1104,7 @@ impl Vm {
             if handler.frame_len > self.frames.len() {
                 continue;
             }
-            self.enter_handler(&handler, value);
+            self.enter_handler(&handler, value, thrown_at);
             return true;
         }
         false
@@ -1822,13 +1842,13 @@ impl Vm {
                 Ok(Step::Yield(v)) => return Ok(GenRun::Yielded(v)),
                 Ok(Step::Await(v)) => return Ok(GenRun::Awaited(v)),
                 Ok(Step::YieldDelegate(it)) => return Ok(GenRun::Delegate(it)),
-                Ok(Step::Throw(value)) => {
+                Ok(Step::Throw(value, thrown_at)) => {
                     if let Some(ret) = as_return_token(&value) {
                         self.frames.clear();
                         self.stack.clear();
                         self.handlers.clear();
                         return Ok(GenRun::Done(ret));
-                    } else if let Some(step) = self.gen_unwind_throw(value, span)? {
+                    } else if let Some(step) = self.gen_unwind_throw(value, thrown_at)? {
                         return Ok(step);
                     }
                 }
@@ -1853,18 +1873,18 @@ impl Vm {
         }
     }
 
-    fn gen_unwind_throw(&mut self, value: Value, _span: Span) -> Result<Option<GenRun>, VmError> {
+    fn gen_unwind_throw(&mut self, value: Value, thrown_at: Span) -> Result<Option<GenRun>, VmError> {
         while let Some(handler) = self.handlers.pop() {
             if handler.frame_len > self.frames.len() {
                 continue;
             }
-            self.enter_handler(&handler, value);
+            self.enter_handler(&handler, value, thrown_at);
             return Ok(None);
         }
         Ok(Some(GenRun::Threw(value)))
     }
 
-    fn gen_unwind_return(&mut self, value: Value, _span: Span) -> Result<Option<GenRun>, VmError> {
+    fn gen_unwind_return(&mut self, value: Value, span: Span) -> Result<Option<GenRun>, VmError> {
         while let Some(handler) = self.handlers.last() {
             if !handler.is_finally {
                 self.handlers.pop();
@@ -1875,7 +1895,7 @@ impl Vm {
                 continue;
             }
             let token = self.make_return_token(value);
-            self.enter_handler(&handler, token);
+            self.enter_handler(&handler, token, span);
             return Ok(None);
         }
         Ok(Some(GenRun::Done(value)))

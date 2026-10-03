@@ -2,7 +2,7 @@ use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 use yps_parser::ast::Program;
 
-use crate::{Vm, compile_program, run_to_string, run_to_string_with_limit};
+use crate::{Vm, VmError, compile_program, run_to_string, run_to_string_with_limit};
 
 fn parse(src: &str) -> Program {
     let source = SourceFile::new("<тест>".to_string(), src.to_string());
@@ -2398,4 +2398,85 @@ fn peephole_labeled_break_leaves_constant_true_loop() {
 "#;
     assert_eq!(run(src), "12\n");
     assert_eq!(run(src), run_interp(src));
+}
+
+fn vm_error(src: &str) -> VmError {
+    let proto = compile_program(&parse(src)).expect("компиляция");
+    let mut vm = Vm::with_writer(Box::new(std::io::sink()));
+    vm.run(proto).expect_err("ожидалась ошибка выполнения")
+}
+
+fn vm_error_position(src: &str) -> (usize, usize) {
+    SourceFile::new("<тест>".to_string(), src.to_string()).position(vm_error(src).span.start)
+}
+
+#[test]
+fn uncaught_top_level_throw_points_at_the_throw_statement() {
+    assert_eq!(vm_error_position("гыы а = 1;\n\n  кидай \"бум\";\n"), (3, 3));
+}
+
+#[test]
+fn uncaught_throw_inside_a_function_points_at_the_throw_statement() {
+    assert_eq!(vm_error_position("йопта ф() {\n  кидай \"бум\";\n}\n\nф();\n"), (2, 3));
+}
+
+fn interp_error_position(src: &str) -> (usize, usize) {
+    let program = parse(src);
+    let mut interp = yps_interpreter::Interpreter::new();
+    interp.set_output_sink(Box::new(yps_interpreter::BufferSink::new()));
+    let err = interp.run(&program).expect_err("ожидалась ошибка интерпретатора");
+    SourceFile::new("<тест>".to_string(), src.to_string()).position(err.span.start)
+}
+
+fn assert_both_backends_report(src: &str, expected: (usize, usize)) {
+    assert_eq!(interp_error_position(src), expected, "интерпретатор");
+    assert_eq!(vm_error_position(src), expected, "VM");
+}
+
+#[test]
+fn throw_position_survives_a_finally_block_at_top_level() {
+    assert_both_backends_report("хапнуть {\n  кидай \"а\";\n} тюряжка {\n  гыы б = 1;\n}\n", (2, 3));
+}
+
+#[test]
+fn throw_position_survives_a_finally_block_inside_a_function() {
+    let src = "йопта ф() {\n  хапнуть {\n    кидай \"а\";\n  } тюряжка {\n    гыы б = 1;\n  }\n}\nф();\n";
+
+    assert_both_backends_report(src, (3, 5));
+}
+
+#[test]
+fn throw_position_survives_nested_finally_blocks() {
+    let src =
+        "хапнуть {\n  хапнуть {\n    кидай \"а\";\n  } тюряжка {\n    гыы б = 1;\n  }\n} тюряжка {\n  гыы в = 2;\n}\n";
+
+    assert_both_backends_report(src, (3, 5));
+}
+
+#[test]
+fn a_throw_from_a_finally_block_replaces_the_pending_position() {
+    let src = "хапнуть {\n  кидай \"а\";\n} тюряжка {\n  кидай \"б\";\n}\n";
+
+    assert_both_backends_report(src, (4, 3));
+}
+
+#[test]
+fn throw_position_survives_a_callback_called_by_a_bridged_builtin() {
+    let src = "гыы к = захуярить Карта();\nк.set(1, 2);\nк.forEach(() => {\n  кидай \"бум\";\n});\n";
+
+    assert_both_backends_report(src, (4, 3));
+}
+
+#[test]
+fn error_position_survives_a_callback_called_by_a_bridged_builtin() {
+    let src = "гыы к = захуярить Карта();\nк.set(1, 2);\nк.forEach(() => {\n  гыы о = ноль;\n  о.поле;\n});\n";
+
+    assert_both_backends_report(src, (5, 3));
+}
+
+#[test]
+fn a_caught_and_rethrown_value_reports_the_rethrow_statement() {
+    let src = "хапнуть {\n  кидай \"а\";\n} гоп (е) {\n  кидай е;\n}\n";
+
+    assert_both_backends_report(src, (4, 3));
 }

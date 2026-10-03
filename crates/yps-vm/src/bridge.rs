@@ -385,9 +385,9 @@ fn wrap_vm_callback(callee: Value) -> IValue {
             Err(e) => match &e.thrown {
                 Some(t) => {
                     let it = vm_to_interp(t, span).unwrap_or(IValue::String(e.message.clone().into()));
-                    Err(yps_interpreter::RuntimeError::thrown(it, span))
+                    Err(yps_interpreter::RuntimeError::thrown(it, e.span))
                 }
-                None => Err(yps_interpreter::RuntimeError::new(e.message, span)),
+                None => Err(yps_interpreter::RuntimeError::new(e.message, e.span)),
             },
         }
     }));

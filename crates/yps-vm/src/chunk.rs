@@ -171,6 +171,7 @@ pub enum Op {
     JumpIfNotNullishPeek(usize),
 
     Throw,
+    Rethrow,
     PushHandler(usize, bool),
     PopHandler,
 
