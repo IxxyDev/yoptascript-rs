@@ -57,14 +57,7 @@ pub fn run_source(code: &str) -> Result<String, String> {
 }
 
 fn render_diagnostics(source: &SourceFile, diagnostics: &[Diagnostic]) -> String {
-    diagnostics
-        .iter()
-        .map(|d| {
-            let (line, col) = source.position(d.span.start);
-            format!("{SOURCE_NAME}:{line}:{col}: {:?}: {}", d.severity, d.message)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    diagnostics.iter().map(|diagnostic| source.describe(diagnostic)).collect::<Vec<_>>().join("\n")
 }
 
 #[wasm_bindgen(start)]
@@ -90,6 +83,12 @@ mod tests {
     fn console_family_captured() {
         let out = run_source("сказать.инфо(1); сказать.ошибка(2);").unwrap();
         assert_eq!(out, "1\n2\n");
+    }
+
+    #[test]
+    fn diagnostics_label_their_severity_like_the_cli() {
+        let err = run_source("гыы = ;").unwrap_err();
+        assert!(err.starts_with("песочница:1:5: Ошибка: "), "получено {err:?}");
     }
 
     #[test]
