@@ -104,6 +104,7 @@ pub struct Vm {
     base_path: Option<std::path::PathBuf>,
     module_cache: ModuleCache,
     module_loading: ModuleLoading,
+    sources: Option<Rc<RefCell<yps_lexer::Sources>>>,
     pending_throw_sites: Vec<(usize, Span)>,
     exports: ModuleExports,
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
@@ -139,6 +140,7 @@ impl Vm {
             base_path: None,
             module_cache: Rc::new(RefCell::new(std::collections::HashMap::new())),
             module_loading: Rc::new(RefCell::new(std::collections::HashSet::new())),
+            sources: None,
             pending_throw_sites: Vec::new(),
             exports: std::collections::HashMap::new(),
             microtasks: std::collections::VecDeque::new(),
@@ -152,6 +154,10 @@ impl Vm {
 
     pub fn set_base_path(&mut self, path: std::path::PathBuf) {
         self.base_path = Some(path);
+    }
+
+    pub fn set_sources(&mut self, sources: Rc<RefCell<yps_lexer::Sources>>) {
+        self.sources = Some(sources);
     }
 
     pub fn set_step_limit(&mut self, limit: u64) {
@@ -2468,16 +2474,26 @@ impl Vm {
     fn load_module_inner(&mut self, resolved: &std::path::Path, span: Span) -> Result<Rc<ModuleExports>, VmError> {
         let code = std::fs::read_to_string(resolved)
             .map_err(|e| VmError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span))?;
-        let source_file = yps_lexer::SourceFile::new(resolved.display().to_string(), code);
+        let name = resolved.display().to_string();
+        let source_file = match &self.sources {
+            Some(sources) => sources.borrow_mut().add(name, code),
+            None => Rc::new(yps_lexer::SourceFile::new(name, code)),
+        };
         let lexer = yps_lexer::Lexer::new(&source_file);
         let (tokens, lex_diags) = lexer.tokenize();
         if !lex_diags.is_empty() {
-            return Err(VmError::new(format!("Ошибки лексера в модуле '{}'", resolved.display()), span));
+            return Err(VmError::new(
+                format!("Ошибки лексера в модуле '{}':{}", resolved.display(), described(&source_file, &lex_diags)),
+                span,
+            ));
         }
         let parser = yps_parser::Parser::new(&tokens, &source_file);
         let (program, parse_diags) = parser.parse_program();
         if !parse_diags.is_empty() {
-            return Err(VmError::new(format!("Ошибки парсера в модуле '{}'", resolved.display()), span));
+            return Err(VmError::new(
+                format!("Ошибки парсера в модуле '{}':{}", resolved.display(), described(&source_file, &parse_diags)),
+                span,
+            ));
         }
         let proto = crate::compiler::compile_program(&program).map_err(|e| VmError::new(e.message, span))?;
 
@@ -2485,6 +2501,7 @@ impl Vm {
         sub.module_cache = Rc::clone(&self.module_cache);
         sub.module_loading = Rc::clone(&self.module_loading);
         sub.base_path = resolved.parent().map(std::path::Path::to_path_buf);
+        sub.sources = self.sources.clone();
         sub.run_uninstrumented(proto)?;
         Ok(Rc::new(std::mem::take(&mut sub.exports)))
     }
@@ -3266,6 +3283,10 @@ impl Vm {
     fn peek(&self, depth: usize) -> &Value {
         &self.stack[self.stack.len() - 1 - depth]
     }
+}
+
+fn described(source: &yps_lexer::SourceFile, diagnostics: &[yps_lexer::Diagnostic]) -> String {
+    diagnostics.iter().map(|diagnostic| format!("\n  {}", source.describe(diagnostic))).collect()
 }
 
 fn uncaught_message(value: &Value) -> String {

@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 use yps_parser::ast::Program;
@@ -2400,6 +2403,70 @@ fn peephole_labeled_break_leaves_constant_true_loop() {
     assert_eq!(run(src), run_interp(src));
 }
 
+struct ModuleDir(std::path::PathBuf);
+
+impl ModuleDir {
+    fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("yps_vm_modules_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("создать каталог модулей");
+        Self(dir)
+    }
+
+    fn write(&self, name: &str, code: &str) {
+        std::fs::write(self.0.join(name), code).expect("записать модуль");
+    }
+}
+
+impl Drop for ModuleDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn run_registered(dir: &ModuleDir, main: &str) -> (Rc<RefCell<yps_lexer::Sources>>, Result<(), VmError>) {
+    let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+    let source = sources.borrow_mut().add("main.yopta".to_string(), main.to_string());
+    let (tokens, lex_diags) = Lexer::new(&source).tokenize();
+    assert!(lex_diags.is_empty(), "{lex_diags:?}");
+    let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
+    assert!(parse_diags.is_empty(), "{parse_diags:?}");
+    let proto = compile_program(&program).expect("компиляция");
+    let mut vm = Vm::with_writer(Box::new(std::io::sink()));
+    vm.set_base_path(dir.0.clone());
+    vm.set_sources(Rc::clone(&sources));
+    let result = vm.run(proto).map(|_| ());
+    (sources, result)
+}
+
+#[test]
+fn error_inside_a_module_function_resolves_to_the_module_source() {
+    let dir = ModuleDir::new("fn");
+    dir.write("m.yopta", "\nпредъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+
+    let (sources, result) = run_registered(&dir, "спиздить { упасть } из \"m\";\nупасть();\n");
+
+    let err = result.expect_err("обращение к полю ноль должно упасть");
+    let sources = sources.borrow();
+    let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+    assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+    assert_eq!(owner.position(err.span.start), (4, 11));
+}
+
+#[test]
+fn nested_module_inherits_the_source_registry() {
+    let dir = ModuleDir::new("nested");
+    dir.write("inner.yopta", "предъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+    dir.write("outer.yopta", "спиздить { упасть } из \"inner\";\nпредъява гыы итог = упасть();\n");
+
+    let (sources, result) = run_registered(&dir, "спиздить { итог } из \"outer\";\n");
+
+    let err = result.expect_err("вложенный модуль должен упасть");
+    let sources = sources.borrow();
+    let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+    assert!(owner.name.ends_with("inner.yopta"), "ошибка приписана {}: {}", owner.name, err.message);
+    assert_eq!(owner.position(err.span.start), (3, 11));
+}
+
 fn vm_error(src: &str) -> VmError {
     let proto = compile_program(&parse(src)).expect("компиляция");
     let mut vm = Vm::with_writer(Box::new(std::io::sink()));
@@ -2418,6 +2485,42 @@ fn uncaught_top_level_throw_points_at_the_throw_statement() {
 #[test]
 fn uncaught_throw_inside_a_function_points_at_the_throw_statement() {
     assert_eq!(vm_error_position("йопта ф() {\n  кидай \"бум\";\n}\n\nф();\n"), (2, 3));
+}
+
+#[test]
+fn uncaught_throw_inside_a_module_function_resolves_to_the_module_source() {
+    let dir = ModuleDir::new("throw");
+    dir.write("m.yopta", "\nпредъява йопта упасть() {\n  кидай \"из модуля\";\n}\n");
+
+    let (sources, result) = run_registered(&dir, "спиздить { упасть } из \"m\";\nупасть();\n");
+
+    let err = result.expect_err("исключение должно дойти до верха");
+    let sources = sources.borrow();
+    let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+    assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+    assert_eq!(owner.position(err.span.start), (3, 3));
+}
+
+#[test]
+fn a_syntax_error_in_a_module_is_rendered_as_a_located_diagnostic() {
+    let dir = ModuleDir::new("syntax");
+    dir.write("bad.yopta", "предъява гыы х = 1;\nгыы у = ;\n");
+
+    let (_sources, result) = run_registered(&dir, "спиздить { х } из \"bad\";\n");
+
+    let err = result.expect_err("модуль с ошибкой разбора");
+    assert!(err.message.contains("bad.yopta:2:9: Ошибка: "), "{}", err.message);
+}
+
+#[test]
+fn a_lexer_error_in_a_module_is_rendered_as_a_located_diagnostic() {
+    let dir = ModuleDir::new("lex");
+    dir.write("bad.yopta", "предъява гыы х = 1;\nгыы у = §;\n");
+
+    let (_sources, result) = run_registered(&dir, "спиздить { х } из \"bad\";\n");
+
+    let err = result.expect_err("модуль с ошибкой лексера");
+    assert!(err.message.contains("bad.yopta:2:9: Ошибка: Неизвестный символ"), "{}", err.message);
 }
 
 fn interp_error_position(src: &str) -> (usize, usize) {
