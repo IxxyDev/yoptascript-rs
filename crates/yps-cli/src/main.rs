@@ -77,7 +77,18 @@ fn locate(sources: &RefCell<Sources>, main: &SourceFile, offset: usize) -> Strin
     format!("{}:{line}:{col}", file.name)
 }
 
+#[cfg(unix)]
+fn restore_default_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+const fn restore_default_sigpipe() {}
+
 fn main() -> ExitCode {
+    restore_default_sigpipe();
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,

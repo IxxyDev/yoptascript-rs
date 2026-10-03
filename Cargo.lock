@@ -1471,6 +1471,7 @@ dependencies = [
 name = "yps-cli"
 version = "1.17.2"
 dependencies = [
+ "libc",
  "rustyline",
  "yps-fmt",
  "yps-interpreter",

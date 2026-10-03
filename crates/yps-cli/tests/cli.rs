@@ -378,3 +378,75 @@ fn a_syntax_error_in_an_imported_module_is_located_and_labelled() {
         assert!(!out.stderr.contains("Diagnostic {"), "{backend:?}: stderr: {}", out.stderr);
     }
 }
+
+#[cfg(unix)]
+mod broken_pipe {
+    use super::common::{Workspace, run_until_first_line};
+
+    const SIGPIPE: i32 = 13;
+    const NOISY_LOOP: &str = "го (гыы и = 0; и < 200000; и++) { сказать(и); }\n";
+
+    fn assert_quiet_sigpipe(label: &str, out: &super::common::Run) {
+        assert_eq!(out.signal, Some(SIGPIPE), "{label}: код {}, stderr: {}", out.code, out.stderr);
+        assert!(out.stderr.is_empty(), "{label}: stderr: {}", out.stderr);
+    }
+
+    fn big_program(ws: &Workspace) -> String {
+        let path = ws.write("big.yopta", &"сказать(1);\n".repeat(50_000));
+        path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn interpreter_dies_quietly_when_stdout_is_closed() {
+        let out = run_until_first_line(&["-e", NOISY_LOOP], "");
+
+        assert_eq!(out.stdout, "0\n");
+        assert_quiet_sigpipe("интерпретатор", &out);
+    }
+
+    #[test]
+    fn vm_dies_quietly_when_stdout_is_closed() {
+        let out = run_until_first_line(&["--vm", "-e", NOISY_LOOP], "");
+
+        assert_eq!(out.stdout, "0\n");
+        assert_quiet_sigpipe("vm", &out);
+    }
+
+    #[test]
+    fn repl_dies_quietly_when_stdout_is_closed() {
+        let out = run_until_first_line(&["repl"], NOISY_LOOP);
+
+        assert_eq!(out.stdout, "0\n");
+        assert_quiet_sigpipe("repl", &out);
+    }
+
+    #[test]
+    fn ast_dies_quietly_when_stdout_is_closed() {
+        let ws = Workspace::new("pipe_ast");
+        let big = big_program(&ws);
+
+        let out = run_until_first_line(&["ast", &big], "");
+
+        assert_quiet_sigpipe("ast", &out);
+    }
+
+    #[test]
+    fn disasm_dies_quietly_when_stdout_is_closed() {
+        let ws = Workspace::new("pipe_disasm");
+        let big = big_program(&ws);
+
+        let out = run_until_first_line(&["disasm", &big], "");
+
+        assert_quiet_sigpipe("disasm", &out);
+    }
+
+    #[test]
+    fn fmt_dies_quietly_when_stdout_is_closed() {
+        let ws = Workspace::new("pipe_fmt");
+        let big = big_program(&ws);
+
+        let out = run_until_first_line(&["fmt", &big], "");
+
+        assert_quiet_sigpipe("fmt", &out);
+    }
+}
