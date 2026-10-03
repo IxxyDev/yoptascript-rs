@@ -136,6 +136,7 @@ pub struct Lexer<'src> {
     last_kind: Option<TokenKind>,
     trivia: Vec<Trivia>,
     collect_trivia: bool,
+    unexpected_eof: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -149,22 +150,30 @@ impl<'src> Lexer<'src> {
             last_kind: None,
             trivia: Vec::new(),
             collect_trivia: false,
+            unexpected_eof: false,
         }
     }
 
     #[must_use]
     pub fn tokenize(self) -> (Vec<Token>, Vec<Diagnostic>) {
-        let (tokens, _trivia, diagnostics) = self.run();
+        let (tokens, diagnostics, _) = self.tokenize_extended();
         (tokens, diagnostics)
+    }
+
+    #[must_use]
+    pub fn tokenize_extended(self) -> (Vec<Token>, Vec<Diagnostic>, bool) {
+        let (tokens, _trivia, diagnostics, unexpected_eof) = self.run();
+        (tokens, diagnostics, unexpected_eof)
     }
 
     #[must_use]
     pub fn tokenize_with_trivia(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>) {
         self.collect_trivia = true;
-        self.run()
+        let (tokens, trivia, diagnostics, _) = self.run();
+        (tokens, trivia, diagnostics)
     }
 
-    fn run(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>) {
+    fn run(mut self) -> (Vec<Token>, Vec<Trivia>, Vec<Diagnostic>, bool) {
         let mut tokens = Vec::new();
 
         loop {
@@ -191,11 +200,18 @@ impl<'src> Lexer<'src> {
             self.diagnostics.iter_mut().for_each(|diagnostic| shift(&mut diagnostic.span));
         }
 
-        (tokens, self.trivia, self.diagnostics)
+        (tokens, self.trivia, self.diagnostics, self.unexpected_eof)
     }
 
     fn text(&self, span: Span) -> &'src str {
         &self.source.source[span.start..span.end]
+    }
+
+    fn unterminated(&mut self, span: Span, message: &str) {
+        if self.diagnostics.is_empty() {
+            self.unexpected_eof = true;
+        }
+        self.error(span, message);
     }
 
     fn regex_context(&self) -> bool {
@@ -372,7 +388,7 @@ impl<'src> Lexer<'src> {
         }
 
         if self.is_at_end() {
-            self.error(Span { start, end: self.position }, "Незакрытая строка");
+            self.unterminated(Span { start, end: self.position }, "Незакрытая строка");
         } else {
             self.advance();
         }
@@ -510,7 +526,7 @@ impl<'src> Lexer<'src> {
                     self.advance();
                     loop {
                         if self.is_at_end() {
-                            self.error(Span { start, end: self.position }, "Незакрытый блочный комментарий");
+                            self.unterminated(Span { start, end: self.position }, "Незакрытый блочный комментарий");
                             break;
                         }
                         if self.current_char() == '*' && self.peek_char(1) == '/' {
@@ -729,7 +745,7 @@ impl<'src> Lexer<'src> {
     fn read_template_chars(&mut self) -> bool {
         loop {
             if self.is_at_end() {
-                self.error(Span { start: self.position, end: self.position }, "Незакрытая шаблонная строка");
+                self.unterminated(Span { start: self.position, end: self.position }, "Незакрытая шаблонная строка");
                 return false;
             }
             let ch = self.current_char();
@@ -1260,5 +1276,46 @@ mod tests {
 
         assert_eq!(diags.len(), 1, "{diags:?}");
         assert_eq!(source.position(diags[0].span.start), (1, 9));
+    }
+
+    fn unexpected_eof(code: &str) -> bool {
+        let source = SourceFile::new("test.yopta".to_string(), code.to_string());
+        let (_tokens, _diags, eof) = Lexer::new(&source).tokenize_extended();
+        eof
+    }
+
+    #[test]
+    fn unexpected_eof_true_for_unterminated_template() {
+        assert!(unexpected_eof("гыы с = `а\n"));
+    }
+
+    #[test]
+    fn unexpected_eof_true_for_unterminated_template_after_interpolation() {
+        assert!(unexpected_eof("гыы с = `а ${б} в\n"));
+    }
+
+    #[test]
+    fn unexpected_eof_true_for_unterminated_block_comment() {
+        assert!(unexpected_eof("/* начало\n"));
+    }
+
+    #[test]
+    fn unexpected_eof_true_for_unterminated_string() {
+        assert!(unexpected_eof("гыы с = \"а\n"));
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_valid_input() {
+        assert!(!unexpected_eof("гыы с = `а`; /* б */ \"в\";"));
+    }
+
+    #[test]
+    fn unexpected_eof_false_for_an_unknown_character() {
+        assert!(!unexpected_eof("гыы а = §;"));
+    }
+
+    #[test]
+    fn unexpected_eof_false_when_an_earlier_error_precedes_the_unterminated_literal() {
+        assert!(!unexpected_eof("гыы а = §; `б"));
     }
 }
