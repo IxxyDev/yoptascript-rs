@@ -376,8 +376,8 @@ impl Interpreter {
                     self.mark_scope_tdz(slotted, &body.stmts);
                     let result = self.exec_block_stmts(&body.stmts);
                     self.env.pop_scope();
-                    if let Some(ControlFlow::Throw(val)) = result? {
-                        return Err(RuntimeError::thrown(val, span));
+                    if let Some(ControlFlow::Throw(val, thrown_at)) = result? {
+                        return Err(RuntimeError::thrown(val, thrown_at));
                     }
                 }
             }
@@ -462,14 +462,16 @@ impl Interpreter {
                 e.attach_stack(self.snapshot_stack());
             }
             let frame_stack =
-                if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
+                if matches!(result, Ok(Some(ControlFlow::Throw(..)))) { self.snapshot_stack() } else { Vec::new() };
             let this_after = self.env.get(symbols::THIS).unwrap_or(instance_val);
             self.pop_frame();
             self.env = saved_env;
 
             match result? {
                 Some(ControlFlow::Return(_)) | None => Ok(this_after),
-                Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
+                Some(ControlFlow::Throw(val, thrown_at)) => {
+                    Err(RuntimeError::thrown_with_stack(val, thrown_at, frame_stack))
+                }
                 Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
                     label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                     span,
@@ -541,7 +543,7 @@ impl Interpreter {
 
         match result? {
             Some(ControlFlow::Return(_)) | None => Ok(this_after),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown(val, span)),
+            Some(ControlFlow::Throw(val, thrown_at)) => Err(RuntimeError::thrown(val, thrown_at)),
             Some(ControlFlow::Break(label)) => Err(RuntimeError::new(
                 label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                 span,

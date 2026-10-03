@@ -1,10 +1,12 @@
+use yps_lexer::Span;
+
 use crate::value::Value;
 
 pub(crate) enum ControlFlow {
     Break(Option<String>),
     Continue(Option<String>),
     Return(Value),
-    Throw(Value),
+    Throw(Value, Span),
 }
 
 pub(crate) enum LoopOp {

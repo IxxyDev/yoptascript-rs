@@ -178,3 +178,51 @@ fn stack_balanced_after_nested_try_catch() {
     );
     assert_eq!(stack_names(&err), vec!["д"]);
 }
+
+fn error_position(src: &str) -> (usize, usize) {
+    let err = run_code_err(src);
+    SourceFile::new("test".to_string(), src.to_string()).position(err.span.start)
+}
+
+#[test]
+fn uncaught_top_level_throw_points_at_the_throw_statement() {
+    assert_eq!(error_position("гыы а = 1;\n\n  кидай \"бум\";\n"), (3, 3));
+}
+
+#[test]
+fn uncaught_throw_inside_a_function_points_at_the_throw_statement() {
+    assert_eq!(error_position("йопта ф() {\n  кидай \"бум\";\n}\n\nф();\n"), (2, 3));
+}
+
+#[test]
+fn uncaught_throw_inside_a_function_keeps_the_caller_frame() {
+    let src = "йопта ф() {\n  кидай \"бум\";\n}\n\nф();\n";
+    let err = run_code_err(src);
+    let source = SourceFile::new("test".to_string(), src.to_string());
+
+    assert_eq!(err.stack.len(), 1);
+    assert_eq!(source.position(err.stack[0].span.start), (5, 1));
+}
+
+#[test]
+fn uncaught_throw_inside_a_method_points_at_the_throw_statement() {
+    assert_eq!(
+        error_position("клёво К {\n  м() {\n    кидай \"бум\";\n  }\n}\nгыы к = захуярить К();\nк.м();\n"),
+        (3, 5)
+    );
+}
+
+#[test]
+fn rethrow_without_a_catch_block_keeps_the_original_throw_position() {
+    assert_eq!(error_position("хапнуть {\n  кидай \"бум\";\n} тюряжка {\n  гыы а = 1;\n}\n"), (2, 3));
+}
+
+#[test]
+fn break_outside_a_loop_points_at_the_statement() {
+    assert_eq!(error_position("гыы а = 1;\n  харэ;\n"), (2, 3));
+}
+
+#[test]
+fn continue_outside_a_loop_points_at_the_statement() {
+    assert_eq!(error_position("гыы а = 1;\n  двигай;\n"), (2, 3));
+}

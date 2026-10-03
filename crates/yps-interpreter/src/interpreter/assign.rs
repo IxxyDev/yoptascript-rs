@@ -289,12 +289,14 @@ impl Interpreter {
             e.attach_stack(self.snapshot_stack());
         }
         let frame_stack =
-            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
+            if matches!(result, Ok(Some(ControlFlow::Throw(..)))) { self.snapshot_stack() } else { Vec::new() };
         let updated_this = self.env.get(symbols::THIS).unwrap_or(this_val);
         self.pop_frame();
         self.env = saved_env;
         match result? {
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
+            Some(ControlFlow::Throw(val, thrown_at)) => {
+                Err(RuntimeError::thrown_with_stack(val, thrown_at, frame_stack))
+            }
             _ => Ok(updated_this),
         }
     }

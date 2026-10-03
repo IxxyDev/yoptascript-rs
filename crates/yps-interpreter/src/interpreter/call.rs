@@ -133,7 +133,7 @@ impl Interpreter {
                     if let Err(e) = &mut result {
                         e.attach_stack(self.snapshot_stack());
                     }
-                    let frame_stack = if matches!(result, Ok(Some(ControlFlow::Throw(_)))) {
+                    let frame_stack = if matches!(result, Ok(Some(ControlFlow::Throw(..)))) {
                         self.snapshot_stack()
                     } else {
                         Vec::new()
@@ -246,7 +246,7 @@ impl Interpreter {
             e.attach_stack(self.snapshot_stack());
         }
         let frame_stack =
-            if matches!(result, Ok(Some(ControlFlow::Throw(_)))) { self.snapshot_stack() } else { Vec::new() };
+            if matches!(result, Ok(Some(ControlFlow::Throw(..)))) { self.snapshot_stack() } else { Vec::new() };
         self.pop_frame();
 
         self.env = saved_env;
@@ -393,7 +393,9 @@ impl Interpreter {
                 label.map_or_else(|| "'двигай' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
                 span,
             )),
-            Some(ControlFlow::Throw(val)) => Err(RuntimeError::thrown_with_stack(val, span, frame_stack)),
+            Some(ControlFlow::Throw(val, thrown_at)) => {
+                Err(RuntimeError::thrown_with_stack(val, thrown_at, frame_stack))
+            }
             None => Ok(Value::Undefined),
         }
     }

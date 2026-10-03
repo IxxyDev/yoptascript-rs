@@ -125,9 +125,9 @@ impl Interpreter {
                 };
                 Ok(Some(ControlFlow::Return(val)))
             }
-            Stmt::Throw { value, .. } => {
+            Stmt::Throw { value, span } => {
                 let val = self.eval_expr(value)?;
-                Ok(Some(ControlFlow::Throw(val)))
+                Ok(Some(ControlFlow::Throw(val, *span)))
             }
             Stmt::ForIn { variable, iterable, body, span, .. } => {
                 let val = self.eval_expr(iterable)?;
@@ -226,11 +226,11 @@ impl Interpreter {
                             None => Err(err),
                         }
                     }
-                    Ok(Some(ControlFlow::Throw(val))) => {
+                    Ok(Some(ControlFlow::Throw(val, thrown_at))) => {
                         debug_assert_eq!(self.call_stack.len(), stack_depth, "стек вызовов разбалансирован после try");
                         match catch_block {
                             Some(cb) => self.run_catch(cb, catch_param.as_ref(), val),
-                            None => Ok(Some(ControlFlow::Throw(val))),
+                            None => Ok(Some(ControlFlow::Throw(val, thrown_at))),
                         }
                     }
                     other => other,
@@ -244,7 +244,7 @@ impl Interpreter {
                                 _ => finally_err,
                             });
                         }
-                        Ok(Some(cf @ (ControlFlow::Return(_) | ControlFlow::Throw(_)))) => {
+                        Ok(Some(cf @ (ControlFlow::Return(_) | ControlFlow::Throw(..)))) => {
                             return Ok(Some(cf));
                         }
                         _ => {}

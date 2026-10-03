@@ -267,7 +267,7 @@ impl Interpreter {
                 if let yps_parser::ast::Stmt::Expr { expr, .. } = stmt {
                     self.pending_label.take();
                     let val = self.eval_expr(expr)?;
-                    self.drain_microtasks(Span { start: 0, end: 0 })?;
+                    self.drain_microtasks(stmt.span())?;
                     last = Some(val);
                     continue;
                 } else {
@@ -276,7 +276,7 @@ impl Interpreter {
             }
             let cf_opt = self.exec_stmt(stmt)?;
             if mode == RunMode::Repl {
-                self.drain_microtasks(Span { start: 0, end: 0 })?;
+                self.drain_microtasks(stmt.span())?;
             }
             if let Some(cf) = cf_opt {
                 match cf {
@@ -284,7 +284,7 @@ impl Interpreter {
                     ControlFlow::Break(label) => {
                         return Err(RuntimeError::new(
                             label.map_or_else(|| "'харэ' вне цикла".to_string(), |l| format!("Метка '{l}' не найдена")),
-                            Span { start: 0, end: 0 },
+                            stmt.span(),
                         ));
                     }
                     ControlFlow::Continue(label) => {
@@ -293,11 +293,11 @@ impl Interpreter {
                                 || "'двигай' вне цикла".to_string(),
                                 |l| format!("Метка '{l}' не найдена"),
                             ),
-                            Span { start: 0, end: 0 },
+                            stmt.span(),
                         ));
                     }
-                    ControlFlow::Throw(val) => {
-                        return Err(RuntimeError::thrown(val, Span { start: 0, end: 0 }));
+                    ControlFlow::Throw(val, thrown_at) => {
+                        return Err(RuntimeError::thrown(val, thrown_at));
                     }
                 }
             }

@@ -784,7 +784,7 @@ fn step_block_stmt(
                     }
                     Ok(None)
                 }
-                Some(ControlFlow::Throw(v)) => {
+                Some(ControlFlow::Throw(v, _)) => {
                     if let Some(step) = unwind(interp, g, Unwind::Throw(v), span)? {
                         return Ok(Some(step));
                     }
