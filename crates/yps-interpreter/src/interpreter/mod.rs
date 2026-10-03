@@ -77,6 +77,7 @@ pub struct Interpreter {
     pub(super) output_sink: Option<Rc<RefCell<Box<dyn crate::output::OutputSink>>>>,
     pub(super) stdin_blocked: Option<String>,
     pub(super) step_budget: Option<u64>,
+    pub(super) sources: Option<Rc<RefCell<yps_lexer::Sources>>>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -129,6 +130,7 @@ impl Interpreter {
             output_sink: None,
             stdin_blocked: None,
             step_budget: None,
+            sources: None,
         }
     }
 
@@ -217,6 +219,10 @@ impl Interpreter {
 
     pub fn set_base_path(&mut self, path: PathBuf) {
         self.base_path = Some(path);
+    }
+
+    pub fn set_sources(&mut self, sources: Rc<RefCell<yps_lexer::Sources>>) {
+        self.sources = Some(sources);
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {

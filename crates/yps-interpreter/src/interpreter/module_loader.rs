@@ -43,6 +43,10 @@ pub(crate) struct DeferredLink {
     pub(crate) imported: String,
 }
 
+fn described(source: &yps_lexer::SourceFile, diagnostics: &[yps_lexer::Diagnostic]) -> String {
+    diagnostics.iter().map(|diagnostic| format!("\n  {}", source.describe(diagnostic))).collect()
+}
+
 impl Interpreter {
     fn resolve_module_path(&self, source: &str, span: Span) -> Result<PathBuf, RuntimeError> {
         let base = self.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -93,12 +97,16 @@ impl Interpreter {
         let code = std::fs::read_to_string(&resolved).map_err(|e| {
             RuntimeError::new(format!("Не удалось прочитать модуль '{}': {e}", resolved.display()), span)
         })?;
-        let source_file = yps_lexer::SourceFile::new(resolved.display().to_string(), code);
+        let name = resolved.display().to_string();
+        let source_file = match &self.sources {
+            Some(sources) => sources.borrow_mut().add(name, code),
+            None => Rc::new(yps_lexer::SourceFile::new(name, code)),
+        };
         let lexer = yps_lexer::Lexer::new(&source_file);
         let (tokens, lex_diags) = lexer.tokenize();
         if !lex_diags.is_empty() {
             return Err(RuntimeError::new(
-                format!("Ошибки лексера в модуле '{}': {:?}", resolved.display(), lex_diags),
+                format!("Ошибки лексера в модуле '{}':{}", resolved.display(), described(&source_file, &lex_diags)),
                 span,
             ));
         }
@@ -106,7 +114,7 @@ impl Interpreter {
         let (program, parse_diags) = parser.parse_program();
         if !parse_diags.is_empty() {
             return Err(RuntimeError::new(
-                format!("Ошибки парсера в модуле '{}': {:?}", resolved.display(), parse_diags),
+                format!("Ошибки парсера в модуле '{}':{}", resolved.display(), described(&source_file, &parse_diags)),
                 span,
             ));
         }
@@ -120,6 +128,7 @@ impl Interpreter {
         sub.export_cell = Some(Rc::clone(&export_cell));
         sub.output_sink = self.output_sink.clone();
         sub.stdin_blocked = self.stdin_blocked.clone();
+        sub.sources = self.sources.clone();
 
         self.module_cache.borrow_mut().insert(resolved.clone(), ModuleState::Loading(Rc::clone(&export_cell)));
         match sub.run_module(&program, &resolved) {
@@ -280,5 +289,149 @@ mod tests {
         write_file(&dir, "mod.yopta", "предъява гыы val = 111;");
         let exports2 = i.load_module("mod", Span { start: 0, end: 0 }).expect("повторная загрузка должна взять кэш");
         assert_eq!(exports2.get("val"), Some(&Value::Number(99.0)), "изменение файла не должно перечитываться");
+    }
+
+    fn parse_registered(sources: &Rc<RefCell<yps_lexer::Sources>>, name: &str, code: &str) -> Program {
+        let source = sources.borrow_mut().add(name.to_string(), code.to_string());
+        let (tokens, lex_diags) = yps_lexer::Lexer::new(&source).tokenize();
+        assert!(lex_diags.is_empty(), "{lex_diags:?}");
+        let (program, parse_diags) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        assert!(parse_diags.is_empty(), "{parse_diags:?}");
+        program
+    }
+
+    #[test]
+    fn error_inside_a_module_function_resolves_to_the_module_source() {
+        let dir = TempDir::new("sources_fn");
+        write_file(&dir, "m.yopta", "\nпредъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+        let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+        let program = parse_registered(&sources, "main.yopta", "спиздить { упасть } из \"m\";\nупасть();\n");
+        let mut i = interp_with_base(&dir);
+        i.set_sources(Rc::clone(&sources));
+
+        let err = i.run(&program).expect_err("обращение к полю ноль должно упасть");
+
+        let sources = sources.borrow();
+        let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+        assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+        assert_eq!(owner.position(err.span.start), (4, 11));
+        let caller = sources.lookup(err.stack[0].span.start).expect("спан кадра");
+        assert_eq!(caller.name, "main.yopta");
+        assert_eq!(caller.position(err.stack[0].span.start), (2, 1));
+    }
+
+    #[test]
+    fn error_at_module_top_level_resolves_to_the_module_source() {
+        let dir = TempDir::new("sources_top");
+        write_file(&dir, "m.yopta", "предъява гыы х = 1;\nгыы о = ноль;\nо.поле;\n");
+        let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+        let program = parse_registered(&sources, "main.yopta", "спиздить { х } из \"m\";\n");
+        let mut i = interp_with_base(&dir);
+        i.set_sources(Rc::clone(&sources));
+
+        let err = i.run(&program).expect_err("модуль должен упасть при загрузке");
+
+        let sources = sources.borrow();
+        let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+        assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+        assert_eq!(owner.position(err.span.start).0, 3);
+    }
+
+    #[test]
+    fn nested_module_inherits_the_source_registry() {
+        let dir = TempDir::new("sources_nested");
+        write_file(&dir, "inner.yopta", "предъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+        write_file(
+            &dir,
+            "outer.yopta",
+            "спиздить { упасть } из \"inner\";\nпредъява йопта обёртка() { отвечаю упасть(); }\n",
+        );
+        let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+        let program = parse_registered(&sources, "main.yopta", "спиздить { обёртка } из \"outer\";\nобёртка();\n");
+        let mut i = interp_with_base(&dir);
+        i.set_sources(Rc::clone(&sources));
+
+        let err = i.run(&program).expect_err("вложенный модуль должен упасть");
+
+        let sources = sources.borrow();
+        let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+        assert!(owner.name.ends_with("inner.yopta"), "ошибка приписана {}", owner.name);
+        assert_eq!(owner.position(err.span.start), (3, 11));
+    }
+
+    #[test]
+    fn without_a_registry_module_spans_stay_local_to_the_module() {
+        let dir = TempDir::new("sources_none");
+        write_file(&dir, "m.yopta", "предъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+        let source = yps_lexer::SourceFile::new(
+            "main.yopta".to_string(),
+            "спиздить { упасть } из \"m\";\nупасть();\n".to_string(),
+        );
+        let (tokens, _) = yps_lexer::Lexer::new(&source).tokenize();
+        let (program, _) = yps_parser::Parser::new(&tokens, &source).parse_program();
+        let mut i = interp_with_base(&dir);
+
+        let err = i.run(&program).expect_err("обращение к полю ноль должно упасть");
+
+        let module_text = std::fs::read_to_string(dir.path().join("m.yopta")).unwrap();
+        assert!(err.span.start < module_text.len());
+    }
+
+    #[test]
+    fn uncaught_throw_inside_a_module_function_resolves_to_the_module_source() {
+        let dir = TempDir::new("sources_throw");
+        write_file(&dir, "m.yopta", "\nпредъява йопта упасть() {\n  кидай \"из модуля\";\n}\n");
+        let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+        let program = parse_registered(&sources, "main.yopta", "спиздить { упасть } из \"m\";\nупасть();\n");
+        let mut i = interp_with_base(&dir);
+        i.set_sources(Rc::clone(&sources));
+
+        let err = i.run(&program).expect_err("исключение должно дойти до верха");
+
+        let sources = sources.borrow();
+        let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+        assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+        assert_eq!(owner.position(err.span.start), (3, 3));
+    }
+
+    #[test]
+    fn uncaught_throw_at_module_top_level_resolves_to_the_module_source() {
+        let dir = TempDir::new("sources_throw_top");
+        write_file(&dir, "m.yopta", "предъява гыы х = 1;\n\n\nкидай \"бум\";\n");
+        let sources = Rc::new(RefCell::new(yps_lexer::Sources::default()));
+        let program = parse_registered(&sources, "main.yopta", "спиздить { х } из \"m\";\n");
+        let mut i = interp_with_base(&dir);
+        i.set_sources(Rc::clone(&sources));
+
+        let err = i.run(&program).expect_err("модуль должен упасть при загрузке");
+
+        let sources = sources.borrow();
+        let owner = sources.lookup(err.span.start).expect("спан ошибки должен принадлежать исходнику");
+        assert!(owner.name.ends_with("m.yopta"), "ошибка приписана {}", owner.name);
+        assert_eq!(owner.position(err.span.start), (4, 1));
+    }
+
+    #[test]
+    fn a_syntax_error_in_a_module_is_rendered_as_a_located_diagnostic() {
+        let dir = TempDir::new("module_syntax");
+        write_file(&dir, "bad.yopta", "предъява гыы х = 1;\nгыы у = ;\n");
+        let mut i = interp_with_base(&dir);
+
+        let err = i.load_module("bad", Span { start: 0, end: 0 }).expect_err("модуль с ошибкой разбора");
+
+        assert!(err.message.contains("bad.yopta:2:9: Ошибка: "), "{}", err.message);
+        assert!(!err.message.contains("Diagnostic {"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_lexer_error_in_a_module_is_rendered_as_a_located_diagnostic() {
+        let dir = TempDir::new("module_lex");
+        write_file(&dir, "bad.yopta", "предъява гыы х = 1;\nгыы у = §;\n");
+        let mut i = interp_with_base(&dir);
+
+        let err = i.load_module("bad", Span { start: 0, end: 0 }).expect_err("модуль с ошибкой лексера");
+
+        assert!(err.message.contains("bad.yopta:2:9: Ошибка: Неизвестный символ"), "{}", err.message);
+        assert!(!err.message.contains("Diagnostic {"), "{}", err.message);
     }
 }
