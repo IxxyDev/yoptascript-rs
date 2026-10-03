@@ -1,7 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn run_backend(file: &Path, vm: bool) -> (String, bool) {
+struct BackendRun {
+    stdout: String,
+    stderr: String,
+    code: Option<i32>,
+}
+
+fn run_backend(file: &Path, vm: bool) -> BackendRun {
     let bin = env!("CARGO_BIN_EXE_yps-cli");
     let mut cmd = Command::new(bin);
     if vm {
@@ -10,15 +16,20 @@ fn run_backend(file: &Path, vm: bool) -> (String, bool) {
     cmd.arg(file);
     cmd.stdin(std::process::Stdio::null());
     let out = cmd.output().expect("не удалось запустить yps-cli");
-    (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.success())
+    BackendRun {
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        code: out.status.code(),
+    }
 }
 
 fn assert_conformant(file: &Path) {
-    let (interp_out, interp_ok) = run_backend(file, false);
-    let (vm_out, vm_ok) = run_backend(file, true);
-    assert!(interp_ok, "интерпретатор завершился с ошибкой на {}", file.display());
-    assert!(vm_ok, "VM завершилась с ошибкой на {}", file.display());
-    assert_eq!(interp_out, vm_out, "вывод бэкендов расходится для {}", file.display());
+    let interp = run_backend(file, false);
+    let vm = run_backend(file, true);
+    assert_eq!(interp.code, Some(0), "интерпретатор завершился с ошибкой на {}: {}", file.display(), interp.stderr);
+    assert_eq!(vm.code, Some(0), "VM завершилась с ошибкой на {}: {}", file.display(), vm.stderr);
+    assert_eq!(interp.stdout, vm.stdout, "stdout бэкендов расходится для {}", file.display());
+    assert_eq!(interp.stderr, vm.stderr, "stderr бэкендов расходится для {}", file.display());
 }
 
 fn collect_programs() -> Vec<PathBuf> {
