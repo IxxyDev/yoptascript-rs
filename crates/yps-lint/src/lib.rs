@@ -35,6 +35,15 @@ pub enum LintSeverity {
     Hint,
 }
 
+impl std::fmt::Display for LintSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Warning => "Предупреждение",
+            Self::Hint => "Подсказка",
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LintDiagnostic {
     pub span: Span,
@@ -68,7 +77,13 @@ pub fn lint_source(source: &str) -> LintResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{LintDiagnostic, Rule, lint_source};
+    use super::{LintDiagnostic, LintSeverity, Rule, lint_source};
+
+    #[test]
+    fn severity_displays_in_russian() {
+        assert_eq!(LintSeverity::Warning.to_string(), "Предупреждение");
+        assert_eq!(LintSeverity::Hint.to_string(), "Подсказка");
+    }
 
     fn diagnostics(src: &str) -> Vec<LintDiagnostic> {
         let result = lint_source(src);
