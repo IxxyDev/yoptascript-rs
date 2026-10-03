@@ -51,6 +51,10 @@ fn discover_cases(cases_dir: &Path) -> Vec<String> {
     names
 }
 
+fn bless_requested(value: Option<&str>) -> bool {
+    value.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
+}
+
 #[test]
 fn conformance() {
     let dir = conformance_dir();
@@ -63,14 +67,12 @@ fn conformance() {
         case_names.retain(|name| prefixes.iter().any(|p| name.starts_with(p)));
         assert!(!case_names.is_empty(), "фильтр '{filter}' не выбрал ни одного кейса");
     }
-    let bless = std::env::var("YPS_CONFORMANCE_BLESS").is_ok();
+    let bless = bless_requested(std::env::var("YPS_CONFORMANCE_BLESS").ok().as_deref());
     let mut failures: Vec<String> = Vec::new();
 
     for name in &case_names {
         let case_path = cases_dir.join(format!("{name}.yopta"));
         let golden_path = golden_dir.join(format!("{name}.txt"));
-
-        assert!(case_path.exists(), "нет кейса: {}", case_path.display());
 
         let actual = normalize_output(&run_case(&case_path), &case_path, &cases_dir);
 
@@ -94,4 +96,19 @@ fn conformance() {
         let report = failures.join("\n\n---\n\n");
         panic!("\nрасхождение conformance в {} кейс(ах):\n\n{report}\n", failures.len());
     }
+}
+
+#[test]
+fn bless_stays_off_for_unset_empty_zero_and_false() {
+    assert!(!bless_requested(None));
+    assert!(!bless_requested(Some("")));
+    assert!(!bless_requested(Some("0")));
+    assert!(!bless_requested(Some("false")));
+    assert!(!bless_requested(Some("FALSE")));
+}
+
+#[test]
+fn bless_turns_on_for_an_affirmative_value() {
+    assert!(bless_requested(Some("1")));
+    assert!(bless_requested(Some("true")));
 }
