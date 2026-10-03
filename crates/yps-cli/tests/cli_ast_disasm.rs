@@ -1,78 +1,70 @@
-use std::fs;
-use std::process::Command;
+mod common;
 
-fn write_temp(name: &str, contents: &str) -> std::path::PathBuf {
-    let mut path = std::env::temp_dir();
-    path.push(format!("yps_cli_test_{}_{name}", std::process::id()));
-    fs::write(&path, contents).unwrap();
-    path
-}
+use common::{Workspace, run};
 
 #[test]
 fn ast_dump_contains_expected_nodes() {
-    let path = write_temp("ast1.yopta", "гыы х = 1;\nсказать(х);\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["ast", path.to_str().unwrap()]).output().unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Program"));
-    assert!(stdout.contains("VarDecl"));
-    assert!(stdout.contains("Call"));
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("ast_dump");
+    let path = ws.write("ast1.yopta", "гыы х = 1;\nсказать(х);\n");
+
+    let out = run(&["ast", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("Program"));
+    assert!(out.stdout.contains("VarDecl"));
+    assert!(out.stdout.contains("Call"));
 }
 
 #[test]
-fn ast_reports_parse_errors_with_nonzero_exit() {
-    let path = write_temp("ast_bad.yopta", "гыы х = ;\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["ast", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let _ = fs::remove_file(&path);
+fn ast_reports_parse_errors_with_exit_code_1() {
+    let ws = Workspace::new("ast_bad");
+    let path = ws.write("ast_bad.yopta", "гыы х = ;\n");
+
+    let out = run(&["ast", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains(":1:9: Ошибка: "), "stderr: {}", out.stderr);
 }
 
 #[test]
 fn disasm_contains_expected_opcodes() {
-    let path = write_temp("disasm1.yopta", "йопта ф(а) { отвечаю а; }\nгыы и = 0;\nпотрещим (и < 2) { и = и + 1; }\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["disasm", path.to_str().unwrap()]).output().unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("proto ф"));
-    assert!(stdout.contains("Closure"));
-    assert!(stdout.contains("JumpIfFalse"));
-    assert!(stdout.contains("Lt"));
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("disasm");
+    let path = ws.write("disasm1.yopta", "йопта ф(а) { отвечаю а; }\nгыы и = 0;\nпотрещим (и < 2) { и = и + 1; }\n");
+
+    let out = run(&["disasm", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("proto ф"));
+    assert!(out.stdout.contains("Closure"));
+    assert!(out.stdout.contains("JumpIfFalse"));
+    assert!(out.stdout.contains("Lt"));
 }
 
 #[test]
-fn subcommands_reject_unknown_flags() {
-    let path = write_temp("ast_flag.yopta", "гыы х = 1;\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["ast", path.to_str().unwrap(), "--bogus"]).output().unwrap();
-    assert!(!output.status.success());
-    let _ = fs::remove_file(&path);
+fn file_subcommands_reject_unknown_flags_as_usage_errors() {
+    let ws = Workspace::new("sub_flag");
+    let path = ws.write("ast_flag.yopta", "гыы х = 1;\n");
+
+    for subcommand in ["ast", "disasm", "lint"] {
+        let out = run(&[subcommand, path.to_str().unwrap(), "--bogus"], "");
+
+        assert_eq!(out.code, 2, "{subcommand}: stderr: {}", out.stderr);
+        assert!(out.stderr.contains("Неизвестный флаг: --bogus"), "{subcommand}: stderr: {}", out.stderr);
+    }
 }
 
 #[test]
-fn lint_reports_unused_variable_and_exits_with_1() {
-    let path =
-        write_temp("lint_unused.yopta", "йопта ф() {\n  гыы неиспользуемая = 1;\n  отвечаю 0;\n}\nсказать(ф());\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["lint", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("unused-variable"));
-    let _ = fs::remove_file(&path);
-}
+fn file_subcommands_require_exactly_one_file() {
+    let ws = Workspace::new("sub_files");
+    let path = ws.write("one.yopta", "гыы х = 1;\n");
 
-#[test]
-fn lint_exits_with_0_on_a_clean_file() {
-    let path = write_temp("lint_clean.yopta", "сказать(1);\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["lint", path.to_str().unwrap()]).output().unwrap();
-    assert!(output.status.success());
-    let _ = fs::remove_file(&path);
-}
+    for subcommand in ["ast", "disasm", "lint"] {
+        let none = run(&[subcommand], "");
+        assert_eq!(none.code, 2, "{subcommand}: stderr: {}", none.stderr);
+        assert!(none.stderr.contains(&format!("Использование: yps {subcommand}")), "stderr: {}", none.stderr);
 
-#[test]
-fn lint_reports_parse_errors_with_nonzero_exit() {
-    let path = write_temp("lint_bad.yopta", "гыы х = ;\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["lint", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let _ = fs::remove_file(&path);
+        let two = run(&[subcommand, path.to_str().unwrap(), path.to_str().unwrap()], "");
+        assert_eq!(two.code, 2, "{subcommand}: stderr: {}", two.stderr);
+        assert!(two.stderr.contains("Указан более чем один файл"), "stderr: {}", two.stderr);
+    }
 }

@@ -1,23 +1,15 @@
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use common::{Workspace, run, run_in};
 
 const EXAMPLES: [&str; 5] = ["hello", "hoisting", "labeled_loops", "destructuring_defaults", "interop"];
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("examples")
-}
-
-fn temp_path(name: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    path.push(format!("yps_transpile_test_{}_{name}", std::process::id()));
-    path
-}
-
-fn write_temp(name: &str, contents: &str) -> PathBuf {
-    let path = temp_path(name);
-    fs::write(&path, contents).unwrap();
-    path
 }
 
 fn node_available() -> bool {
@@ -26,107 +18,240 @@ fn node_available() -> bool {
 
 #[test]
 fn transpile_prints_js_to_stdout() {
-    let path = write_temp("basic.yopta", "гыы х = 1;\nсказать(\"х:\", х);\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, "let х = 1;\nconsole.log(\"х:\", х);\n");
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("tr_basic");
+    let path = ws.write("basic.yopta", "гыы х = 1;\nсказать(\"х:\", х);\n");
+
+    let out = run(&["transpile", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0);
+    assert_eq!(out.stdout, "let х = 1;\nconsole.log(\"х:\", х);\n");
 }
 
 #[test]
 fn transpile_writes_output_file() {
-    let path = write_temp("out.yopta", "сказать(1);\n");
-    let out_path = temp_path("out_result.js");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli"))
-        .args(["transpile", path.to_str().unwrap(), "-o", out_path.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
+    let ws = Workspace::new("tr_out");
+    let path = ws.write("out.yopta", "сказать(1);\n");
+    let out_path = ws.path("out_result.js");
+
+    let out = run(&["transpile", path.to_str().unwrap(), "-o", out_path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
     assert_eq!(fs::read_to_string(&out_path).unwrap(), "console.log(1);\n");
-    let _ = fs::remove_file(&path);
-    let _ = fs::remove_file(&out_path);
+    assert_eq!(ws.entries(), ["out.yopta", "out_result.js"]);
+}
+
+#[test]
+fn transpile_replaces_an_existing_output_file() {
+    let ws = Workspace::new("tr_replace");
+    let path = ws.write("out.yopta", "сказать(1);\n");
+    let out_path = ws.write("old.js", "старое содержимое\n");
+
+    let out = run(&["transpile", path.to_str().unwrap(), "--output", out_path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert_eq!(fs::read_to_string(&out_path).unwrap(), "console.log(1);\n");
+    assert_eq!(ws.entries(), ["old.js", "out.yopta"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn transpile_writes_to_a_device_file() {
+    let ws = Workspace::new("tr_device");
+    let path = ws.write("t.yopta", "сказать(1);\n");
+
+    let out = run(&["transpile", path.to_str().unwrap(), "-o", "/dev/null"], "");
+
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(out.stderr.is_empty(), "stderr: {}", out.stderr);
+    assert_eq!(ws.entries(), ["t.yopta"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn transpile_writes_through_a_dangling_symlink() {
+    let ws = Workspace::new("tr_dangling");
+    let path = ws.write("t.yopta", "сказать(1);\n");
+    let link = ws.path("out.js");
+    std::os::unix::fs::symlink(ws.path("real.js"), &link).unwrap();
+
+    let out = run(&["transpile", path.to_str().unwrap(), "-o", link.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "ссылка должна остаться ссылкой");
+    assert_eq!(fs::read_to_string(ws.path("real.js")).unwrap(), "console.log(1);\n");
+}
+
+#[cfg(unix)]
+fn with_read_only_directory(ws: &Workspace, name: &str, body: impl FnOnce(&Path) -> common::Run) -> common::Run {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = ws.path(name);
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let out = body(&dir);
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    out
+}
+
+#[cfg(unix)]
+#[test]
+fn transpile_rewrites_a_writable_file_inside_a_read_only_directory() {
+    let ws = Workspace::new("tr_ro_dir_file");
+    let path = ws.write("t.yopta", "сказать(1);\n");
+    fs::create_dir(ws.path("закрыто")).unwrap();
+    fs::write(ws.path("закрыто").join("w.js"), "старое\n").unwrap();
+
+    let out = with_read_only_directory(&ws, "закрыто", |dir| {
+        run(&["transpile", path.to_str().unwrap(), "-o", dir.join("w.js").to_str().unwrap()], "")
+    });
+
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert_eq!(fs::read_to_string(ws.path("закрыто").join("w.js")).unwrap(), "console.log(1);\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn transpile_reports_an_unwritable_directory_without_blaming_the_file() {
+    use std::os::unix::fs::MetadataExt;
+
+    let ws = Workspace::new("tr_ro_dir_new");
+    if fs::metadata(ws.dir()).unwrap().uid() == 0 {
+        return;
+    }
+    let path = ws.write("t.yopta", "сказать(1);\n");
+    fs::create_dir(ws.path("закрыто")).unwrap();
+
+    let out = with_read_only_directory(&ws, "закрыто", |dir| {
+        run(&["transpile", path.to_str().unwrap(), "-o", dir.join("new.js").to_str().unwrap()], "")
+    });
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Не удалось записать файл"), "stderr: {}", out.stderr);
+    assert!(!out.stderr.contains("только для чтения"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn transpile_refuses_to_overwrite_its_own_input() {
+    let ws = Workspace::new("tr_same");
+    ws.write("t.yopta", "сказать(1);\n");
+
+    let out = run_in(ws.dir(), &["transpile", "t.yopta", "-o", "./t.yopta"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Выходной файл совпадает с исходным"), "stderr: {}", out.stderr);
+    assert_eq!(fs::read_to_string(ws.path("t.yopta")).unwrap(), "сказать(1);\n");
+}
+
+#[test]
+fn transpile_output_flag_requires_a_path() {
+    let ws = Workspace::new("tr_no_path");
+    let path = ws.write("t.yopta", "сказать(1);\n");
+
+    let out = run(&["transpile", path.to_str().unwrap(), "-o"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Флаг -o требует путь к файлу"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn transpile_rejects_a_repeated_output_flag() {
+    let ws = Workspace::new("tr_two_outputs");
+    let path = ws.write("t.yopta", "сказать(1);\n");
+    let first = ws.path("a.js");
+    let second = ws.path("b.js");
+
+    let out =
+        run(&["transpile", path.to_str().unwrap(), "-o", first.to_str().unwrap(), "-o", second.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Флаг -o указан более одного раза"), "stderr: {}", out.stderr);
+    assert_eq!(ws.entries(), ["t.yopta"]);
 }
 
 #[test]
 fn transpile_reports_unknown_member_of_a_supported_namespace() {
-    let path = write_temp("unknown_member.yopta", "сказать(Матан.пи);\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Матан"), "stderr: {stderr}");
-    assert!(stderr.contains("пи"), "stderr: {stderr}");
-    assert!(stderr.contains("нет члена"), "stderr: {stderr}");
-    assert!(!stderr.contains("глобальный объект"), "stderr: {stderr}");
-    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("tr_member");
+    let path = ws.write("unknown_member.yopta", "сказать(Матан.пи);\n");
+
+    let out = run(&["transpile", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Матан"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains("пи"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains("нет члена"), "stderr: {}", out.stderr);
+    assert!(!out.stderr.contains("глобальный объект"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains(":1:9:"), "stderr: {}", out.stderr);
 }
 
 #[test]
 fn transpile_reports_unsupported_global_with_position() {
-    let path = write_temp("unsupported.yopta", "сказать(Помойка.ключи(о));\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Помойка"), "stderr: {stderr}");
-    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("tr_global");
+    let path = ws.write("unsupported.yopta", "сказать(Помойка.ключи(о));\n");
+
+    let out = run(&["transpile", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Помойка"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains(":1:9:"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn transpile_reports_date_used_as_a_namespace() {
+    let ws = Workspace::new("tr_date");
+    let path = ws.write("date_ns.yopta", "сказать(Дата.сейчас());\n");
+
+    let out = run(&["transpile", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Дата"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains(":1:9:"), "stderr: {}", out.stderr);
 }
 
 #[test]
 fn transpile_rejects_unknown_flags() {
-    let path = write_temp("flag.yopta", "сказать(1);\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_yps-cli"))
-        .args(["transpile", path.to_str().unwrap(), "--bogus"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("tr_flag");
+    let path = ws.write("flag.yopta", "сказать(1);\n");
+
+    let out = run(&["transpile", path.to_str().unwrap(), "--bogus"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Неизвестный флаг: --bogus"), "stderr: {}", out.stderr);
 }
 
 #[test]
 fn transpile_reports_parse_errors() {
-    let path = write_temp("bad.yopta", "гыы х = ;\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Неожиданный токен"), "stderr: {stderr}");
-    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new("tr_parse");
+    let path = ws.write("bad.yopta", "гыы х = ;\n");
+
+    let out = run(&["transpile", path.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("Неожиданный токен"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains(":1:9:"), "stderr: {}", out.stderr);
 }
 
-fn assert_node_matches_interpreter_file(name: &str, source: &Path) {
-    let js_path = temp_path(&format!("{name}.js"));
+fn assert_node_matches_interpreter_file(ws: &Workspace, name: &str, source: &Path) {
+    let js_path = ws.path(&format!("{name}.js"));
 
-    let transpiled = Command::new(env!("CARGO_BIN_EXE_yps-cli"))
-        .args(["transpile", source.to_str().unwrap(), "-o", js_path.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(transpiled.status.success(), "{name}: транспиляция упала: {transpiled:?}");
+    let transpiled = run(&["transpile", source.to_str().unwrap(), "-o", js_path.to_str().unwrap()], "");
+    assert_eq!(transpiled.code, 0, "{name}: транспиляция упала: {}", transpiled.stderr);
 
     let node = Command::new("node").arg(&js_path).output().unwrap();
     assert!(node.status.success(), "{name}: node упал: {}", String::from_utf8_lossy(&node.stderr));
 
-    let interpreted = Command::new(env!("CARGO_BIN_EXE_yps-cli")).arg(source.to_str().unwrap()).output().unwrap();
-    assert!(interpreted.status.success(), "{name}: интерпретатор упал");
+    let interpreted = run(&[source.to_str().unwrap()], "");
+    assert_eq!(interpreted.code, 0, "{name}: интерпретатор упал");
 
     assert_eq!(
         String::from_utf8_lossy(&node.stdout),
-        String::from_utf8_lossy(&interpreted.stdout),
+        interpreted.stdout,
         "{name}: вывод node и интерпретатора разошёлся"
     );
-
-    let _ = fs::remove_file(&js_path);
 }
 
 fn assert_node_matches_interpreter(name: &str, source: &str) {
-    let path = write_temp(&format!("{name}.yopta"), source);
-    assert_node_matches_interpreter_file(name, &path);
-    let _ = fs::remove_file(&path);
+    let ws = Workspace::new(&format!("tr_node_{name}"));
+    let path = ws.write(&format!("{name}.yopta"), source);
+    assert_node_matches_interpreter_file(&ws, name, &path);
 }
 
 #[test]
@@ -194,23 +319,12 @@ fn reflect_namespace_matches_interpreter_under_node() {
 }
 
 #[test]
-fn transpile_reports_date_used_as_a_namespace() {
-    let path = write_temp("date_ns.yopta", "сказать(Дата.сейчас());\n");
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_yps-cli")).args(["transpile", path.to_str().unwrap()]).output().unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Дата"), "stderr: {stderr}");
-    assert!(stderr.contains(":1:9:"), "stderr: {stderr}");
-    let _ = fs::remove_file(&path);
-}
-
-#[test]
 #[ignore = "requires node on PATH; run with `cargo test -- --ignored`"]
 fn transpiled_examples_match_interpreter_output_under_node() {
     assert!(node_available(), "node не найден — запустите `cargo test -- --ignored` на машине с node");
 
+    let ws = Workspace::new("tr_node_examples");
     for name in EXAMPLES {
-        assert_node_matches_interpreter_file(name, &examples_dir().join(format!("{name}.yopta")));
+        assert_node_matches_interpreter_file(&ws, name, &examples_dir().join(format!("{name}.yopta")));
     }
 }

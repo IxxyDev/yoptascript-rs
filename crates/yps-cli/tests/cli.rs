@@ -1,6 +1,8 @@
-use std::io::Write;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+mod common;
+
+use common::{Workspace, run, run_in};
+
+const PRINT_ARGS: &str = "го (гыы и = 0; и < длина(Процесс.аргументы); и++) { сказать(Процесс.аргументы[и]); }\n";
 
 #[test]
 fn runs_a_program_and_prints_its_output() {
@@ -36,6 +38,15 @@ fn reports_a_parse_error_with_a_location_and_exits_with_1() {
 }
 
 #[test]
+fn diagnostics_label_their_severity_in_russian() {
+    let out = run(&["-e", "гыы = ;"], "");
+
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.starts_with("<eval>:1:5: Ошибка: "), "stderr: {}", out.stderr);
+    assert!(!out.stderr.contains("Error"), "stderr: {}", out.stderr);
+}
+
+#[test]
 fn reports_an_uncaught_exception_and_exits_with_1() {
     let ws = Workspace::new("throw");
     let prog = ws.write("throw.yopta", "кидай \"бум\";\n");
@@ -64,6 +75,15 @@ fn short_version_flag_prints_the_version_and_exits_0() {
 }
 
 #[test]
+fn version_flag_rejects_extra_arguments() {
+    let out = run(&["--version", "мусор"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Лишний аргумент: мусор"), "stderr: {}", out.stderr);
+    assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
+}
+
+#[test]
 fn help_flag_prints_usage_and_exits_0() {
     let out = run(&["--help"], "");
 
@@ -78,6 +98,46 @@ fn short_help_flag_prints_usage_and_exits_0() {
 
     assert_eq!(out.code, 0);
     assert!(out.stdout.contains("Использование"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn help_flag_works_after_other_flags() {
+    let out = run(&["--vm", "--help"], "");
+
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("Использование"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn help_flag_rejects_extra_arguments() {
+    let out = run(&["--help", "мусор"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Лишний аргумент: мусор"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn help_documents_script_arguments_and_exit_codes() {
+    let out = run(&["--help"], "");
+
+    assert!(out.stdout.contains("АРГУМЕНТЫ"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Коды выхода"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn every_file_subcommand_prints_its_own_usage_on_help() {
+    for subcommand in ["fmt", "ast", "disasm", "lint", "transpile", "repl"] {
+        for flag in ["--help", "-h"] {
+            let out = run(&[subcommand, flag], "");
+
+            assert_eq!(out.code, 0, "{subcommand} {flag}: stderr: {}", out.stderr);
+            assert!(
+                out.stdout.contains(&format!("Использование: yps {subcommand}")),
+                "{subcommand} {flag}: stdout: {}",
+                out.stdout
+            );
+        }
+    }
 }
 
 #[test]
@@ -106,6 +166,45 @@ fn eval_reports_a_runtime_error_and_exits_with_1() {
 }
 
 #[test]
+fn eval_without_code_is_a_usage_error() {
+    let out = run(&["-e"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Флаг -e требует аргумент с кодом"), "stderr: {}", out.stderr);
+}
+
+#[test]
+fn eval_given_twice_is_rejected() {
+    let out = run(&["-e", "сказать(1);", "-e", "сказать(2);"], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Флаг -e указан более одного раза"), "stderr: {}", out.stderr);
+    assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn eval_combined_with_a_file_is_rejected() {
+    let ws = Workspace::new("eval_and_file");
+    let prog = ws.write("p.yopta", "сказать(\"файл\");\n");
+
+    let out = run(&["-e", "сказать(\"eval\");", prog.to_str().unwrap()], "");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Укажите только один источник программы"), "stderr: {}", out.stderr);
+    assert!(out.stderr.contains("после --"), "stderr: {}", out.stderr);
+    assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn eval_combined_with_stdin_is_rejected() {
+    let out = run(&["-e", "сказать(\"eval\");", "-"], "сказать(\"stdin\");\n");
+
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Укажите только один источник программы"), "stderr: {}", out.stderr);
+    assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
+}
+
+#[test]
 fn stdin_dash_runs_the_program_read_from_stdin() {
     let out = run(&["-"], "сказать(\"привет\", 1 + 2);\n");
 
@@ -114,21 +213,21 @@ fn stdin_dash_runs_the_program_read_from_stdin() {
 }
 
 #[test]
-fn unknown_top_level_flag_is_rejected() {
+fn unknown_top_level_flag_is_a_usage_error() {
     let ws = Workspace::new("unknown_flag");
     let prog = ws.write("p.yopta", "сказать(1);\n");
 
     let out = run(&["--nonsense", prog.to_str().unwrap()], "");
 
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("Неизвестный флаг"), "stderr: {}", out.stderr);
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("Неизвестный флаг: --nonsense"), "stderr: {}", out.stderr);
 }
 
 #[test]
 fn requires_a_file_when_only_flags_are_given() {
     let out = run(&["--vm"], "");
 
-    assert_eq!(out.code, 1);
+    assert_eq!(out.code, 2);
     assert!(out.stderr.contains("Не указан файл"), "stderr: {}", out.stderr);
 }
 
@@ -144,200 +243,138 @@ fn vm_backend_runs_a_program() {
 }
 
 #[test]
-fn fmt_without_a_file_prints_usage() {
-    let out = run(&["fmt"], "");
+fn script_arguments_follow_the_file() {
+    let ws = Workspace::new("script_args");
+    ws.write("argv.yopta", PRINT_ARGS);
 
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("Использование"), "stderr: {}", out.stderr);
-}
+    let out = run_in(ws.dir(), &["argv.yopta", "первый", "--флаг", "-"], "");
 
-#[test]
-fn fmt_rejects_an_unknown_flag() {
-    let ws = Workspace::new("fmt_flag");
-    let prog = ws.write("f.yopta", "гыы x = 1;\n");
-
-    let out = run(&["fmt", prog.to_str().unwrap(), "--bogus"], "");
-
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("Неизвестный флаг"), "stderr: {}", out.stderr);
-}
-
-#[test]
-fn fmt_prints_canonical_form_to_stdout_without_touching_the_file() {
-    let ws = Workspace::new("fmt_stdout");
-    let messy = "гыы    x=1;\n";
-    let prog = ws.write("f.yopta", messy);
-
-    let out = run(&["fmt", prog.to_str().unwrap()], "");
-
-    assert_eq!(out.stdout, "гыы x = 1;\n");
-    assert_eq!(out.code, 0);
-    assert_eq!(std::fs::read_to_string(&prog).unwrap(), messy);
-}
-
-#[test]
-fn fmt_check_fails_on_unformatted_and_passes_on_formatted() {
-    let ws = Workspace::new("fmt_check");
-    let prog = ws.write("f.yopta", "гыы    x=1;\n");
-
-    let unformatted = run(&["fmt", prog.to_str().unwrap(), "--check"], "");
-    assert_eq!(unformatted.code, 1);
-
-    ws.write("f.yopta", "гыы x = 1;\n");
-    let formatted = run(&["fmt", prog.to_str().unwrap(), "--check"], "");
-    assert_eq!(formatted.code, 0);
-}
-
-#[test]
-fn fmt_write_rewrites_the_file_in_place() {
-    let ws = Workspace::new("fmt_write");
-    let prog = ws.write("f.yopta", "гыы    x=1;\n");
-
-    let written = run(&["fmt", prog.to_str().unwrap(), "--write"], "");
-    assert_eq!(written.code, 0);
-    assert_eq!(std::fs::read_to_string(&prog).unwrap(), "гыы x = 1;\n");
-
-    let recheck = run(&["fmt", prog.to_str().unwrap(), "--check"], "");
-    assert_eq!(recheck.code, 0);
-}
-
-#[test]
-fn fmt_source_map_emits_a_mapping_alongside_the_code() {
-    let ws = Workspace::new("fmt_map");
-    let prog = ws.write("g.yopta", "гыы y=2;\n");
-
-    let out = run(&["fmt", prog.to_str().unwrap(), "--source-map"], "");
-
-    assert_eq!(out.code, 0);
-    assert!(out.stdout.contains("гыы y = 2;"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("\"version\":3"), "ожидался source map: {}", out.stdout);
-}
-
-#[test]
-fn repl_evaluates_and_prints_an_expression_value() {
-    let out = run(&["repl"], "1 + 2;\n");
-
-    assert_eq!(out.stdout, "3\n");
+    assert_eq!(out.stdout, "argv.yopta\nпервый\n--флаг\n-\n", "stderr: {}", out.stderr);
     assert_eq!(out.code, 0);
 }
 
 #[test]
-fn repl_runs_builtin_side_effects() {
-    let out = run(&["repl"], "сказать(\"эхо\");\n");
+fn both_backends_see_the_same_script_arguments() {
+    let ws = Workspace::new("script_args_vm");
+    ws.write("argv.yopta", PRINT_ARGS);
 
-    assert!(out.stdout.contains("эхо"), "stdout: {}", out.stdout);
+    let interpreted = run_in(ws.dir(), &["argv.yopta", "х"], "");
+    let compiled = run_in(ws.dir(), &["--vm", "argv.yopta", "х"], "");
+
+    assert_eq!(interpreted.stdout, "argv.yopta\nх\n", "stderr: {}", interpreted.stderr);
+    assert_eq!(compiled.stdout, interpreted.stdout, "stderr: {}", compiled.stderr);
+}
+
+#[test]
+fn eval_takes_script_arguments_after_a_double_dash() {
+    let out = run(&["-e", PRINT_ARGS, "--", "а", "--б"], "");
+
+    assert_eq!(out.stdout, "-e\nа\n--б\n", "stderr: {}", out.stderr);
     assert_eq!(out.code, 0);
 }
 
 #[test]
-fn repl_accumulates_multiline_input_until_complete() {
-    let out = run(&["repl"], "йопта f() {\nотвечаю 42;\n}\nсказать(f());\n");
+fn stdin_program_takes_script_arguments() {
+    let out = run(&["-", "а", "б"], PRINT_ARGS);
 
-    assert!(out.stdout.contains("42"), "stdout: {}", out.stdout);
+    assert_eq!(out.stdout, "-\nа\nб\n", "stderr: {}", out.stderr);
     assert_eq!(out.code, 0);
 }
 
 #[test]
-fn repl_reset_clears_interpreter_state() {
-    let out = run(&["repl"], "гыы z = 5;\n:сброс\nсказать(z);\n");
+fn double_dash_runs_a_file_whose_name_starts_with_a_dash() {
+    let ws = Workspace::new("dash_file");
+    ws.write("-странный.yopta", "сказать(\"из файла\");\n");
 
-    assert!(out.stderr.contains("не определена"), "ожидалось, что z исчезнет: {}", out.stderr);
+    let out = run_in(ws.dir(), &["--", "-странный.yopta"], "");
+
+    assert_eq!(out.stdout, "из файла\n", "stderr: {}", out.stderr);
     assert_eq!(out.code, 0);
 }
 
+#[cfg(unix)]
 #[test]
-fn repl_repeats_a_history_entry() {
-    let out = run(&["repl"], "10 + 1;\n!1\n");
+fn a_non_utf8_argument_is_reported_without_a_panic() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::process::Command;
 
-    assert_eq!(out.stdout, "11\n11\n");
-    assert_eq!(out.code, 0);
+    let ws = Workspace::new("non_utf8");
+    let mut command = Command::new(common::BIN);
+    command.current_dir(ws.dir()).arg(OsStr::from_bytes(b"\xff.yopta"));
+
+    let out = common::run_command(&mut command, b"");
+
+    assert_eq!(out.code, 1, "stderr: {}", out.stderr);
+    assert!(out.stderr.contains("Не удалось прочитать файл"), "stderr: {}", out.stderr);
+    assert!(!out.stderr.contains("panicked"), "stderr: {}", out.stderr);
 }
 
 #[test]
-fn repl_lists_history() {
-    let out = run(&["repl"], "1 + 1;\n2 + 2;\n:история\n");
+fn a_runtime_error_inside_an_imported_module_names_the_module_file() {
+    let ws = Workspace::new("module_error");
+    ws.write("mod.yopta", "\nпредъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+    ws.write("main.yopta", "спиздить { упасть } из \"./mod\";\n\nупасть();\n");
 
-    assert!(out.stdout.contains("1: 1 + 1;"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("2: 2 + 2;"), "stdout: {}", out.stdout);
-    assert_eq!(out.code, 0);
-}
+    for backend in [&["main.yopta"][..], &["--vm", "main.yopta"][..]] {
+        let out = run_in(ws.dir(), backend, "");
 
-#[test]
-fn repl_exit_command_stops_processing_remaining_input() {
-    let out = run(&["repl"], ":выход\nсказать(\"после\");\n");
-
-    assert!(!out.stdout.contains("после"), "ввод после :выход не должен исполняться: {}", out.stdout);
-    assert_eq!(out.code, 0);
-}
-
-#[test]
-fn repl_incomplete_input_at_eof_fails() {
-    let out = run(&["repl"], "йопта f() {\n");
-
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("Ожидалась '}'"), "stderr: {}", out.stderr);
-}
-
-#[test]
-fn repl_recovers_after_a_parse_error() {
-    let out = run(&["repl"], "гыы = ;\n7 + 0;\n");
-
-    assert!(out.stdout.contains("7"), "REPL должен продолжить после ошибки: {}", out.stdout);
-    assert_eq!(out.code, 0);
-}
-
-fn run(args: &[&str], stdin: &str) -> Run {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_yps-cli"))
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("не удалось запустить yps-cli");
-
-    {
-        let mut handle = child.stdin.take().expect("stdin недоступен");
-        let _ = handle.write_all(stdin.as_bytes());
-    }
-
-    let out = child.wait_with_output().expect("ожидание завершения yps-cli");
-    Run {
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        code: out.status.code().unwrap_or(-1),
+        assert_eq!(out.code, 1, "{backend:?}: stderr: {}", out.stderr);
+        assert!(out.stderr.contains("mod.yopta:4:11: "), "{backend:?}: stderr: {}", out.stderr);
+        assert!(!out.stderr.contains("main.yopta:4:11"), "{backend:?}: stderr: {}", out.stderr);
     }
 }
 
-struct Run {
-    stdout: String,
-    stderr: String,
-    code: i32,
+#[test]
+fn a_module_error_keeps_the_caller_frame_in_the_main_file() {
+    let ws = Workspace::new("module_frame");
+    ws.write("mod.yopta", "\nпредъява йопта упасть() {\n  гыы о = ноль;\n  отвечаю о.поле;\n}\n");
+    ws.write("main.yopta", "спиздить { упасть } из \"./mod\";\n\nупасть();\n");
+
+    let out = run_in(ws.dir(), &["main.yopta"], "");
+
+    assert!(out.stderr.contains("  в упасть:main.yopta:3:1"), "stderr: {}", out.stderr);
 }
 
-struct Workspace {
-    dir: PathBuf,
-}
+#[test]
+fn an_uncaught_throw_inside_an_imported_module_names_the_module_file() {
+    let ws = Workspace::new("module_throw");
+    ws.write("mod.yopta", "\nпредъява йопта упасть() {\n  кидай \"из модуля\";\n}\n");
+    ws.write("main.yopta", "спиздить { упасть } из \"./mod\";\n\nупасть();\n");
 
-impl Workspace {
-    fn new(tag: &str) -> Workspace {
-        let dir = std::env::temp_dir().join(format!("yps_cli_it_{}_{}", tag, std::process::id()));
-        std::fs::create_dir_all(&dir).expect("создать временный каталог");
-        Workspace { dir }
-    }
+    for backend in [&["main.yopta"][..], &["--vm", "main.yopta"][..]] {
+        let out = run_in(ws.dir(), backend, "");
 
-    fn write(&self, name: &str, contents: &str) -> PathBuf {
-        let path = self.dir.join(name);
-        std::fs::write(&path, contents).expect("записать тестовый файл");
-        path
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.dir.join(name)
+        assert_eq!(out.code, 1, "{backend:?}: stderr: {}", out.stderr);
+        assert!(out.stderr.contains("mod.yopta:3:3: "), "{backend:?}: stderr: {}", out.stderr);
+        assert!(out.stderr.contains("Необработанное исключение: из модуля"), "{backend:?}: stderr: {}", out.stderr);
     }
 }
 
-impl Drop for Workspace {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+#[test]
+fn an_uncaught_top_level_throw_reports_its_own_line() {
+    let ws = Workspace::new("throw_line");
+    ws.write("throw.yopta", "гыы а = 1;\n\nкидай \"бум\";\n");
+
+    for backend in [&["throw.yopta"][..], &["--vm", "throw.yopta"][..]] {
+        let out = run_in(ws.dir(), backend, "");
+
+        assert_eq!(out.code, 1, "{backend:?}: stderr: {}", out.stderr);
+        assert!(out.stderr.starts_with("throw.yopta:3:1: "), "{backend:?}: stderr: {}", out.stderr);
+    }
+}
+
+#[test]
+fn a_syntax_error_in_an_imported_module_is_located_and_labelled() {
+    let ws = Workspace::new("module_syntax");
+    ws.write("bad.yopta", "предъява гыы х = 1;\nгыы у = ;\n");
+    ws.write("main.yopta", "спиздить { х } из \"./bad\";\n");
+
+    for backend in [&["main.yopta"][..], &["--vm", "main.yopta"][..]] {
+        let out = run_in(ws.dir(), backend, "");
+
+        assert_eq!(out.code, 1, "{backend:?}: stderr: {}", out.stderr);
+        assert!(out.stderr.contains("bad.yopta:2:9: Ошибка: "), "{backend:?}: stderr: {}", out.stderr);
+        assert!(!out.stderr.contains("Diagnostic {"), "{backend:?}: stderr: {}", out.stderr);
     }
 }

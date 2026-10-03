@@ -1,486 +1,398 @@
+use std::cell::RefCell;
 use std::env;
+use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Read as IoRead, Write as IoWrite};
-use std::path::PathBuf;
-use std::process;
+use std::io::{self, Read as _};
+use std::panic::{self, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::rc::Rc;
 
 use yps_interpreter::{Interpreter, RuntimeError};
-use yps_lexer::{Diagnostic, Lexer, SourceFile};
+use yps_lexer::{Diagnostic, Lexer, SourceFile, Sources};
 use yps_parser::{Parser, Program};
 
+use crate::args::{Command, FmtMode, RunSource};
+use crate::write::{write_atomic, write_stdout};
+
+mod args;
 mod completion;
 mod repl;
+mod write;
 
-const INTERNAL_ERROR_EXIT_CODE: i32 = 70;
+const FAILURE_EXIT_CODE: u8 = 1;
+const USAGE_EXIT_CODE: u8 = 2;
+const INTERNAL_ERROR_EXIT_CODE: u8 = 70;
 
-pub(crate) fn print_diagnostics(source: &SourceFile, diagnostics: &[Diagnostic], name: &str) {
-    for d in diagnostics {
-        let (line, col) = source.position(d.span.start);
-        eprintln!("{name}:{line}:{col}: {:?}: {}", d.severity, d.message);
+#[derive(Debug)]
+pub(crate) struct Failure {
+    code: u8,
+    message: Option<String>,
+}
+
+impl Failure {
+    pub(crate) fn error(message: impl Into<String>) -> Self {
+        Self { code: FAILURE_EXIT_CODE, message: Some(message.into()) }
+    }
+
+    pub(crate) const fn reported() -> Self {
+        Self { code: FAILURE_EXIT_CODE, message: None }
+    }
+
+    fn usage(message: impl Into<String>) -> Self {
+        Self { code: USAGE_EXIT_CODE, message: Some(message.into()) }
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self { code: INTERNAL_ERROR_EXIT_CODE, message: Some(message.into()) }
     }
 }
 
-pub(crate) fn print_runtime_error(source: &SourceFile, e: &RuntimeError, name: &str) {
-    let (line_n, col) = source.position(e.span.start);
-    eprintln!("{name}:{line_n}:{col}: {e}");
+pub(crate) fn guarded<T>(run: impl FnOnce() -> T) -> Option<T> {
+    panic::catch_unwind(AssertUnwindSafe(run)).ok()
+}
+
+pub(crate) fn abandon_after_panic<T>(broken: T) {
+    std::mem::forget(broken);
+}
+
+pub(crate) fn print_diagnostics(source: &SourceFile, diagnostics: &[Diagnostic]) {
+    for diagnostic in diagnostics {
+        eprintln!("{}", source.describe(diagnostic));
+    }
+}
+
+pub(crate) fn print_runtime_error(e: &RuntimeError, locate: impl Fn(usize) -> String) {
+    eprintln!("{}: {e}", locate(e.span.start));
     for frame in &e.stack {
-        let (fl, fc) = source.position(frame.span.start);
-        eprintln!("  в {}:{name}:{fl}:{fc}", frame.name);
+        eprintln!("  в {}:{}", frame.name, locate(frame.span.start));
     }
 }
 
-const HELP_TEXT: &str = "Использование: yps [ФЛАГИ] [ФАЙЛ]
-       yps repl
-       yps fmt <файл.yopta> [--write|-w] [--check] [--source-map]
-       yps ast <файл.yopta>
-       yps disasm <файл.yopta>
-       yps lint <файл.yopta>
-       yps transpile <файл.yopta> [-o файл.js]
-
-Выполнение программы:
-  yps ФАЙЛ                  выполнить файл на дереве интерпретации
-  yps --vm ФАЙЛ             выполнить файл на байткодовой VM
-  yps -e \"код\", --eval \"код\"  выполнить код, переданный строкой
-  yps -                     выполнить код, прочитанный из stdin
-  yps repl                  запустить интерактивный REPL
-  yps                       без аргументов — тоже REPL
-
-Форматирование:
-  yps fmt <файл.yopta>              напечатать отформатированный код в stdout
-  yps fmt <файл.yopta> --write|-w   переписать файл на месте
-  yps fmt <файл.yopta> --check      проверить, отформатирован ли файл (код выхода)
-  yps fmt <файл.yopta> --source-map добавить source map к результату
-
-Отладка:
-  yps ast <файл.yopta>      напечатать дерево разбора (AST) файла
-  yps disasm <файл.yopta>   напечатать дизассемблированный байткод VM
-  yps lint <файл.yopta>     проверить файл линтером (код выхода 1 при находках)
-
-Транспиляция:
-  yps transpile <файл.yopta>             напечатать JS в stdout
-  yps transpile <файл.yopta> -o файл.js  записать JS в файл
-
-Прочее:
-  -h, --help       показать эту справку
-  -V, --version    показать версию";
-
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        repl::run_repl();
-        return;
-    }
-
-    match args[1].as_str() {
-        "--version" | "-V" => {
-            println!("yps {}", env!("CARGO_PKG_VERSION"));
-        }
-        "--help" | "-h" => {
-            println!("{HELP_TEXT}");
-        }
-        "fmt" => run_fmt(&args[2..]),
-        "ast" => run_ast(&args[2..]),
-        "disasm" => run_disasm(&args[2..]),
-        "lint" => run_lint(&args[2..]),
-        "transpile" => run_transpile(&args[2..]),
-        "repl" => repl::run_repl(),
-        _ => run_program(&args[1..]),
-    }
+fn locate(sources: &RefCell<Sources>, main: &SourceFile, offset: usize) -> String {
+    let sources = sources.borrow();
+    let file = sources.lookup(offset).map_or(main, AsRef::as_ref);
+    let (line, col) = file.position(offset);
+    format!("{}:{line}:{col}", file.name)
 }
 
-fn single_file_arg(subcommand: &str, args: &[String]) -> String {
-    let mut file: Option<String> = None;
-    for arg in args {
-        if arg.starts_with('-') {
-            eprintln!("Неизвестный флаг: {arg}");
-            process::exit(1);
-        }
-        if file.is_some() {
-            eprintln!("Указан более чем один файл: {arg}");
-            process::exit(1);
-        }
-        file = Some(arg.clone());
-    }
-    match file {
-        Some(f) => f,
-        None => {
-            eprintln!("Использование: yps {subcommand} <файл.yopta>");
-            process::exit(1);
-        }
-    }
-}
-
-fn run_ast(args: &[String]) {
-    let filename = single_file_arg("ast", args);
-    let (_source, program) = load_program(&filename);
-    println!("{program:#?}");
-}
-
-fn run_disasm(args: &[String]) {
-    let filename = single_file_arg("disasm", args);
-    let (source, program) = load_program(&filename);
-    match yps_vm::compile_program(&program) {
-        Ok(proto) => println!("{}", yps_vm::disassemble(&proto)),
-        Err(e) => {
-            let (line, col) = source.position(e.span.start);
-            eprintln!("{}:{line}:{col}: {e}", source.name);
-            process::exit(1);
-        }
-    }
-}
-
-fn run_lint(args: &[String]) {
-    let filename = single_file_arg("lint", args);
-    let code = match fs::read_to_string(&filename) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Не удалось прочитать файл '{filename}': {e}");
-            process::exit(1);
-        }
-    };
-
-    let result = yps_lint::lint_source(&code);
-    let source = SourceFile::new(filename.clone(), code);
-
-    if !result.parse_errors.is_empty() {
-        print_diagnostics(&source, &result.parse_errors, &filename);
-        process::exit(1);
-    }
-
-    if result.diagnostics.is_empty() {
-        return;
-    }
-
-    for d in &result.diagnostics {
-        let (line, col) = source.position(d.span.start);
-        println!("{filename}:{line}:{col}: {:?} [{}]: {}", d.severity, d.rule.code(), d.message);
-    }
-    process::exit(1);
-}
-
-fn run_transpile(args: &[String]) {
-    const USAGE: &str = "Использование: yps transpile <файл.yopta> [-o файл.js]";
-
-    let mut filename: Option<String> = None;
-    let mut out_path: Option<String> = None;
-
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "-o" | "--output" => match rest.next() {
-                Some(path) => out_path = Some(path.clone()),
-                None => {
-                    eprintln!("Флаг -o требует путь к файлу");
-                    process::exit(1);
-                }
-            },
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return;
+fn main() -> ExitCode {
+    let args: Vec<OsString> = env::args_os().skip(1).collect();
+    match run(&args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(failure) => {
+            if let Some(message) = &failure.message {
+                eprintln!("{message}");
             }
-            other if other.starts_with('-') => {
-                eprintln!("Неизвестный флаг: {other}");
-                process::exit(1);
-            }
-            other => {
-                if filename.is_some() {
-                    eprintln!("Указан более чем один файл: {other}");
-                    process::exit(1);
-                }
-                filename = Some(other.to_string());
-            }
-        }
-    }
-
-    let Some(filename) = filename else {
-        eprintln!("{USAGE}");
-        process::exit(1);
-    };
-
-    let (source, program) = load_program(&filename);
-    let js = match yps_jsgen::transpile(&program) {
-        Ok(js) => js,
-        Err(e) => {
-            let (line, col) = source.position(e.span.start);
-            eprintln!("{filename}:{line}:{col}: {e}");
-            process::exit(1);
-        }
-    };
-
-    match out_path {
-        Some(path) => {
-            if let Err(e) = fs::write(&path, js.as_bytes()) {
-                eprintln!("Не удалось записать файл '{path}': {e}");
-                process::exit(1);
-            }
-        }
-        None => {
-            if let Err(e) = io::stdout().lock().write_all(js.as_bytes()) {
-                eprintln!("Ошибка записи в stdout: {e}");
-                process::exit(1);
-            }
+            ExitCode::from(failure.code)
         }
     }
 }
 
-fn run_program(args: &[String]) {
-    let mut use_vm = false;
-    let mut eval_code: Option<String> = None;
-    let mut use_stdin = false;
-    let mut file: Option<String> = None;
-
-    let mut i = 0;
-    while i < args.len() {
-        let arg = args[i].as_str();
-        match arg {
-            "--vm" => use_vm = true,
-            "-e" | "--eval" => {
-                i += 1;
-                match args.get(i) {
-                    Some(code) => eval_code = Some(code.clone()),
-                    None => {
-                        eprintln!("Флаг {arg} требует аргумент с кодом");
-                        process::exit(1);
-                    }
-                }
-            }
-            "-" => use_stdin = true,
-            other if other.starts_with('-') => {
-                eprintln!("Неизвестный флаг: {other}");
-                process::exit(1);
-            }
-            other => {
-                if file.is_some() {
-                    eprintln!("Указан более чем один файл: {other}");
-                    process::exit(1);
-                }
-                file = Some(other.to_string());
-            }
+fn run(args: &[OsString]) -> Result<(), Failure> {
+    match args::parse(args).map_err(|e| Failure::usage(e.0))? {
+        Command::Help(text) => write_stdout(&format!("{text}\n")),
+        Command::Version => write_stdout(&format!("yps {}\n", env!("CARGO_PKG_VERSION"))),
+        Command::Repl => {
+            yps_interpreter::set_script_args(Vec::new());
+            repl::run_repl()
         }
-        i += 1;
-    }
-
-    if let Some(code) = eval_code {
-        let source = SourceFile::new("<eval>".to_string(), code);
-        let program = parse_or_exit(&source);
-        execute(source, program, None, use_vm);
-        return;
-    }
-
-    if use_stdin {
-        let mut code = String::new();
-        if let Err(e) = io::stdin().read_to_string(&mut code) {
-            eprintln!("Не удалось прочитать stdin: {e}");
-            process::exit(1);
-        }
-        let source = SourceFile::new("<stdin>".to_string(), code);
-        let program = parse_or_exit(&source);
-        execute(source, program, None, use_vm);
-        return;
-    }
-
-    match file {
-        Some(filename) => {
-            let (source, program) = load_program(&filename);
-            let base = PathBuf::from(&filename).parent().map(PathBuf::from);
-            execute(source, program, base, use_vm);
-        }
-        None => {
-            eprintln!("Не указан файл для выполнения");
-            process::exit(1);
-        }
+        Command::Run { source, use_vm, script_args } => run_program(source, use_vm, script_args),
+        Command::Fmt { file, mode, source_map } => run_fmt(&file, mode, source_map),
+        Command::Ast { file } => run_ast(&file),
+        Command::Disasm { file } => run_disasm(&file),
+        Command::Lint { file } => run_lint(&file),
+        Command::Transpile { file, output } => run_transpile(&file, output.as_deref()),
     }
 }
 
-fn execute(source: SourceFile, program: Program, base: Option<PathBuf>, use_vm: bool) {
-    if use_vm {
-        run_vm(source, program, base);
-    } else {
-        run_interpret(source, program, base);
-    }
+fn read_file(path: &Path) -> Result<String, Failure> {
+    fs::read_to_string(path).map_err(|e| Failure::error(format!("Не удалось прочитать файл '{}': {e}", path.display())))
 }
 
-fn parse_or_exit(source: &SourceFile) -> Program {
+fn read_source(path: &Path) -> Result<SourceFile, Failure> {
+    Ok(SourceFile::new(path.display().to_string(), read_file(path)?))
+}
+
+fn parse(source: &SourceFile) -> Result<Program, Failure> {
     let (tokens, lex_diagnostics) = Lexer::new(source).tokenize();
     if !lex_diagnostics.is_empty() {
-        print_diagnostics(source, &lex_diagnostics, &source.name);
-        process::exit(1);
+        print_diagnostics(source, &lex_diagnostics);
+        return Err(Failure::reported());
     }
 
     let (program, parse_diagnostics) = Parser::new(&tokens, source).parse_program();
     if !parse_diagnostics.is_empty() {
-        print_diagnostics(source, &parse_diagnostics, &source.name);
-        process::exit(1);
+        print_diagnostics(source, &parse_diagnostics);
+        return Err(Failure::reported());
     }
 
-    program
+    Ok(program)
 }
 
-fn load_program(filename: &str) -> (SourceFile, Program) {
-    let code = match fs::read_to_string(filename) {
-        Ok(c) => c,
+fn run_ast(file: &Path) -> Result<(), Failure> {
+    let program = parse(&read_source(file)?)?;
+    write_stdout(&format!("{program:#?}\n"))
+}
+
+fn run_disasm(file: &Path) -> Result<(), Failure> {
+    let source = read_source(file)?;
+    let program = parse(&source)?;
+    match yps_vm::compile_program(&program) {
+        Ok(proto) => write_stdout(&format!("{}\n", yps_vm::disassemble(&proto))),
         Err(e) => {
-            eprintln!("Не удалось прочитать файл '{filename}': {e}");
-            process::exit(1);
-        }
-    };
-
-    let source = SourceFile::new(filename.to_string(), code);
-    let program = parse_or_exit(&source);
-    (source, program)
-}
-
-fn run_vm(source: SourceFile, program: Program, base: Option<PathBuf>) {
-    let name = source.name.clone();
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yps_vm::execute_with_base(&program, base)));
-    match outcome {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            let (line, col) = source.position(e.span().start);
-            eprintln!("{name}:{line}:{col}: {e}");
-            process::exit(1);
-        }
-        Err(_) => {
-            eprintln!("Внутренняя ошибка VM: выполнение прервано");
-            process::exit(INTERNAL_ERROR_EXIT_CODE);
+            let (line, col) = source.position(e.span.start);
+            Err(Failure::error(format!("{}:{line}:{col}: {e}", source.name)))
         }
     }
 }
 
-fn write_atomic(filename: &str, contents: &[u8]) {
-    let tmp_path = format!("{filename}.fmt_tmp");
-    if let Err(e) = fs::write(&tmp_path, contents) {
-        eprintln!("Не удалось записать временный файл '{tmp_path}': {e}");
-        process::exit(1);
+fn run_lint(file: &Path) -> Result<(), Failure> {
+    let source = read_source(file)?;
+    let result = yps_lint::lint_source(&source.source);
+
+    if !result.parse_errors.is_empty() {
+        print_diagnostics(&source, &result.parse_errors);
+        return Err(Failure::reported());
     }
-    if let Err(e) = fs::rename(&tmp_path, filename) {
-        eprintln!("Не удалось переименовать '{tmp_path}' в '{filename}': {e}");
-        let _ = fs::remove_file(&tmp_path);
-        process::exit(1);
+    if result.diagnostics.is_empty() {
+        return Ok(());
+    }
+
+    let mut report = String::new();
+    for d in &result.diagnostics {
+        let (line, col) = source.position(d.span.start);
+        let _ = writeln!(report, "{}:{line}:{col}: {} [{}]: {}", source.name, d.severity, d.rule.code(), d.message);
+    }
+    write_stdout(&report)?;
+    Err(Failure::reported())
+}
+
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
     }
 }
 
-fn run_fmt(args: &[String]) {
-    if args.is_empty() {
-        eprintln!("Использование: yps fmt <файл.yopta> [--write|-w] [--check] [--source-map]");
-        process::exit(1);
+fn run_transpile(file: &Path, output: Option<&Path>) -> Result<(), Failure> {
+    if let Some(output) = output
+        && is_same_file(file, output)
+    {
+        return Err(Failure::usage(format!("Выходной файл совпадает с исходным: {}", output.display())));
     }
 
-    let filename = &args[0];
-    let mut write_in_place = false;
-    let mut check_only = false;
-    let mut source_map = false;
+    let source = read_source(file)?;
+    let program = parse(&source)?;
+    let js = yps_jsgen::transpile(&program).map_err(|e| {
+        let (line, col) = source.position(e.span.start);
+        Failure::error(format!("{}:{line}:{col}: {e}", source.name))
+    })?;
 
-    for flag in &args[1..] {
-        match flag.as_str() {
-            "--write" | "-w" => write_in_place = true,
-            "--check" => check_only = true,
-            "--source-map" => source_map = true,
-            other => {
-                eprintln!("Неизвестный флаг: {other}");
-                process::exit(1);
-            }
-        }
+    match output {
+        Some(path) => write_atomic(path, js.as_bytes()),
+        None => write_stdout(&js),
     }
+}
 
-    let source = match fs::read_to_string(filename) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Не удалось прочитать файл '{filename}': {e}");
-            process::exit(1);
+fn format_failure(error: yps_fmt::FormatError, source: &SourceFile) -> Failure {
+    match error {
+        yps_fmt::FormatError::ParseError(diagnostics) => {
+            print_diagnostics(source, &diagnostics);
+            Failure::error("Форматирование отклонено: файл содержит синтаксические ошибки")
         }
-    };
-
-    let handle_fmt_err = |e: yps_fmt::FormatError| -> ! {
-        match e {
-            yps_fmt::FormatError::ParseError(diags) => {
-                let sf = SourceFile::new(filename.clone(), source.clone());
-                print_diagnostics(&sf, &diags, filename);
-                eprintln!("Форматирование отклонено: файл содержит синтаксические ошибки");
-            }
-            yps_fmt::FormatError::RoundTripFailed(msg) => {
-                eprintln!("Форматирование отклонено: самопроверка не прошла: {msg}");
-            }
-            yps_fmt::FormatError::CommentRefused(msg) => {
-                eprintln!("Форматирование отклонено: {msg}");
-            }
+        yps_fmt::FormatError::RoundTripFailed(msg) => {
+            Failure::error(format!("Форматирование отклонено: самопроверка не прошла: {msg}"))
         }
-        process::exit(1)
-    };
-
-    if source_map {
-        let (outcome, mut map) = match yps_fmt::format_source_with_map(&source) {
-            Ok(r) => r,
-            Err(e) => handle_fmt_err(e),
-        };
-
-        let map_path = format!("{filename}.map");
-        map.file = map_path.clone();
-        map.source_name = filename.clone();
-
-        if check_only {
-            process::exit(if outcome.already_formatted { 0 } else { 1 });
-        }
-
-        if write_in_place {
-            write_atomic(filename, outcome.text.as_bytes());
-            if let Err(e) = fs::write(&map_path, map.to_json()) {
-                eprintln!("Не удалось записать source map '{map_path}': {e}");
-                process::exit(1);
-            }
-        } else {
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            if let Err(e) = handle.write_all(outcome.text.as_bytes()) {
-                eprintln!("Ошибка записи в stdout: {e}");
-                process::exit(1);
-            }
-            if let Err(e) = writeln!(handle, "{}", map.to_json()) {
-                eprintln!("Ошибка записи source map в stdout: {e}");
-                process::exit(1);
-            }
-        }
-        return;
+        yps_fmt::FormatError::CommentRefused(msg) => Failure::error(format!("Форматирование отклонено: {msg}")),
     }
+}
 
-    let outcome = match yps_fmt::format_source(&source) {
-        Ok(o) => o,
-        Err(e) => handle_fmt_err(e),
-    };
+fn write_source_map(file: &Path, mut map: yps_fmt::SourceMap) -> Result<(), Failure> {
+    let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    map.file.clone_from(&name);
+    map.source_name = name;
 
-    if check_only {
-        process::exit(if outcome.already_formatted { 0 } else { 1 });
-    }
+    let mut map_path = file.as_os_str().to_owned();
+    map_path.push(".map");
+    write_atomic(Path::new(&map_path), map.to_json().as_bytes())
+}
 
-    if write_in_place {
-        write_atomic(filename, outcome.text.as_bytes());
+fn run_fmt(file: &Path, mode: FmtMode, source_map: bool) -> Result<(), Failure> {
+    let source = read_source(file)?;
+    let (outcome, map) = if source_map {
+        let (outcome, map) = yps_fmt::format_source_with_map(&source.source).map_err(|e| format_failure(e, &source))?;
+        (outcome, Some(map))
     } else {
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
-        if let Err(e) = handle.write_all(outcome.text.as_bytes()) {
-            eprintln!("Ошибка записи в stdout: {e}");
-            process::exit(1);
+        (yps_fmt::format_source(&source.source).map_err(|e| format_failure(e, &source))?, None)
+    };
+
+    match mode {
+        FmtMode::Check if outcome.already_formatted => Ok(()),
+        FmtMode::Check => Err(Failure::reported()),
+        FmtMode::Print => write_stdout(&outcome.text),
+        FmtMode::Write => {
+            if !outcome.already_formatted {
+                write_atomic(file, outcome.text.as_bytes())?;
+            }
+            map.map_or(Ok(()), |map| write_source_map(file, map))
         }
     }
 }
 
-fn run_interpret(source: SourceFile, program: Program, base: Option<PathBuf>) {
-    let name = source.name.clone();
+fn run_program(source: RunSource, use_vm: bool, script_args: Vec<String>) -> Result<(), Failure> {
+    let (name, code, base, argv0) = match source {
+        RunSource::File(path) => {
+            let name = path.display().to_string();
+            (name.clone(), read_file(&path)?, path.parent().map(Path::to_path_buf), name)
+        }
+        RunSource::Eval(code) => ("<eval>".to_string(), code, None, "-e".to_string()),
+        RunSource::Stdin => {
+            let mut code = String::new();
+            io::stdin()
+                .read_to_string(&mut code)
+                .map_err(|e| Failure::error(format!("Не удалось прочитать stdin: {e}")))?;
+            ("<stdin>".to_string(), code, None, "-".to_string())
+        }
+    };
+    yps_interpreter::set_script_args(std::iter::once(argv0).chain(script_args).collect());
+
+    let sources = Rc::new(RefCell::new(Sources::default()));
+    let main = sources.borrow_mut().add(name, code);
+    let program = parse(&main)?;
+    if use_vm { run_vm(&program, base, &sources, &main) } else { run_interpret(&program, base, &sources, &main) }
+}
+
+fn run_interpret(
+    program: &Program,
+    base: Option<PathBuf>,
+    sources: &Rc<RefCell<Sources>>,
+    main: &SourceFile,
+) -> Result<(), Failure> {
     let mut interpreter = Interpreter::new();
-    if let Some(parent) = base {
-        interpreter.set_base_path(parent);
+    if let Some(base) = base {
+        interpreter.set_base_path(base);
     }
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| interpreter.run(&program)));
+    interpreter.set_sources(Rc::clone(sources));
+
+    match guarded(|| interpreter.run(program)) {
+        Some(Ok(())) => Ok(()),
+        Some(Err(e)) => {
+            print_runtime_error(&e, |offset| locate(sources, main, offset));
+            Err(Failure::reported())
+        }
+        None => {
+            abandon_after_panic(interpreter);
+            Err(Failure::internal("Внутренняя ошибка интерпретатора: выполнение прервано"))
+        }
+    }
+}
+
+fn run_vm(
+    program: &Program,
+    base: Option<PathBuf>,
+    sources: &Rc<RefCell<Sources>>,
+    main: &SourceFile,
+) -> Result<(), Failure> {
+    let mut vm = yps_vm::Vm::new();
+    if let Some(base) = base {
+        vm.set_base_path(base);
+    }
+    vm.set_sources(Rc::clone(sources));
+
+    let outcome = guarded(|| -> Result<(), yps_vm::ExecError> {
+        let proto = yps_vm::compile_program(program)?;
+        vm.run(proto)?;
+        Ok(())
+    });
     match outcome {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            print_runtime_error(&source, &e, &name);
-            process::exit(1);
+        Some(Ok(())) => Ok(()),
+        Some(Err(e)) => Err(Failure::error(format!("{}: {e}", locate(sources, main, e.span().start)))),
+        None => {
+            abandon_after_panic(vm);
+            Err(Failure::internal("Внутренняя ошибка VM: выполнение прервано"))
         }
-        Err(_) => {
-            eprintln!("Внутренняя ошибка интерпретатора: выполнение прервано");
-            process::exit(INTERNAL_ERROR_EXIT_CODE);
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    pub(crate) struct Scratch(PathBuf);
+
+    impl Scratch {
+        pub(crate) fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("yps_cli_unit_{tag}_{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("создать каталог");
+            Self(dir)
         }
+
+        pub(crate) fn path(&self) -> &Path {
+            &self.0
+        }
+
+        pub(crate) fn entries(&self) -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(&self.0)
+                .expect("прочитать каталог")
+                .filter_map(Result::ok)
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::Scratch;
+    use super::*;
+
+    #[test]
+    fn guarded_returns_the_value_of_a_normal_run() {
+        assert_eq!(guarded(|| 7), Some(7));
+    }
+
+    #[test]
+    fn guarded_turns_a_panic_into_none() {
+        assert_eq!(guarded(|| -> u8 { panic!("сбой") }), None);
+    }
+
+    #[test]
+    fn locate_names_the_source_that_owns_the_offset() {
+        let sources = RefCell::new(Sources::default());
+        let main = sources.borrow_mut().add("main.yopta".to_string(), "раз\nдва\n".to_string());
+        let module = sources.borrow_mut().add("mod.yopta".to_string(), "\n\nтри\n".to_string());
+
+        assert_eq!(locate(&sources, &main, main.base() + 7), "main.yopta:2:1");
+        assert_eq!(locate(&sources, &main, module.base() + 2), "mod.yopta:3:1");
+    }
+
+    #[test]
+    fn locate_falls_back_to_the_main_source_for_an_unknown_offset() {
+        let sources = RefCell::new(Sources::default());
+        let main = sources.borrow_mut().add("main.yopta".to_string(), "раз\n".to_string());
+
+        assert_eq!(locate(&sources, &main, usize::MAX), "main.yopta:2:1");
+    }
+
+    #[test]
+    fn a_file_is_the_same_as_itself_through_a_different_spelling() {
+        let scratch = Scratch::new("same_file");
+        let file = scratch.path().join("a.yopta");
+        fs::write(&file, "").unwrap();
+
+        assert!(is_same_file(&file, &scratch.path().join(".").join("a.yopta")));
+        assert!(!is_same_file(&file, &scratch.path().join("нет.js")));
     }
 }
