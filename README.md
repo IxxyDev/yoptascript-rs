@@ -94,12 +94,17 @@ cargo run -p yps-cli -- path/to/program.yopta
 # Run it on the bytecode VM backend instead of the tree-walker
 cargo run -p yps-cli -- --vm path/to/program.yopta
 
+# Everything after the file goes to the program as Процесс.аргументы
+# (yps flags such as --vm must come before the file)
+cargo run -p yps-cli -- path/to/program.yopta first second
+
 # Start the REPL (line editing and up/down history via rustyline;
 # the runtime's other deliberate dependencies are the regex engines —
 # regex for plain patterns, fancy-regex for lookaround and backreferences)
 cargo run -p yps-cli
 
-# Format a .yopta file (--write to apply, --check for CI)
+# Format a .yopta file (--write to apply, --check for CI,
+# --write --source-map to also write path/to/program.yopta.map)
 cargo run -p yps-cli -- fmt path/to/program.yopta
 
 # Lint a .yopta file for unused/unreachable/shadowed code
@@ -107,6 +112,9 @@ cargo run -p yps-cli -- lint path/to/program.yopta
 
 # Transpile a .yopta file to JavaScript
 cargo run -p yps-cli -- transpile path/to/program.yopta
+
+# Exit codes: 0 success, 1 program/file error or lint findings,
+# 2 bad command-line usage, 70 internal error
 
 # Or use the Justfile shortcuts (just lint = cargo fmt --check + clippy over the Rust workspace,
 # not the yps-cli `lint` subcommand above, which lints .yopta source)
