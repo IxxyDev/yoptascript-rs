@@ -5,6 +5,67 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Script arguments** — everything after the program file (or after `-`)
+  now goes to the program and shows up in `Процесс.аргументы`, with the
+  file, `-` or `-e` as the first element; for `-e` the arguments follow
+  `--`. `yps` flags must therefore precede the file: `yps file.yopta --vm`
+  no longer selects the VM, it passes `--vm` to the script. Both backends
+  now report the same list (the VM used to include `--vm` itself).
+- **Exit codes** — bad command-line usage exits with `2` instead of `1`;
+  `1` stays for program and file errors, lint findings and a failed
+  `fmt --check`, `70` for internal errors. A piped (non-TTY) REPL session
+  exits with `1` if any input failed, not only on an unterminated block.
+- **One program source** — combining `-e` with a file or `-`, or repeating
+  `-e`, is rejected instead of silently ignoring all but one of them.
+- **`fmt --source-map` requires `--write`** and writes the map to
+  `<file>.map`; it no longer prints the map after the code on stdout, and
+  the map's `file` field names the formatted file rather than the map.
+  `--check` cannot be combined with `--write` or `--source-map`.
+- **Diagnostics label their severity in Russian** — `Ошибка:` /
+  `Предупреждение` instead of `Error:` / `Warning`, in the CLI, `lint`
+  and the playground.
+- **Uncaught `кидай` reports the throw site** — in ordinary functions,
+  methods, constructors, callbacks and at the top level the error position
+  is the `кидай` statement itself, also after it passes through a
+  `тюряжка` block (the call chain stays in the stack frames); the
+  interpreter used to report the innermost call site and the VM `1:1`.
+  Generators and `ассо` functions are unchanged: they still report the
+  resuming call. Top-level `харэ` / `двигай` outside a loop also report
+  their own line.
+
+### Fixed
+
+- **`fmt --write` no longer damages files** — it keeps the file's
+  permissions, refuses a read-only file, formats the target of a symlink
+  instead of replacing the link, never touches an unrelated
+  `<file>.fmt_tmp`, leaves an already formatted file alone, and cleans up
+  its temporary file when the write fails.
+- **Closed stdout pipe** — `yps … | head` now ends quietly on Unix for
+  every mode; the interpreter used to report an internal error with exit
+  code 70, `ast` / `disasm` panicked, and the VM ignored the write errors
+  and exited with 0.
+- **Errors inside imported modules name the module** — a runtime error
+  raised by module code is reported with the module's file, line and
+  column on both backends instead of the main file's; a syntax error in a
+  module is shown as a located diagnostic. In the REPL an error in code
+  defined by an earlier input is reported as `<repl#N>:line:col`.
+- **REPL** — template literals, block comments and strings may span
+  lines; `:выход`, `:сброс` and `:история` work inside an unfinished block;
+  inputs rejected by the lexer stay in `:история`; REPL commands are no
+  longer saved to the persistent history; an interpreter panic resets the
+  session instead of killing it; the history file is found on Windows.
+- **Completion** — members of dotted builtins complete after the dot
+  (`сказать.ош` → `сказать.ошибка`); destructured names, classes and
+  imports are offered, declarations nested in function bodies are not.
+- **Command line** — `fmt` accepts its file in any position; every
+  subcommand answers `--help`; `repl` and `--version` reject stray
+  arguments; a non-UTF-8 argument no longer panics; `transpile -o` refuses
+  to overwrite its own input.
+
 ## [1.17.2] - 2026-10-02
 
 ### Changed
