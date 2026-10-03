@@ -298,3 +298,47 @@ fn valid_assignment_targets_parse_cleanly() {
         assert!(diags.is_empty(), "исходник {src:?}: {:?}", diag_messages(&diags));
     }
 }
+
+fn parse_based(src: &str, base: usize) -> (SourceFile, Program, Vec<Diagnostic>, bool) {
+    let source = SourceFile::with_base("<test>".to_string(), src.to_string(), base);
+    let (tokens, lex_diags) = yps_lexer::Lexer::new(&source).tokenize();
+    assert!(lex_diags.is_empty(), "{lex_diags:?}");
+    let (program, diags, eof) = Parser::new(&tokens, &source).parse_program_extended();
+    (source, program, diags, eof)
+}
+
+#[test]
+fn based_source_parses_to_the_same_tree_shape_with_shifted_spans() {
+    let code = "йопта ф(а, б = 1) { отвечаю `${а}-${б}`; }\nклёво К { метод() { отвечаю (х) => х + \"с\"; } }\nгыы { в, г } = ф(1);\n";
+    let (_, plain, plain_diags, _) = parse_based(code, 0);
+    let (source, based, based_diags, _) = parse_based(code, 5000);
+
+    assert!(plain_diags.is_empty(), "{plain_diags:?}");
+    assert!(based_diags.is_empty(), "{based_diags:?}");
+    assert_eq!(plain.items.len(), based.items.len());
+    for (a, b) in plain.items.iter().zip(&based.items) {
+        assert_eq!(a.span().start + 5000, b.span().start);
+        assert_eq!(a.span().end + 5000, b.span().end);
+    }
+    let Stmt::FunctionDecl { name, .. } = &based.items[0] else {
+        panic!("ожидалась функция: {:?}", based.items[0])
+    };
+    assert_eq!(name.name, "ф");
+    assert_eq!(source.slice(name.span), "ф");
+}
+
+#[test]
+fn based_source_reports_diagnostics_at_global_offsets() {
+    let (source, _, diags, eof) = parse_based("\nгыы x = ;", 5000);
+
+    assert!(!eof);
+    assert_eq!(source.position(diags[0].span.start), (2, 9));
+}
+
+#[test]
+fn based_source_still_detects_unexpected_eof() {
+    let (_, _, diags, eof) = parse_based("йопта ф() {", 5000);
+
+    assert!(!diags.is_empty());
+    assert!(eof);
+}

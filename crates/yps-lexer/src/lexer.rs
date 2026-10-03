@@ -180,7 +180,22 @@ impl<'src> Lexer<'src> {
             }
         }
 
+        let base = self.source.base();
+        if base != 0 {
+            let shift = |span: &mut Span| {
+                span.start += base;
+                span.end += base;
+            };
+            tokens.iter_mut().for_each(|token| shift(&mut token.span));
+            self.trivia.iter_mut().for_each(|trivia| shift(&mut trivia.span));
+            self.diagnostics.iter_mut().for_each(|diagnostic| shift(&mut diagnostic.span));
+        }
+
         (tokens, self.trivia, self.diagnostics)
+    }
+
+    fn text(&self, span: Span) -> &'src str {
+        &self.source.source[span.start..span.end]
     }
 
     fn regex_context(&self) -> bool {
@@ -309,7 +324,7 @@ impl<'src> Lexer<'src> {
 
         let end = self.position;
         let span = Span { start, end };
-        let text = self.source.slice(span);
+        let text = self.text(span);
 
         let kind = Self::word_token_kind(text);
 
@@ -387,7 +402,7 @@ impl<'src> Lexer<'src> {
                 let end = self.position;
                 let span = Span { start, end };
                 if digits == 0 {
-                    let raw = self.source.slice(span);
+                    let raw = self.text(span);
                     self.error(span, format!("Невалидное число: '{raw}'"));
                 }
                 return Token { kind: TokenKind::Number, span };
@@ -486,7 +501,7 @@ impl<'src> Lexer<'src> {
                     if self.collect_trivia {
                         self.trivia.push(Trivia {
                             kind: TriviaKind::LineComment,
-                            text: self.source.slice(span).to_string(),
+                            text: self.text(span).to_string(),
                             span,
                         });
                     }
@@ -509,7 +524,7 @@ impl<'src> Lexer<'src> {
                     if self.collect_trivia {
                         self.trivia.push(Trivia {
                             kind: TriviaKind::BlockComment,
-                            text: self.source.slice(span).to_string(),
+                            text: self.text(span).to_string(),
                             span,
                         });
                     }
@@ -1221,5 +1236,29 @@ mod tests {
     #[test]
     fn string_with_an_escaped_quote_is_a_single_token() {
         assert_eq!(lex_kinds(r#""а\"б""#), vec![TokenKind::StringLiteral, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn spans_of_a_based_source_are_shifted_by_its_base() {
+        let source = SourceFile::with_base("mod.yopta".to_string(), "гыы а = 1; // хвост".to_string(), 1000);
+
+        let (tokens, trivia, diags) = Lexer::new(&source).tokenize_with_trivia();
+
+        assert!(diags.is_empty(), "{diags:?}");
+        assert_eq!(tokens[0].span.start, 1000);
+        assert_eq!(source.slice(tokens[1].span), "а");
+        assert_eq!(source.slice(trivia[0].span), "// хвост");
+        let eof = tokens.last().expect("eof");
+        assert_eq!(eof.span.start, 1000 + source.source.len());
+    }
+
+    #[test]
+    fn diagnostics_of_a_based_source_are_shifted_by_its_base() {
+        let source = SourceFile::with_base("mod.yopta".to_string(), "гыы а = §;".to_string(), 1000);
+
+        let (_tokens, diags) = Lexer::new(&source).tokenize();
+
+        assert_eq!(diags.len(), 1, "{diags:?}");
+        assert_eq!(source.position(diags[0].span.start), (1, 9));
     }
 }
