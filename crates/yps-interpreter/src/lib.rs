@@ -13,4 +13,5 @@ pub use error::RuntimeError;
 pub use interpreter::Interpreter;
 pub use interpreter::debug::{DEBUG_TERMINATED, DebugAction, DebugEvent, DebugHook};
 pub use output::{BufferSink, OutputSink, StdoutSink};
+pub use stdlib::process::set_script_args;
 pub use value::Value;

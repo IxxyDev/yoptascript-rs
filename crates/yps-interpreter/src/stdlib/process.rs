@@ -1,4 +1,5 @@
 use std::env;
+use std::sync::OnceLock;
 
 use indexmap::IndexMap;
 
@@ -20,8 +21,17 @@ pub fn build_object() -> Value {
     ])
 }
 
+static SCRIPT_ARGS: OnceLock<Vec<String>> = OnceLock::new();
+
+pub fn set_script_args(args: Vec<String>) {
+    let _ = SCRIPT_ARGS.set(args);
+}
+
 fn args_value() -> Value {
-    let argv: Vec<Value> = env::args().skip(1).map(Value::string).collect();
+    let argv: Vec<Value> = match SCRIPT_ARGS.get() {
+        Some(args) => args.iter().map(|arg| Value::string(arg.as_str())).collect(),
+        None => env::args().skip(1).map(Value::string).collect(),
+    };
     Value::array(argv)
 }
 
