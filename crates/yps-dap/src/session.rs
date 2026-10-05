@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
@@ -10,7 +10,7 @@ use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 
 use crate::breakpoints;
-use crate::debuggee::{self, DebugMsg, DebuggeeHandle, LaunchConfig, ResumeCmd, StopInfo};
+use crate::debuggee::{self, DebugMsg, DebuggeeHandle, LaunchConfig, ResumeCmd, StopInfo, StopReason};
 
 pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
@@ -53,6 +53,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     }
+}
+
+fn arg_index(value: &Value) -> Option<usize> {
+    value.as_u64().and_then(|n| usize::try_from(n).ok())
+}
+
+fn unverified(id: i64, line: usize, message: &str, reason: &str) -> Value {
+    json!({ "id": id, "verified": false, "line": line, "message": message, "reason": reason })
 }
 
 fn load_statement_lines(path: &Path) -> std::io::Result<BTreeSet<usize>> {
@@ -116,6 +124,7 @@ pub struct Session {
     stop_on_entry: bool,
     caps: ClientCaps,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
+    breakpoint_ids: HashMap<usize, Vec<i64>>,
     debuggee: Option<DebuggeeHandle>,
     stopped: Option<StopInfo>,
     deferred: VecDeque<Value>,
@@ -135,6 +144,7 @@ impl Session {
             stop_on_entry: false,
             caps: ClientCaps::default(),
             breakpoints: Arc::new(Mutex::new(HashSet::new())),
+            breakpoint_ids: HashMap::new(),
             debuggee: None,
             stopped: None,
             deferred: VecDeque::new(),
@@ -222,16 +232,15 @@ impl Session {
             DebugMsg::Stopped(_) if self.state == State::Exited => {}
             DebugMsg::Stopped(info) => {
                 let reason = info.reason.as_dap();
+                let mut body = json!({ "reason": reason, "threadId": THREAD_ID, "allThreadsStopped": true });
+                if info.reason == StopReason::Breakpoint
+                    && let Some(ids) = info.frames.first().and_then(|frame| self.breakpoint_ids.get(&frame.line))
+                {
+                    body["hitBreakpointIds"] = json!(ids);
+                }
                 self.stopped = Some(*info);
                 self.state = State::Stopped;
-                out.push(self.event(
-                    "stopped",
-                    json!({
-                        "reason": reason,
-                        "threadId": THREAD_ID,
-                        "allThreadsStopped": true,
-                    }),
-                ));
+                out.push(self.event("stopped", body));
             }
             DebugMsg::Output { category, text } => {
                 out.push(self.event("output", json!({ "category": category, "output": text })));
@@ -372,60 +381,42 @@ impl Session {
     fn handle_set_breakpoints(&mut self, request: &Value) -> Vec<Value> {
         let arguments = &request["arguments"];
         let requested: Vec<usize> = if let Some(items) = arguments["breakpoints"].as_array() {
-            items.iter().filter_map(|item| item["line"].as_u64()).map(|line| line as usize).collect()
-        } else if let Some(items) = arguments["lines"].as_array() {
-            items.iter().filter_map(Value::as_u64).map(|line| line as usize).collect()
+            items.iter().filter_map(|item| arg_index(&item["line"])).collect()
         } else {
-            Vec::new()
+            arguments["lines"].as_array().into_iter().flatten().filter_map(arg_index).collect()
         };
 
         let ids: Vec<i64> = requested.iter().map(|_| self.next_breakpoint_id()).collect();
 
-        if let Some(path) = request["arguments"]["source"]["path"].as_str() {
-            let path = Path::new(path);
-            let (foreign, message) = match &self.program {
-                Some(program) => (!same_file(&program.path, path), "Отлаживается только запущенный файл"),
-                None => (true, "Сначала пришлите 'launch'"),
+        let path = arguments["source"]["path"].as_str().map(Path::new);
+        let launched = self.program.as_ref().filter(|program| path.is_some_and(|path| same_file(&program.path, path)));
+        let Some(program) = launched else {
+            let (reason, message) = match (path, &self.program) {
+                (None, _) => ("failed", "Поддерживаются только источники с путём к файлу"),
+                (Some(_), None) => ("pending", "Сначала пришлите 'launch'"),
+                (Some(_), Some(_)) => ("failed", "Отлаживается только запущенный файл"),
             };
-            if foreign {
-                let rejected: Vec<Value> = requested
-                    .into_iter()
-                    .zip(ids)
-                    .map(|(line, id)| {
-                        json!({
-                            "id": id,
-                            "verified": false,
-                            "line": line,
-                            "message": message,
-                        })
-                    })
-                    .collect();
-                return vec![self.response(request, json!({ "breakpoints": rejected }))];
-            }
-        }
+            let rejected: Vec<Value> =
+                requested.into_iter().zip(ids).map(|(line, id)| unverified(id, line, message, reason)).collect();
+            return vec![self.response(request, json!({ "breakpoints": rejected }))];
+        };
 
-        let empty = BTreeSet::new();
-        let statement_lines = self.program.as_ref().map_or(&empty, |program| &program.statement_lines);
         let offset = usize::from(!self.caps.lines_start_at1);
         let mut verified = Vec::new();
-        let mut resolved = HashSet::new();
+        let mut resolved: HashMap<usize, Vec<i64>> = HashMap::new();
         for (line, id) in requested.into_iter().zip(ids) {
-            match line.checked_add(offset).and_then(|line| breakpoints::resolve_line(line, statement_lines)) {
+            match line.checked_add(offset).and_then(|line| breakpoints::resolve_line(line, &program.statement_lines)) {
                 Some(actual) => {
-                    resolved.insert(actual);
+                    resolved.entry(actual).or_default().push(id);
                     verified.push(json!({ "id": id, "verified": true, "line": self.line_to_client(actual) }));
                 }
-                None => verified.push(json!({
-                    "id": id,
-                    "verified": false,
-                    "line": line,
-                    "message": "На этой строке нет оператора",
-                })),
+                None => verified.push(unverified(id, line, "На этой строке нет оператора", "failed")),
             }
         }
         if let Ok(mut set) = self.breakpoints.lock() {
-            *set = resolved;
+            *set = resolved.keys().copied().collect();
         }
+        self.breakpoint_ids = resolved;
         vec![self.response(request, json!({ "breakpoints": verified }))]
     }
 
@@ -558,7 +549,6 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debuggee::StopReason;
     use crate::test_support::{Lcg, fixture};
     use std::sync::mpsc::{Receiver, channel};
     use std::time::{Duration, Instant};

@@ -768,6 +768,36 @@ fn zero_based_client_lines_and_columns_are_converted() {
 }
 
 #[test]
+fn stopped_event_names_the_breakpoint_that_was_hit() {
+    let mut client = Client::start();
+
+    let set = client.handshake("loop.yopta", false, &[3]);
+    let stopped = client.wait_event("stopped");
+
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([set["body"]["breakpoints"][0]["id"]]));
+    client.call("disconnect", json!({}));
+}
+
+#[test]
+fn unverified_breakpoints_explain_why_with_a_reason() {
+    let mut client = Client::start();
+    let program = fixture_path("loop.yopta");
+    client.call("initialize", json!({ "adapterID": "yopta" }));
+
+    let early = client.set_breakpoints(&program, &[3]);
+    client.call("launch", json!({ "program": program }));
+    let pathless =
+        client.call("setBreakpoints", json!({ "source": { "sourceReference": 7 }, "breakpoints": [{ "line": 3 }] }));
+    let past_end = client.set_breakpoints(&program, &[99]);
+
+    assert_eq!(early["body"]["breakpoints"][0]["reason"], "pending");
+    assert_eq!(pathless["body"]["breakpoints"][0]["verified"], false);
+    assert_eq!(pathless["body"]["breakpoints"][0]["reason"], "failed");
+    assert_eq!(past_end["body"]["breakpoints"][0]["reason"], "failed");
+    client.call("disconnect", json!({}));
+}
+
+#[test]
 fn variable_type_is_sent_only_to_clients_that_support_it() {
     let mut plain = Client::start();
     plain.handshake("loop.yopta", false, &[3]);
