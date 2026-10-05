@@ -11,6 +11,8 @@ use yps_interpreter::{DebugAction, DebugEvent, DebugHook, Interpreter, OutputSin
 use yps_lexer::{Lexer, SourceFile};
 use yps_parser::Parser;
 
+use crate::line_index::LineIndex;
+
 pub const MODULE_FRAME: &str = "(модуль)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +95,7 @@ pub struct DebuggeeHandle {
 
 struct DapHook {
     source: SourceFile,
+    lines: LineIndex,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     pause_flag: Arc<AtomicBool>,
     notify: Notify,
@@ -102,9 +105,8 @@ struct DapHook {
 
 impl DebugHook for DapHook {
     fn on_statement(&mut self, event: DebugEvent<'_>) -> Option<DebugAction> {
-        let (line, column) = self.source.position(event.span.start);
         let paused = self.pause_flag.swap(false, Ordering::SeqCst);
-        let hit_breakpoint = self.breakpoints.lock().is_ok_and(|set| set.contains(&line));
+        let hit_breakpoint = self.breakpoints.lock().is_ok_and(|set| set.contains(&self.lines.line(event.span.start)));
         if !paused && !hit_breakpoint && !event.step_complete {
             return None;
         }
@@ -121,7 +123,7 @@ impl DebugHook for DapHook {
 
         let info = StopInfo {
             reason,
-            frames: self.build_frames(&event, line, column),
+            frames: self.build_frames(&event),
             locals: event
                 .interp
                 .debug_visible_locals()
@@ -149,13 +151,13 @@ impl DebugHook for DapHook {
 impl DapHook {
     /// The interpreter records a call-site span per frame, so DAP frame `n` shows the name of
     /// the function being executed and the position of the call that led into frame `n - 1`.
-    fn build_frames(&self, event: &DebugEvent<'_>, line: usize, column: usize) -> Vec<DapFrame> {
+    fn build_frames(&self, event: &DebugEvent<'_>) -> Vec<DapFrame> {
         let stack = event.interp.debug_call_stack();
         let mut frames = Vec::with_capacity(stack.len() + 1);
-        let mut position = (line, column);
+        let mut position = self.lines.position(&self.source, event.span.start);
         for frame in stack.iter().rev() {
             frames.push(DapFrame { name: frame.name.to_string(), line: position.0, column: position.1 });
-            position = self.source.position(frame.span.start);
+            position = self.lines.position(&self.source, frame.span.start);
         }
         frames.push(DapFrame { name: MODULE_FRAME.to_string(), line: position.0, column: position.1 });
         frames
@@ -221,6 +223,7 @@ fn run_program(
         interp.set_base_path(parent.to_path_buf());
     }
     interp.set_debug_hook(Box::new(DapHook {
+        lines: LineIndex::new(&source),
         source,
         breakpoints: config.breakpoints,
         pause_flag,

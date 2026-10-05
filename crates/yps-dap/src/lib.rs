@@ -24,6 +24,7 @@
 
 pub mod breakpoints;
 pub mod debuggee;
+mod line_index;
 pub mod protocol;
 pub mod session;
 #[cfg(test)]
