@@ -398,12 +398,26 @@ fn set_exception_breakpoints_and_loaded_sources_succeed() {
     assert_eq!(sources["body"]["sources"].as_array().map(Vec::len), Some(0));
 }
 
+fn assert_error(response: &Value, code: &str) {
+    assert_eq!(response["success"], false, "{response}");
+    assert_eq!(response["message"], code, "{response}");
+    assert!(response["body"]["error"]["id"].is_i64(), "{response}");
+    assert!(response["body"]["error"]["format"].as_str().is_some_and(|text| !text.is_empty()), "{response}");
+}
+
 #[test]
-fn unknown_command_is_rejected() {
+fn error_responses_carry_a_short_code_and_a_structured_message() {
     let mut client = Client::start();
-    client.call("initialize", json!({}));
+    client.call("initialize", json!({ "adapterID": "yopta" }));
 
-    let response = client.answer("рулетка", json!({}));
+    let unknown = client.answer("рулетка", json!({}));
+    let not_stopped = client.answer("stackTrace", json!({ "threadId": 1 }));
+    let step = client.answer("next", json!({ "threadId": 1 }));
+    let no_program = client.answer("launch", json!({}));
 
-    assert_eq!(response["success"], false);
+    assert_error(&unknown, "unsupported");
+    assert!(unknown["body"]["error"]["format"].as_str().unwrap_or_default().contains("рулетка"));
+    assert_error(&not_stopped, "notStopped");
+    assert_error(&step, "notStopped");
+    assert_error(&no_program, "noProgram");
 }

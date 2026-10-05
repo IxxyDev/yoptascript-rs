@@ -16,6 +16,31 @@ pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
 const NOT_PAUSED: &str = "Программа не находится на паузе";
 
+#[derive(Clone, Copy)]
+enum ErrorCode {
+    NotStopped = 1,
+    Unsupported = 3,
+    NoProgram = 4,
+    UnknownFrame = 5,
+    DebuggeeGone = 6,
+}
+
+impl ErrorCode {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStopped => "notStopped",
+            Self::Unsupported => "unsupported",
+            Self::NoProgram => "noProgram",
+            Self::UnknownFrame => "unknownFrame",
+            Self::DebuggeeGone => "debuggeeGone",
+        }
+    }
+
+    const fn show_user(self) -> bool {
+        matches!(self, Self::NoProgram | Self::DebuggeeGone)
+    }
+}
+
 fn same_file(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
@@ -85,28 +110,34 @@ impl Session {
         self.seq
     }
 
-    fn response(&mut self, request: &Value, body: Value) -> Value {
-        let seq = self.next_seq();
-        json!({
-            "seq": seq,
+    fn reply(&mut self, request: &Value, result: Result<Value, (ErrorCode, String)>) -> Value {
+        let mut message = json!({
+            "seq": self.next_seq(),
             "type": "response",
             "request_seq": request["seq"].as_i64().unwrap_or(0),
-            "success": true,
             "command": request["command"].as_str().unwrap_or_default(),
-            "body": body,
-        })
+        });
+        match result {
+            Ok(body) => {
+                message["success"] = json!(true);
+                message["body"] = body;
+            }
+            Err((code, text)) => {
+                message["success"] = json!(false);
+                message["message"] = json!(code.as_str());
+                message["body"] =
+                    json!({ "error": { "id": code as i64, "format": text, "showUser": code.show_user() } });
+            }
+        }
+        message
     }
 
-    fn failure(&mut self, request: &Value, message: impl Into<String>) -> Value {
-        let seq = self.next_seq();
-        json!({
-            "seq": seq,
-            "type": "response",
-            "request_seq": request["seq"].as_i64().unwrap_or(0),
-            "success": false,
-            "command": request["command"].as_str().unwrap_or_default(),
-            "message": message.into(),
-        })
+    fn response(&mut self, request: &Value, body: Value) -> Value {
+        self.reply(request, Ok(body))
+    }
+
+    fn failure(&mut self, request: &Value, code: ErrorCode, text: impl Into<String>) -> Value {
+        self.reply(request, Err((code, text.into())))
     }
 
     fn event(&mut self, name: &str, body: Value) -> Value {
@@ -233,14 +264,14 @@ impl Session {
             }
             other => {
                 let message = format!("Команда '{other}' не поддерживается");
-                vec![self.failure(request, message)]
+                vec![self.failure(request, ErrorCode::Unsupported, message)]
             }
         }
     }
 
     fn handle_launch(&mut self, request: &Value) -> Vec<Value> {
         let Some(program) = request["arguments"]["program"].as_str() else {
-            return vec![self.failure(request, "В 'launch' не указан аргумент 'program'")];
+            return vec![self.failure(request, ErrorCode::NoProgram, "В 'launch' не указан аргумент 'program'")];
         };
         self.stop_on_entry = request["arguments"]["stopOnEntry"].as_bool().unwrap_or(false);
         let mut program_path = PathBuf::from(program);
@@ -332,7 +363,7 @@ impl Session {
             return Vec::new();
         }
         let Some(program) = self.program.clone() else {
-            return vec![self.failure(request, "Программа не задана: сначала пришлите 'launch'")];
+            return vec![self.failure(request, ErrorCode::NoProgram, "Программа не задана: сначала пришлите 'launch'")];
         };
         let tx = self.events_tx.clone();
         let handle = debuggee::spawn(
@@ -348,11 +379,11 @@ impl Session {
 
     fn resume(&mut self, request: &Value, cmd: ResumeCmd, body: Value) -> Vec<Value> {
         if self.state != State::Stopped {
-            return vec![self.failure(request, NOT_PAUSED)];
+            return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         }
         let sent = self.debuggee.as_ref().is_some_and(|handle| handle.resume_tx.send(cmd).is_ok());
         if !sent {
-            return vec![self.failure(request, "Отлаживаемая программа недоступна")];
+            return vec![self.failure(request, ErrorCode::DebuggeeGone, "Отлаживаемая программа недоступна")];
         }
         self.stopped = None;
         self.state = State::Running;
@@ -384,7 +415,7 @@ impl Session {
 
     fn handle_stack_trace(&mut self, request: &Value) -> Vec<Value> {
         let Some(info) = self.stopped.as_ref() else {
-            return vec![self.failure(request, NOT_PAUSED)];
+            return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
         let source = self.source_object();
         let frames: Vec<Value> = info
@@ -407,11 +438,11 @@ impl Session {
 
     fn handle_scopes(&mut self, request: &Value) -> Vec<Value> {
         let Some(frame_count) = self.stopped.as_ref().map(|info| info.frames.len()) else {
-            return vec![self.failure(request, NOT_PAUSED)];
+            return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
         let frame_id = request["arguments"]["frameId"].as_i64().unwrap_or(1);
         if frame_id < 1 || frame_id > frame_count as i64 {
-            return vec![self.failure(request, "Неизвестный кадр стека")];
+            return vec![self.failure(request, ErrorCode::UnknownFrame, "Неизвестный кадр стека")];
         }
         let body = json!({
             "scopes": [{
@@ -426,7 +457,7 @@ impl Session {
 
     fn handle_variables(&mut self, request: &Value) -> Vec<Value> {
         let Some(info) = self.stopped.as_ref() else {
-            return vec![self.failure(request, NOT_PAUSED)];
+            return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
         let reference = request["arguments"]["variablesReference"].as_i64().unwrap_or(0);
         // Only the innermost frame has a live environment: the interpreter keeps no
@@ -447,5 +478,24 @@ impl Session {
             Vec::new()
         };
         vec![self.response(request, json!({ "variables": variables }))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_codes_keep_their_wire_strings() {
+        let expected = [
+            (ErrorCode::NotStopped, "notStopped"),
+            (ErrorCode::Unsupported, "unsupported"),
+            (ErrorCode::NoProgram, "noProgram"),
+            (ErrorCode::UnknownFrame, "unknownFrame"),
+            (ErrorCode::DebuggeeGone, "debuggeeGone"),
+        ];
+        for (code, text) in expected {
+            assert_eq!(code.as_str(), text);
+        }
     }
 }
