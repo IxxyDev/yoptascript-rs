@@ -1,13 +1,17 @@
-use std::io::{BufReader, PipeReader, PipeWriter};
+use std::io::{BufReader, PipeWriter};
 use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use yps_dap::protocol;
 
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(10);
+
 struct Client {
     to_server: PipeWriter,
-    from_server: BufReader<PipeReader>,
+    from_server: Receiver<Value>,
     seq: i64,
 }
 
@@ -19,7 +23,16 @@ impl Client {
             let mut out = server_out;
             yps_dap::serve(server_in, &mut out).expect("сервер должен отработать");
         });
-        Self { to_server, from_server: BufReader::new(from_server), seq: 0 }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(from_server);
+            while let Some(message) = protocol::read_message(&mut reader).expect("чтение") {
+                if tx.send(message).is_err() {
+                    return;
+                }
+            }
+        });
+        Self { to_server, from_server: rx, seq: 0 }
     }
 
     fn request(&mut self, command: &str, arguments: Value) -> i64 {
@@ -30,18 +43,23 @@ impl Client {
     }
 
     fn next_message(&mut self) -> Value {
-        protocol::read_message(&mut self.from_server).expect("чтение").expect("поток не должен закрыться")
+        self.from_server.recv_timeout(MESSAGE_TIMEOUT).expect("адаптер не ответил вовремя")
     }
 
-    fn call(&mut self, command: &str, arguments: Value) -> Value {
+    fn answer(&mut self, command: &str, arguments: Value) -> Value {
         let seq = self.request(command, arguments);
         loop {
             let message = self.next_message();
             if message["type"] == "response" && message["request_seq"] == seq {
-                assert_eq!(message["success"], true, "{command} должен успешно выполниться: {message}");
                 return message;
             }
         }
+    }
+
+    fn call(&mut self, command: &str, arguments: Value) -> Value {
+        let message = self.answer(command, arguments);
+        assert_eq!(message["success"], true, "{command} должен успешно выполниться: {message}");
+        message
     }
 
     fn wait_event(&mut self, name: &str) -> Value {
@@ -53,31 +71,30 @@ impl Client {
         }
     }
 
+    fn set_breakpoints(&mut self, path: &str, lines: &[usize]) -> Value {
+        let breakpoints: Vec<Value> = lines.iter().map(|line| json!({ "line": line })).collect();
+        self.call("setBreakpoints", json!({ "source": { "path": path }, "breakpoints": breakpoints }))
+    }
+
     fn handshake(&mut self, fixture: &str, stop_on_entry: bool, breakpoint_lines: &[usize]) -> Value {
         self.call("initialize", json!({ "adapterID": "yopta" }));
         let program = fixture_path(fixture);
         self.call("launch", json!({ "program": program, "stopOnEntry": stop_on_entry }));
-        let set = self.call(
-            "setBreakpoints",
-            json!({
-                "source": { "path": program },
-                "breakpoints": breakpoint_lines.iter().map(|l| json!({ "line": l })).collect::<Vec<_>>(),
-            }),
-        );
+        let set = self.set_breakpoints(&program, breakpoint_lines);
         self.call("configurationDone", json!({}));
         set
     }
 
     fn frames(&mut self) -> Vec<Value> {
         let response = self.call("stackTrace", json!({ "threadId": 1 }));
-        response["body"]["stackFrames"].as_array().cloned().unwrap_or_default()
+        response["body"]["stackFrames"].as_array().cloned().expect("stackFrames")
     }
 
     fn locals(&mut self, frame_id: i64) -> Vec<Value> {
         let scopes = self.call("scopes", json!({ "frameId": frame_id }));
         let reference = scopes["body"]["scopes"][0]["variablesReference"].as_i64().expect("ссылка на переменные");
         let response = self.call("variables", json!({ "variablesReference": reference }));
-        response["body"]["variables"].as_array().cloned().unwrap_or_default()
+        response["body"]["variables"].as_array().cloned().expect("variables")
     }
 }
 
@@ -303,20 +320,8 @@ fn breakpoints_in_a_foreign_file_are_rejected_and_do_not_clobber_real_ones() {
     client.call("initialize", json!({ "adapterID": "yopta" }));
     client.call("launch", json!({ "program": program, "stopOnEntry": false }));
 
-    let set = client.call(
-        "setBreakpoints",
-        json!({
-            "source": { "path": program },
-            "breakpoints": [{ "line": 3 }],
-        }),
-    );
-    let foreign = client.call(
-        "setBreakpoints",
-        json!({
-            "source": { "path": fixture_path("blank_line.yopta") },
-            "breakpoints": [{ "line": 3 }],
-        }),
-    );
+    let set = client.set_breakpoints(&program, &[3]);
+    let foreign = client.set_breakpoints(&fixture_path("blank_line.yopta"), &[3]);
 
     assert_eq!(set["body"]["breakpoints"][0]["verified"], true);
     assert_eq!(foreign["body"]["breakpoints"][0]["verified"], false);
@@ -338,21 +343,14 @@ fn breakpoints_sent_before_launch_are_rejected_and_relaunch_works() {
     let program = fixture_path("loop.yopta");
     client.call("initialize", json!({ "adapterID": "yopta" }));
 
-    let early_foreign = client.call(
-        "setBreakpoints",
-        json!({
-            "source": { "path": fixture_path("blank_line.yopta") },
-            "breakpoints": [{ "line": 3 }],
-        }),
-    );
-    let early_own =
-        client.call("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [{ "line": 3 }] }));
+    let early_foreign = client.set_breakpoints(&fixture_path("blank_line.yopta"), &[3]);
+    let early_own = client.set_breakpoints(&program, &[3]);
 
     assert_eq!(early_foreign["body"]["breakpoints"][0]["verified"], false);
     assert_eq!(early_own["body"]["breakpoints"][0]["verified"], false);
 
     client.call("launch", json!({ "program": program, "stopOnEntry": false }));
-    let set = client.call("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [{ "line": 3 }] }));
+    let set = client.set_breakpoints(&program, &[3]);
 
     assert_eq!(set["body"]["breakpoints"][0]["verified"], true);
 
@@ -405,13 +403,7 @@ fn unknown_command_is_rejected() {
     let mut client = Client::start();
     client.call("initialize", json!({}));
 
-    let seq = client.request("рулетка", json!({}));
+    let response = client.answer("рулетка", json!({}));
 
-    loop {
-        let message = client.next_message();
-        if message["type"] == "response" && message["request_seq"] == seq {
-            assert_eq!(message["success"], false);
-            break;
-        }
-    }
+    assert_eq!(response["success"], false);
 }
