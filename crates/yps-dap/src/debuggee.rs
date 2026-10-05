@@ -1,4 +1,6 @@
+use std::any::Any;
 use std::collections::HashSet;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -59,8 +61,10 @@ pub enum DebugMsg {
     Exited { error: Option<String> },
 }
 
+pub type Notify = Arc<dyn Fn(DebugMsg) + Send + Sync>;
+
 struct NotifySink {
-    notify: Box<dyn Fn(DebugMsg) + Send>,
+    notify: Notify,
 }
 
 impl OutputSink for NotifySink {
@@ -91,7 +95,7 @@ struct DapHook {
     source: SourceFile,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     pause_flag: Arc<AtomicBool>,
-    notify: Box<dyn Fn(DebugMsg) + Send>,
+    notify: Notify,
     resume_rx: Receiver<ResumeCmd>,
     entry_pending: bool,
 }
@@ -166,59 +170,116 @@ pub struct LaunchConfig {
 
 /// Runs the program on its own thread. The interpreter is built inside that thread because it
 /// is full of `Rc`s and cannot cross thread boundaries.
-pub fn spawn<N: Fn(DebugMsg) + Clone + Send + 'static>(config: LaunchConfig, notify: N) -> DebuggeeHandle {
+pub fn spawn(config: LaunchConfig, notify: Notify) -> DebuggeeHandle {
     let (resume_tx, resume_rx) = std::sync::mpsc::channel();
     let pause_flag = Arc::new(AtomicBool::new(false));
     let hook_pause_flag = Arc::clone(&pause_flag);
 
     thread::spawn(move || {
-        let hook_notify = notify.clone();
-        let text = match std::fs::read_to_string(&config.program) {
-            Ok(text) => text,
-            Err(err) => {
-                notify(DebugMsg::Exited {
-                    error: Some(format!("Не удалось прочитать '{}': {err}", config.program.display())),
-                });
-                return;
-            }
-        };
-        let source = SourceFile::new(config.program.display().to_string(), text);
-        let (tokens, lex_diags) = Lexer::new(&source).tokenize();
-        if let Some(diag) = lex_diags.first() {
-            notify(DebugMsg::Exited { error: Some(diag.message.clone()) });
-            return;
-        }
-        let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
-        if let Some(diag) = parse_diags.first() {
-            notify(DebugMsg::Exited { error: Some(diag.message.clone()) });
-            return;
-        }
-
-        let mut interp = Interpreter::new();
-        interp.set_output_sink(Box::new(NotifySink { notify: Box::new(notify.clone()) }));
-        interp.block_stdin("чтение из stdin недоступно под отладчиком: канал занят протоколом DAP");
-        if let Some(parent) = config.program.parent() {
-            interp.set_base_path(parent.to_path_buf());
-        }
-        interp.set_debug_hook(Box::new(DapHook {
-            source,
-            breakpoints: config.breakpoints,
-            pause_flag: hook_pause_flag,
-            notify: Box::new(hook_notify),
-            resume_rx,
-            entry_pending: config.stop_on_entry,
-        }));
-        if !config.stop_on_entry {
-            interp.set_debug_resume(DebugAction::Continue);
-        }
-
-        let error = match interp.run(&program) {
-            Ok(()) => None,
-            Err(err) if err.message == yps_interpreter::DEBUG_TERMINATED => None,
-            Err(err) => Some(err.to_string()),
+        let error = match catch_unwind(AssertUnwindSafe(|| run_program(config, &notify, resume_rx, hook_pause_flag))) {
+            Ok(error) => error,
+            Err(payload) => Some(format!("Внутренняя ошибка отладчика: {}", panic_message(payload.as_ref()))),
         };
         notify(DebugMsg::Exited { error });
     });
 
     DebuggeeHandle { resume_tx, pause_flag }
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "неизвестная паника".to_string())
+}
+
+fn run_program(
+    config: LaunchConfig,
+    notify: &Notify,
+    resume_rx: Receiver<ResumeCmd>,
+    pause_flag: Arc<AtomicBool>,
+) -> Option<String> {
+    let text = match std::fs::read_to_string(&config.program) {
+        Ok(text) => text,
+        Err(err) => return Some(format!("Не удалось прочитать '{}': {err}", config.program.display())),
+    };
+    let source = SourceFile::new(config.program.display().to_string(), text);
+    let (tokens, lex_diags) = Lexer::new(&source).tokenize();
+    if let Some(diag) = lex_diags.first() {
+        return Some(diag.message.clone());
+    }
+    let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
+    if let Some(diag) = parse_diags.first() {
+        return Some(diag.message.clone());
+    }
+
+    let mut interp = Interpreter::new();
+    interp.set_output_sink(Box::new(NotifySink { notify: Arc::clone(notify) }));
+    interp.block_stdin("чтение из stdin недоступно под отладчиком: канал занят протоколом DAP");
+    if let Some(parent) = config.program.parent() {
+        interp.set_base_path(parent.to_path_buf());
+    }
+    interp.set_debug_hook(Box::new(DapHook {
+        source,
+        breakpoints: config.breakpoints,
+        pause_flag,
+        notify: Arc::clone(notify),
+        resume_rx,
+        entry_pending: config.stop_on_entry,
+    }));
+    if !config.stop_on_entry {
+        interp.set_debug_resume(DebugAction::Continue);
+    }
+
+    match interp.run(&program) {
+        Ok(()) => None,
+        Err(err) if err.message == yps_interpreter::DEBUG_TERMINATED => None,
+        Err(err) => Some(err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::test_support::fixture;
+
+    fn exits_of(name: &str, inspect: impl Fn(&DebugMsg) + Send + Sync + 'static) -> Vec<Option<String>> {
+        let (tx, rx) = mpsc::channel();
+        let program = PathBuf::from(fixture(name));
+        let config = LaunchConfig { program, stop_on_entry: false, breakpoints: Arc::new(Mutex::new(HashSet::new())) };
+
+        let _handle = spawn(
+            config,
+            Arc::new(move |msg| {
+                inspect(&msg);
+                let _ = tx.send(msg);
+            }),
+        );
+
+        let mut exited = Vec::new();
+        while let Ok(msg) = rx.recv_timeout(Duration::from_secs(10)) {
+            if let DebugMsg::Exited { error } = msg {
+                exited.push(error);
+            }
+        }
+        exited
+    }
+
+    #[test]
+    fn panic_in_the_debuggee_thread_still_delivers_exactly_one_exited() {
+        let exited =
+            exits_of("print.yopta", |msg| assert!(!matches!(msg, DebugMsg::Output { .. }), "паника при выводе"));
+
+        assert_eq!(exited.len(), 1);
+        assert!(exited[0].as_deref().is_some_and(|error| error.contains("паника при выводе")));
+    }
+
+    #[test]
+    fn normal_run_delivers_exactly_one_exited_without_error() {
+        assert_eq!(exits_of("loop.yopta", |_| {}), vec![None]);
+    }
 }

@@ -337,9 +337,9 @@ impl Session {
         let tx = self.events_tx.clone();
         let handle = debuggee::spawn(
             LaunchConfig { program, stop_on_entry: self.stop_on_entry, breakpoints: Arc::clone(&self.breakpoints) },
-            move |msg| {
+            Arc::new(move |msg| {
                 let _ = tx.send(Incoming::Debug(msg));
-            },
+            }),
         );
         self.debuggee = Some(handle);
         self.state = State::Running;

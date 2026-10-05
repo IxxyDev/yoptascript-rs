@@ -26,6 +26,8 @@ pub mod breakpoints;
 pub mod debuggee;
 pub mod protocol;
 pub mod session;
+#[cfg(test)]
+mod test_support;
 
 use std::io::{self, BufReader, Read, Write};
 
