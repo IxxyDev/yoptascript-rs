@@ -14,6 +14,10 @@ impl Lcg {
         (self.next() % bound as u64) as usize
     }
 
+    pub fn pick<T: Clone>(&mut self, items: &[T]) -> T {
+        items[self.below(items.len())].clone()
+    }
+
     pub fn bytes(&mut self, max_len: usize) -> Vec<u8> {
         let len = self.below(max_len + 1);
         (0..len).map(|_| (self.next() & 0xff) as u8).collect()

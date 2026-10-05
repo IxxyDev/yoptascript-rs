@@ -18,6 +18,10 @@
 //! - Only the innermost stack frame exposes real locals; the interpreter keeps no per-frame
 //!   environment snapshots, so outer frames report an empty `Locals` scope.
 //! - Variables are rendered flat (no expandable children for objects, arrays or maps).
+//! - After `terminate`, `terminated` is sent at once and `exited` follows only when the program
+//!   actually stops: a pending `чутка` delays it and an active `интервал` keeps the interpreter
+//!   alive indefinitely, because terminating only aborts the current timer tick. `disconnect`
+//!   always ends the adapter.
 //! - A module-level variable that shadows a builtin name (e.g. `гыы длина = 99;`) is invisible in
 //!   `variables`: top-level script bindings share the same `EnvFrame` as builtins, so the debugger
 //!   filters out anything present in the pre-run global snapshot to avoid listing every builtin.

@@ -19,20 +19,24 @@ const NOT_PAUSED: &str = "Программа не находится на пау
 #[derive(Clone, Copy)]
 enum ErrorCode {
     NotStopped = 1,
+    Cancelled = 2,
     Unsupported = 3,
     NoProgram = 4,
     UnknownFrame = 5,
     DebuggeeGone = 6,
+    SessionEnded = 8,
 }
 
 impl ErrorCode {
     const fn as_str(self) -> &'static str {
         match self {
             Self::NotStopped => "notStopped",
+            Self::Cancelled => "cancelled",
             Self::Unsupported => "unsupported",
             Self::NoProgram => "noProgram",
             Self::UnknownFrame => "unknownFrame",
             Self::DebuggeeGone => "debuggeeGone",
+            Self::SessionEnded => "sessionEnded",
         }
     }
 
@@ -84,6 +88,8 @@ pub struct Session {
     seq: i64,
     state: State,
     should_exit: bool,
+    terminated_sent: bool,
+    next_breakpoint_id: i64,
     program: Option<Source>,
     stop_on_entry: bool,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
@@ -100,6 +106,8 @@ impl Session {
             seq: 0,
             state: State::Configuring,
             should_exit: false,
+            terminated_sent: false,
+            next_breakpoint_id: 0,
             program: None,
             stop_on_entry: false,
             breakpoints: Arc::new(Mutex::new(HashSet::new())),
@@ -113,6 +121,11 @@ impl Session {
     #[must_use]
     pub const fn should_exit(&self) -> bool {
         self.should_exit
+    }
+
+    fn next_breakpoint_id(&mut self) -> i64 {
+        self.next_breakpoint_id += 1;
+        self.next_breakpoint_id
     }
 
     fn next_seq(&mut self) -> i64 {
@@ -157,9 +170,10 @@ impl Session {
 
     pub fn handle(&mut self, incoming: Incoming) -> Vec<Value> {
         match incoming {
-            Incoming::Client(request) => self.handle_client(&request),
+            Incoming::Client(request) if request["type"] == "request" => self.handle_client(&request),
+            Incoming::Client(_) => Vec::new(),
             Incoming::ClientEof => {
-                self.terminate_debuggee();
+                let _ = self.terminate_debuggee();
                 self.should_exit = true;
                 Vec::new()
             }
@@ -173,6 +187,7 @@ impl Session {
     fn handle_debuggee(&mut self, msg: DebugMsg) -> Vec<Value> {
         let mut out = Vec::new();
         match msg {
+            DebugMsg::Stopped(_) if self.state == State::Exited => {}
             DebugMsg::Stopped(info) => {
                 let reason = info.reason.as_dap();
                 self.stopped = Some(*info);
@@ -198,8 +213,10 @@ impl Session {
                 } else {
                     0
                 };
-                out.push(self.event("terminated", json!({})));
                 out.push(self.event("exited", json!({ "exitCode": exit_code })));
+                if !std::mem::replace(&mut self.terminated_sent, true) {
+                    out.push(self.event("terminated", json!({})));
+                }
             }
         }
         while self.state != State::Running
@@ -242,12 +259,7 @@ impl Session {
                 vec![self.response(request, json!({ "breakpoints": [] }))]
             }
             "loadedSources" => vec![self.response(request, json!({ "sources": [] }))],
-            "configurationDone" => {
-                let response = self.response(request, json!({}));
-                let mut out = vec![response];
-                out.extend(self.start_debuggee(request));
-                out
-            }
+            "configurationDone" => self.handle_configuration_done(request),
             "threads" => {
                 let body = json!({ "threads": [{ "id": THREAD_ID, "name": "главный поток" }] });
                 vec![self.response(request, body)]
@@ -270,18 +282,34 @@ impl Session {
                 }
                 vec![self.response(request, json!({}))]
             }
-            "disconnect" | "terminate" => {
-                self.terminate_debuggee();
-                self.should_exit = true;
-                let response = self.response(request, json!({}));
-                let terminated = self.event("terminated", json!({}));
-                vec![response, terminated]
-            }
+            "disconnect" | "terminate" => self.handle_disconnect(request, command == "disconnect"),
             other => {
                 let message = format!("Команда '{other}' не поддерживается");
                 vec![self.failure(request, ErrorCode::Unsupported, message)]
             }
         }
+    }
+
+    fn handle_configuration_done(&mut self, request: &Value) -> Vec<Value> {
+        if self.program.is_none() {
+            return vec![self.failure(request, ErrorCode::NoProgram, "Программа не задана: сначала пришлите 'launch'")];
+        }
+        if self.terminated_sent || self.state == State::Exited {
+            return vec![self.failure(request, ErrorCode::SessionEnded, "Сеанс отладки уже завершён")];
+        }
+        let response = self.response(request, json!({}));
+        self.start_debuggee();
+        vec![response]
+    }
+
+    fn handle_disconnect(&mut self, request: &Value, end_session: bool) -> Vec<Value> {
+        let mut out = self.terminate_debuggee();
+        self.should_exit |= end_session;
+        out.push(self.response(request, json!({})));
+        if !std::mem::replace(&mut self.terminated_sent, true) {
+            out.push(self.event("terminated", json!({})));
+        }
+        out
     }
 
     fn handle_launch(&mut self, request: &Value) -> Vec<Value> {
@@ -319,6 +347,8 @@ impl Session {
             Vec::new()
         };
 
+        let ids: Vec<i64> = requested.iter().map(|_| self.next_breakpoint_id()).collect();
+
         if let Some(path) = request["arguments"]["source"]["path"].as_str() {
             let path = Path::new(path);
             let (foreign, message) = match &self.program {
@@ -328,10 +358,10 @@ impl Session {
             if foreign {
                 let rejected: Vec<Value> = requested
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, line)| {
+                    .zip(ids)
+                    .map(|(line, id)| {
                         json!({
-                            "id": index + 1,
+                            "id": id,
                             "verified": false,
                             "line": line,
                             "message": message,
@@ -346,14 +376,14 @@ impl Session {
         let statement_lines = self.program.as_ref().map_or(&empty, |program| &program.statement_lines);
         let mut verified = Vec::new();
         let mut resolved = HashSet::new();
-        for (index, line) in requested.into_iter().enumerate() {
+        for (line, id) in requested.into_iter().zip(ids) {
             match breakpoints::resolve_line(line, statement_lines) {
                 Some(actual) => {
                     resolved.insert(actual);
-                    verified.push(json!({ "id": index + 1, "verified": true, "line": actual }));
+                    verified.push(json!({ "id": id, "verified": true, "line": actual }));
                 }
                 None => verified.push(json!({
-                    "id": index + 1,
+                    "id": id,
                     "verified": false,
                     "line": line,
                     "message": "На этой строке нет оператора",
@@ -366,12 +396,12 @@ impl Session {
         vec![self.response(request, json!({ "breakpoints": verified }))]
     }
 
-    fn start_debuggee(&mut self, request: &Value) -> Vec<Value> {
+    fn start_debuggee(&mut self) {
         if self.debuggee.is_some() {
-            return Vec::new();
+            return;
         }
         let Some(program) = self.program.as_ref().map(|source| source.path.clone()) else {
-            return vec![self.failure(request, ErrorCode::NoProgram, "Программа не задана: сначала пришлите 'launch'")];
+            return;
         };
         let tx = self.events_tx.clone();
         let handle = debuggee::spawn(
@@ -382,7 +412,6 @@ impl Session {
         );
         self.debuggee = Some(handle);
         self.state = State::Running;
-        Vec::new()
     }
 
     fn resume(&mut self, request: &Value, cmd: ResumeCmd, body: Value) -> Vec<Value> {
@@ -401,7 +430,7 @@ impl Session {
         vec![self.response(request, body)]
     }
 
-    fn terminate_debuggee(&mut self) {
+    fn terminate_debuggee(&mut self) -> Vec<Value> {
         if let Some(handle) = &self.debuggee {
             // Force the hook to stop at the next statement so it drains resume_rx and
             // observes Terminate; while merely `Continue`-ing, the hook never reads that
@@ -411,7 +440,8 @@ impl Session {
         }
         self.stopped = None;
         self.state = State::Exited;
-        self.deferred.clear();
+        let abandoned: Vec<Value> = self.deferred.drain(..).collect();
+        abandoned.iter().map(|request| self.failure(request, ErrorCode::Cancelled, "Сеанс отладки завершён")).collect()
     }
 
     fn source_object(&self, module: Option<&str>) -> Option<Value> {
@@ -493,7 +523,296 @@ impl Session {
 mod tests {
     use super::*;
     use crate::debuggee::StopReason;
+    use crate::test_support::{Lcg, fixture};
     use std::sync::mpsc::{Receiver, channel};
+    use std::time::{Duration, Instant};
+
+    fn random_number(rng: &mut Lcg) -> Value {
+        let options = [
+            json!(-1),
+            json!(0),
+            json!(1),
+            json!(2),
+            json!(3),
+            json!(5),
+            json!(999),
+            json!(1000),
+            json!(1001),
+            json!(1002),
+            json!(i64::MAX),
+            json!(i64::MIN),
+            json!(u64::MAX),
+            json!(1e300),
+            json!(-1e300),
+            json!(0.5),
+            json!("7"),
+            json!(null),
+            json!(true),
+            json!([]),
+            json!({}),
+        ];
+        rng.pick(&options)
+    }
+
+    fn random_path(rng: &mut Lcg) -> Value {
+        let options = [
+            json!(fixture("loop.yopta")),
+            json!(fixture("loop.yopta")),
+            json!(fixture("call.yopta")),
+            json!(fixture("print.yopta")),
+            json!(fixture("stdin.yopta")),
+            json!(fixture("syntax_error.yopta")),
+            json!(fixture("module_main.yopta")),
+            json!(fixture("module_throw_main.yopta")),
+            json!(fixture("blank_line.yopta")),
+            json!(env!("CARGO_MANIFEST_DIR")),
+            json!(""),
+            json!("\0"),
+            json!("a\0b.yopta"),
+            json!("/nonexistent/dir/x.yopta"),
+            json!("relative.yopta"),
+            json!("/"),
+            json!("../../.."),
+            json!("a".repeat(5000)),
+            json!(123),
+            json!(null),
+            json!([]),
+            json!({ "path": "x" }),
+        ];
+        rng.pick(&options)
+    }
+
+    fn random_string(rng: &mut Lcg) -> String {
+        let alphabet: Vec<char> = "abcЖюя \0\n\"\\{}[]0123456789-.".chars().collect();
+        let len = rng.below(24);
+        (0..len).map(|_| alphabet[rng.below(alphabet.len())]).collect()
+    }
+
+    fn random_value(rng: &mut Lcg, depth: usize) -> Value {
+        match rng.below(if depth == 0 { 4 } else { 6 }) {
+            0 => random_number(rng),
+            1 => random_path(rng),
+            2 => json!(random_string(rng)),
+            3 => json!(rng.below(2) == 0),
+            4 => Value::Array((0..rng.below(4)).map(|_| random_value(rng, depth - 1)).collect()),
+            _ => {
+                let mut map = serde_json::Map::new();
+                for _ in 0..rng.below(4) {
+                    let key = rng.pick(&["line", "path", "source", "breakpoints", "lines", "frameId", "program"]);
+                    map.insert(key.to_string(), random_value(rng, depth - 1));
+                }
+                Value::Object(map)
+            }
+        }
+    }
+
+    fn random_breakpoint(rng: &mut Lcg) -> Value {
+        match rng.below(4) {
+            0 => json!({ "line": random_number(rng) }),
+            1 => json!({ "line": rng.below(8) }),
+            2 => random_value(rng, 1),
+            _ => json!({}),
+        }
+    }
+
+    fn targeted_arguments(rng: &mut Lcg, command: &str) -> Value {
+        match command {
+            "launch" => json!({ "program": random_path(rng), "stopOnEntry": random_value(rng, 1) }),
+            "setBreakpoints" => {
+                let source = match rng.below(4) {
+                    0 => json!({ "path": random_path(rng) }),
+                    1 => json!({ "path": fixture("loop.yopta") }),
+                    2 => random_value(rng, 1),
+                    _ => json!({}),
+                };
+                let mut arguments = json!({ "source": source });
+                let key = if rng.below(5) == 0 { "lines" } else { "breakpoints" };
+                arguments[key] = Value::Array(
+                    (0..rng.below(5))
+                        .map(|_| if key == "lines" { random_number(rng) } else { random_breakpoint(rng) })
+                        .collect(),
+                );
+                arguments
+            }
+            "scopes" => json!({ "frameId": random_number(rng) }),
+            "variables" => {
+                json!({ "variablesReference": random_number(rng), "start": random_number(rng), "count": random_number(rng) })
+            }
+            "stackTrace" => json!({
+                "threadId": random_number(rng),
+                "startFrame": random_number(rng),
+                "levels": random_number(rng),
+            }),
+            "continue" | "next" | "stepIn" | "stepOut" | "pause" => json!({ "threadId": random_number(rng) }),
+            _ => random_value(rng, 2),
+        }
+    }
+
+    const COMMANDS: [&str; 18] = [
+        "initialize",
+        "launch",
+        "setBreakpoints",
+        "setExceptionBreakpoints",
+        "loadedSources",
+        "configurationDone",
+        "threads",
+        "stackTrace",
+        "scopes",
+        "variables",
+        "evaluate",
+        "continue",
+        "next",
+        "stepIn",
+        "stepOut",
+        "pause",
+        "terminate",
+        "disconnect",
+    ];
+
+    fn random_request(rng: &mut Lcg, seq: i64) -> Value {
+        let command = match rng.below(12) {
+            0 => json!(random_string(rng)),
+            1 => random_number(rng),
+            _ => {
+                let mut name = rng.pick(&COMMANDS);
+                if matches!(name, "terminate" | "disconnect") && rng.below(8) != 0 {
+                    name = "threads";
+                }
+                json!(name)
+            }
+        };
+        let name = command.as_str().unwrap_or_default().to_string();
+        let mut request = json!({ "seq": seq, "type": "request", "command": command });
+        match rng.below(8) {
+            0 => {}
+            1 => request["arguments"] = random_value(rng, 2),
+            _ => request["arguments"] = targeted_arguments(rng, &name),
+        }
+        if rng.below(12) == 0 {
+            request["seq"] = rng.pick(&[json!("x"), json!(null), json!(1.5), json!(u64::MAX)]);
+        }
+        request
+    }
+
+    struct Harness {
+        session: Session,
+        rx: Receiver<Incoming>,
+        log: Vec<Value>,
+        responses: Vec<Value>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let (tx, rx) = channel();
+            Self { session: Session::new(tx), rx, log: Vec::new(), responses: Vec::new() }
+        }
+
+        fn absorb(&mut self, out: Vec<Value>) {
+            self.responses.extend(out.into_iter().filter(|message| message["type"] == "response"));
+        }
+
+        fn send(&mut self, request: Value) {
+            self.log.push(request.clone());
+            let out = self.session.handle(Incoming::Client(request));
+            self.absorb(out);
+        }
+
+        fn drain(&mut self) {
+            while let Ok(incoming) = self.rx.try_recv() {
+                let out = self.session.handle(incoming);
+                self.absorb(out);
+            }
+        }
+
+        fn settle(&mut self, case: usize) {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while self.session.state == State::Running {
+                let left = deadline.saturating_duration_since(Instant::now());
+                let incoming = self
+                    .rx
+                    .recv_timeout(left)
+                    .unwrap_or_else(|_| panic!("case {case}: сессия зависла в Running, запросы: {:?}", self.log));
+                let out = self.session.handle(incoming);
+                self.absorb(out);
+            }
+            self.drain();
+        }
+    }
+
+    #[test]
+    fn session_survives_pseudo_random_requests_and_answers_each_exactly_once() {
+        let mut rng = Lcg(0x0123_4567_89ab_cdef);
+        let mut seq = 0;
+        let mut inspected_while_paused = 0;
+        for case in 0..1000 {
+            let mut harness = Harness::new();
+            let prefix = rng.below(4);
+            if prefix >= 1 {
+                seq += 1;
+                harness.send(json!({ "seq": seq, "type": "request", "command": "initialize", "arguments": {} }));
+                seq += 1;
+                let program = fixture(rng.pick(&["loop.yopta", "call.yopta", "print.yopta", "module_main.yopta"]));
+                harness.send(json!({
+                    "seq": seq,
+                    "type": "request",
+                    "command": "launch",
+                    "arguments": { "program": program, "stopOnEntry": rng.below(2) == 0 },
+                }));
+            }
+            if prefix >= 2 {
+                seq += 1;
+                harness.send(json!({
+                    "seq": seq,
+                    "type": "request",
+                    "command": "setBreakpoints",
+                    "arguments": { "source": { "path": fixture("loop.yopta") }, "breakpoints": [{ "line": 3 }] },
+                }));
+            }
+            if prefix >= 3 {
+                seq += 1;
+                harness.send(json!({ "seq": seq, "type": "request", "command": "configurationDone" }));
+            }
+            for _ in 0..(3 + rng.below(12)) {
+                seq += 1;
+                let request = random_request(&mut rng, seq);
+                harness.send(request);
+                if rng.below(4) != 0 {
+                    harness.settle(case);
+                } else {
+                    harness.drain();
+                }
+            }
+            harness.settle(case);
+            seq += 1;
+            harness.send(json!({ "seq": seq, "type": "request", "command": "disconnect" }));
+            harness.drain();
+
+            assert_eq!(
+                harness.responses.len(),
+                harness.log.len(),
+                "case {case}: число ответов не совпало с числом запросов\nзапросы: {}\nответы: {}",
+                harness.log.iter().map(Value::to_string).collect::<Vec<_>>().join("\n"),
+                harness.responses.iter().map(Value::to_string).collect::<Vec<_>>().join("\n"),
+            );
+            inspected_while_paused += harness
+                .responses
+                .iter()
+                .filter(|response| response["command"] == "stackTrace" && response["success"] == true)
+                .count();
+            for response in &harness.responses {
+                assert!(response["success"].is_boolean(), "case {case}: ответ без success: {response}");
+                assert!(response["request_seq"].is_i64(), "case {case}: ответ без request_seq: {response}");
+            }
+            for request in &harness.log {
+                if let Some(request_seq) = request["seq"].as_i64() {
+                    let answers =
+                        harness.responses.iter().filter(|response| response["request_seq"] == request_seq).count();
+                    assert_eq!(answers, 1, "case {case}: запрос {request} получил {answers} ответов");
+                }
+            }
+        }
+        assert!(inspected_while_paused > 20, "fuzz never reached a paused debuggee");
+    }
 
     fn running_session() -> (Session, Receiver<ResumeCmd>, Arc<std::sync::atomic::AtomicBool>) {
         let (events_tx, _) = channel();
@@ -524,6 +843,49 @@ mod tests {
     }
 
     #[test]
+    fn terminate_while_running_sends_terminated_at_once_swallows_the_wakeup_stop_and_exited_follows_alone() {
+        let (mut session, resume_rx, pause_flag) = running_session();
+
+        let out = session.handle(request(1, "terminate"));
+
+        assert_eq!(kinds(&out), ["response:terminate:true", "event:terminated"]);
+        assert!(pause_flag.load(Ordering::SeqCst));
+        assert_eq!(resume_rx.try_recv().ok(), Some(ResumeCmd::Terminate));
+
+        let out = session.handle(stopped(StopReason::Pause));
+
+        assert!(out.is_empty(), "{out:?}");
+        assert_eq!(session.state, State::Exited);
+        assert!(session.stopped.is_none());
+
+        let out = session.handle(Incoming::Debug(DebugMsg::Exited { error: None }));
+
+        assert_eq!(kinds(&out), ["event:exited"]);
+
+        let out = session.handle(request(2, "stackTrace"));
+
+        assert_eq!(out[0]["message"], "notStopped", "{out:?}");
+
+        let out = session.handle(request(3, "terminate"));
+
+        assert_eq!(kinds(&out), ["response:terminate:true"]);
+
+        let out = session.handle(request(4, "disconnect"));
+
+        assert_eq!(kinds(&out), ["response:disconnect:true"]);
+    }
+
+    #[test]
+    fn terminate_before_configuration_done_emits_terminated_at_once() {
+        let (events_tx, _) = channel();
+        let mut session = Session::new(events_tx);
+
+        let out = session.handle(request(1, "terminate"));
+
+        assert_eq!(kinds(&out), ["response:terminate:true", "event:terminated"]);
+    }
+
+    #[test]
     fn pause_raced_with_a_stop_does_not_survive_continue() {
         let (mut session, resume_rx, pause_flag) = running_session();
 
@@ -543,10 +905,12 @@ mod tests {
     fn error_codes_keep_their_wire_strings() {
         let expected = [
             (ErrorCode::NotStopped, "notStopped"),
+            (ErrorCode::Cancelled, "cancelled"),
             (ErrorCode::Unsupported, "unsupported"),
             (ErrorCode::NoProgram, "noProgram"),
             (ErrorCode::UnknownFrame, "unknownFrame"),
             (ErrorCode::DebuggeeGone, "debuggeeGone"),
+            (ErrorCode::SessionEnded, "sessionEnded"),
         ];
         for (code, text) in expected {
             assert_eq!(code.as_str(), text);

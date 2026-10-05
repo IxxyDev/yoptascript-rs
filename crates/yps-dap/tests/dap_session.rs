@@ -1,7 +1,7 @@
 use std::io::{BufReader, PipeWriter};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -52,6 +52,11 @@ impl Client {
 
     fn next_message(&mut self) -> Value {
         self.next_or_end().expect("поток не должен закрыться")
+    }
+
+    fn next_message_before(&mut self, deadline: Instant) -> Value {
+        let left = deadline.saturating_duration_since(Instant::now());
+        self.from_server.recv_timeout(left).expect("адаптер не ответил вовремя")
     }
 
     fn answer(&mut self, command: &str, arguments: Value) -> Value {
@@ -173,8 +178,8 @@ fn breakpoint_hit_inspection_and_continue_to_completion() {
 
     client.call("continue", json!({ "threadId": 1 }));
 
-    client.wait_event("terminated");
     client.wait_event("exited");
+    client.wait_event("terminated");
 }
 
 #[test]
@@ -500,6 +505,157 @@ fn unrecoverable_framing_error_ends_the_session() {
     let text = report["body"]["output"].as_str().unwrap_or_default();
     assert!(text.contains("некорректное значение Content-Length"), "{text}");
     assert!(client.next_or_end().is_none(), "сессия должна закрыться");
+}
+
+#[test]
+fn breakpoint_ids_are_unique_across_requests() {
+    let mut client = Client::start();
+    let program = fixture_path("loop.yopta");
+    client.call("initialize", json!({}));
+    client.call("launch", json!({ "program": program, "stopOnEntry": false }));
+
+    let first = client.set_breakpoints(&program, &[3, 5]);
+    let second = client.set_breakpoints(&program, &[3, 99]);
+    let foreign = client.set_breakpoints(&fixture_path("blank_line.yopta"), &[1]);
+
+    let mut ids: Vec<i64> = [&first, &second, &foreign]
+        .iter()
+        .flat_map(|response| response["body"]["breakpoints"].as_array().cloned().unwrap_or_default())
+        .filter_map(|breakpoint| breakpoint["id"].as_i64())
+        .collect();
+    let total = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+
+    assert_eq!(total, 5);
+    assert_eq!(ids.len(), 5, "идентификаторы должны быть уникальны: {ids:?}");
+}
+
+#[test]
+fn exited_event_precedes_terminated() {
+    let mut client = Client::start();
+    client.handshake("print.yopta", false, &[]);
+
+    let mut order = Vec::new();
+    while order.len() < 2 {
+        let message = client.next_message();
+        if message["type"] == "event" && matches!(message["event"].as_str(), Some("exited" | "terminated")) {
+            order.push(message["event"].as_str().unwrap_or_default().to_string());
+        }
+    }
+
+    assert_eq!(order, ["exited", "terminated"]);
+}
+
+#[test]
+fn terminate_stops_the_debuggee_but_keeps_the_adapter_alive_until_disconnect() {
+    let mut client = Client::start();
+    client.handshake("spin.yopta", false, &[]);
+
+    let response = client.call("terminate", json!({}));
+    let stack_seq = client.request("stackTrace", json!({ "threadId": 1 }));
+    let threads_seq = client.request("threads", json!({}));
+    let disconnect_seq = client.request("disconnect", json!({}));
+    let mut events = Vec::new();
+    let mut responses = std::collections::HashMap::new();
+    while let Some(message) = client.next_or_end() {
+        if message["type"] == "event" {
+            events.push(message["event"].as_str().unwrap_or_default().to_string());
+        } else if let Some(seq) = message["request_seq"].as_i64() {
+            responses.insert(seq, message);
+        }
+    }
+
+    assert_eq!(response["success"], true);
+    assert_eq!(events.first().map(String::as_str), Some("terminated"), "{events:?}");
+    assert!(
+        events[1..].iter().all(|name| name == "exited" || name == "output"),
+        "после terminate не должно быть остановки или повторного terminated: {events:?}"
+    );
+    assert!(events.iter().filter(|name| *name == "exited").count() <= 1, "{events:?}");
+    assert_error(&responses[&stack_seq], "notStopped");
+    assert_eq!(responses[&threads_seq]["body"]["threads"].as_array().map(Vec::len), Some(1));
+    assert_eq!(responses[&disconnect_seq]["success"], true);
+}
+
+#[test]
+fn terminate_answers_promptly_even_while_an_interval_keeps_the_program_alive() {
+    let mut client = Client::start();
+    client.handshake("ticker.yopta", false, &[]);
+    client.wait_event("output");
+    let terminate_seq = client.request("terminate", json!({}));
+    let deadline = Instant::now() + Duration::from_secs(5);
+
+    let mut terminate_answered = false;
+    loop {
+        let message = client.next_message_before(deadline);
+        assert!(!(message["type"] == "event" && message["event"] == "stopped"), "{message}");
+        if message["type"] == "response" && message["request_seq"] == terminate_seq {
+            assert_eq!(message["success"], true, "{message}");
+            terminate_answered = true;
+        }
+        if message["type"] == "event" && message["event"] == "terminated" {
+            break;
+        }
+    }
+    assert!(terminate_answered, "ответ на terminate должен прийти до terminated");
+
+    let disconnect_seq = client.request("disconnect", json!({}));
+    loop {
+        let message = client.next_message_before(deadline);
+        assert!(!(message["type"] == "event" && message["event"] == "terminated"), "terminated дважды: {message}");
+        if message["type"] == "response" && message["request_seq"] == disconnect_seq {
+            assert_eq!(message["success"], true, "{message}");
+            break;
+        }
+    }
+}
+
+#[test]
+fn configuration_done_after_terminate_does_not_start_the_program() {
+    let mut client = Client::start();
+    client.call("initialize", json!({ "adapterID": "yopta" }));
+    client.call("launch", json!({ "program": fixture_path("loop.yopta"), "stopOnEntry": true }));
+    client.call("terminate", json!({}));
+    client.wait_event("terminated");
+
+    let response = client.answer("configurationDone", json!({}));
+    let seq = client.request("disconnect", json!({}));
+    let mut events = Vec::new();
+    while let Some(message) = client.next_or_end() {
+        if message["type"] == "event" {
+            events.push(message["event"].as_str().unwrap_or_default().to_string());
+        }
+        if message["type"] == "response" && message["request_seq"] == seq {
+            break;
+        }
+    }
+
+    assert_error(&response, "sessionEnded");
+    assert!(events.is_empty(), "программа не должна была стартовать: {events:?}");
+}
+
+#[test]
+fn messages_that_are_not_requests_are_ignored() {
+    let mut client = Client::start();
+    client.call("initialize", json!({ "adapterID": "yopta" }));
+
+    let junk = [
+        json!({ "seq": 90, "type": "response", "request_seq": 1, "command": "runInTerminal", "success": true }),
+        json!({ "seq": 91, "type": "event", "event": "output" }),
+        json!({ "seq": 92, "command": "threads" }),
+        json!([1, 2, 3]),
+        json!(42),
+    ];
+    for message in &junk {
+        protocol::write_message(&mut client.to_server, message).expect("сообщение должно уйти");
+    }
+    let seq = client.request("threads", json!({}));
+    let next = client.next_message();
+
+    assert_eq!(next["type"], "response", "{next}");
+    assert_eq!(next["request_seq"], seq, "на не-запросы не должно быть ответа: {next}");
+    assert_eq!(next["success"], true, "{next}");
 }
 
 #[test]
