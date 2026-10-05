@@ -51,6 +51,19 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+fn load_statement_lines(path: &Path) -> std::io::Result<BTreeSet<usize>> {
+    let text = std::fs::read_to_string(path)?;
+    let source = SourceFile::new(path.display().to_string(), text);
+    let (tokens, _) = Lexer::new(&source).tokenize();
+    let (program, _) = Parser::new(&tokens, &source).parse_program();
+    Ok(breakpoints::statement_lines(&program, &source))
+}
+
+struct Source {
+    path: PathBuf,
+    statement_lines: BTreeSet<usize>,
+}
+
 /// What arrives on the adapter's single event queue.
 pub enum Incoming {
     Client(Value),
@@ -70,10 +83,8 @@ pub struct Session {
     seq: i64,
     state: State,
     should_exit: bool,
-    program: Option<PathBuf>,
+    program: Option<Source>,
     stop_on_entry: bool,
-    source_path: Option<PathBuf>,
-    statement_lines: BTreeSet<usize>,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     debuggee: Option<DebuggeeHandle>,
     stopped: Option<StopInfo>,
@@ -90,8 +101,6 @@ impl Session {
             should_exit: false,
             program: None,
             stop_on_entry: false,
-            source_path: None,
-            statement_lines: BTreeSet::new(),
             breakpoints: Arc::new(Mutex::new(HashSet::new())),
             debuggee: None,
             stopped: None,
@@ -272,34 +281,28 @@ impl Session {
     }
 
     fn handle_launch(&mut self, request: &Value) -> Vec<Value> {
-        let Some(program) = request["arguments"]["program"].as_str() else {
+        let arguments = &request["arguments"];
+        let Some(program) = arguments["program"].as_str() else {
             return vec![self.failure(request, ErrorCode::NoProgram, "В 'launch' не указан аргумент 'program'")];
         };
-        self.stop_on_entry = request["arguments"]["stopOnEntry"].as_bool().unwrap_or(false);
         let mut program_path = PathBuf::from(program);
         if program_path.is_relative()
             && let Ok(cwd) = std::env::current_dir()
         {
             program_path = cwd.join(program_path);
         }
-        if self.source_path.is_none() {
-            self.load_statement_lines(&program_path);
-        }
-        self.program = Some(program_path);
+        let statement_lines = match load_statement_lines(&program_path) {
+            Ok(lines) => lines,
+            Err(err) => {
+                let text = format!("Не удалось прочитать '{}': {err}", program_path.display());
+                return vec![self.failure(request, ErrorCode::NoProgram, text)];
+            }
+        };
+        self.stop_on_entry = arguments["stopOnEntry"].as_bool().unwrap_or(false);
+        self.program = Some(Source { path: program_path, statement_lines });
         let response = self.response(request, json!({}));
         let initialized = self.event("initialized", json!({}));
         vec![response, initialized]
-    }
-
-    fn load_statement_lines(&mut self, path: &Path) {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return;
-        };
-        let source = SourceFile::new(path.display().to_string(), text);
-        let (tokens, _) = Lexer::new(&source).tokenize();
-        let (program, _) = Parser::new(&tokens, &source).parse_program();
-        self.statement_lines = breakpoints::statement_lines(&program, &source);
-        self.source_path = Some(path.to_path_buf());
     }
 
     fn handle_set_breakpoints(&mut self, request: &Value) -> Vec<Value> {
@@ -315,7 +318,7 @@ impl Session {
         if let Some(path) = request["arguments"]["source"]["path"].as_str() {
             let path = Path::new(path);
             let (foreign, message) = match &self.program {
-                Some(program) => (!same_file(program, path), "Отлаживается только запущенный файл"),
+                Some(program) => (!same_file(&program.path, path), "Отлаживается только запущенный файл"),
                 None => (true, "Сначала пришлите 'launch'"),
             };
             if foreign {
@@ -333,15 +336,14 @@ impl Session {
                     .collect();
                 return vec![self.response(request, json!({ "breakpoints": rejected }))];
             }
-            if self.source_path.as_deref() != Some(path) {
-                self.load_statement_lines(path);
-            }
         }
 
+        let empty = BTreeSet::new();
+        let statement_lines = self.program.as_ref().map_or(&empty, |program| &program.statement_lines);
         let mut verified = Vec::new();
         let mut resolved = HashSet::new();
         for (index, line) in requested.into_iter().enumerate() {
-            match breakpoints::resolve_line(line, &self.statement_lines) {
+            match breakpoints::resolve_line(line, statement_lines) {
                 Some(actual) => {
                     resolved.insert(actual);
                     verified.push(json!({ "id": index + 1, "verified": true, "line": actual }));
@@ -364,7 +366,7 @@ impl Session {
         if self.debuggee.is_some() {
             return Vec::new();
         }
-        let Some(program) = self.program.clone() else {
+        let Some(program) = self.program.as_ref().map(|source| source.path.clone()) else {
             return vec![self.failure(request, ErrorCode::NoProgram, "Программа не задана: сначала пришлите 'launch'")];
         };
         let tx = self.events_tx.clone();
@@ -409,7 +411,7 @@ impl Session {
     }
 
     fn source_object(&self) -> Value {
-        match &self.program {
+        match self.program.as_ref().map(|source| source.path.as_path()) {
             Some(path) => json!({
                 "name": path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
                 "path": path.display().to_string(),

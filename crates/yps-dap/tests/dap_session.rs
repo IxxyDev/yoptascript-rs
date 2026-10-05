@@ -433,11 +433,38 @@ fn pause_while_running_stops_with_reason_pause() {
     client.call("disconnect", json!({}));
 }
 
+#[test]
+fn syntax_error_reports_position_and_exit_code_one() {
+    let mut client = Client::start();
+    client.handshake("syntax_error.yopta", false, &[]);
+
+    let output = client.wait_event("output");
+    let exited = client.wait_event("exited");
+
+    assert_eq!(output["body"]["category"], "stderr");
+    let text = output["body"]["output"].as_str().unwrap_or_default();
+    assert!(text.contains("syntax_error.yopta:2:"), "нет позиции в сообщении: {text}");
+    assert_eq!(exited["body"]["exitCode"], 1);
+}
+
 fn assert_error(response: &Value, code: &str) {
     assert_eq!(response["success"], false, "{response}");
     assert_eq!(response["message"], code, "{response}");
     assert!(response["body"]["error"]["id"].is_i64(), "{response}");
     assert!(response["body"]["error"]["format"].as_str().is_some_and(|text| !text.is_empty()), "{response}");
+}
+
+#[test]
+fn launch_of_an_unreadable_program_fails_with_no_program() {
+    let mut client = Client::start();
+    client.call("initialize", json!({ "adapterID": "yopta" }));
+    let program = fixture_path("нет_такого.yopta");
+
+    let response = client.answer("launch", json!({ "program": program }));
+
+    assert_error(&response, "noProgram");
+    assert!(response["body"]["error"]["format"].as_str().unwrap_or_default().contains(&program), "{response}");
+    client.call("disconnect", json!({}));
 }
 
 #[test]

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use yps_interpreter::{DebugAction, DebugEvent, DebugHook, Interpreter, OutputSink};
-use yps_lexer::{Lexer, SourceFile};
+use yps_lexer::{Lexer, Severity, SourceFile};
 use yps_parser::Parser;
 
 use crate::line_index::LineIndex;
@@ -208,12 +208,12 @@ fn run_program(
     };
     let source = SourceFile::new(config.program.display().to_string(), text);
     let (tokens, lex_diags) = Lexer::new(&source).tokenize();
-    if let Some(diag) = lex_diags.first() {
-        return Some(diag.message.clone());
+    if let Some(diag) = lex_diags.iter().find(|diag| diag.severity == Severity::Error) {
+        return Some(source.describe(diag));
     }
     let (program, parse_diags) = Parser::new(&tokens, &source).parse_program();
-    if let Some(diag) = parse_diags.first() {
-        return Some(diag.message.clone());
+    if let Some(diag) = parse_diags.iter().find(|diag| diag.severity == Severity::Error) {
+        return Some(source.describe(diag));
     }
 
     let mut interp = Interpreter::new();
