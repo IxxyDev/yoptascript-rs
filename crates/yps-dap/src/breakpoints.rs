@@ -9,12 +9,11 @@ use yps_parser::ast::{
 /// because the debug hook fires once per `Stmt`.
 #[must_use]
 pub fn statement_lines(program: &Program, source: &SourceFile) -> BTreeSet<usize> {
-    let mut out = BTreeSet::new();
-    let mut collector = Collector { source, out: &mut out };
+    let mut collector = Collector { source, lines: BTreeSet::new() };
     for stmt in &program.items {
         collector.stmt(stmt);
     }
-    out
+    collector.lines
 }
 
 /// Resolution rule: a requested line binds to the first statement line at or after it.
@@ -26,13 +25,13 @@ pub fn resolve_line(requested: usize, lines: &BTreeSet<usize>) -> Option<usize> 
 
 struct Collector<'a> {
     source: &'a SourceFile,
-    out: &'a mut BTreeSet<usize>,
+    lines: BTreeSet<usize>,
 }
 
 impl Collector<'_> {
     fn mark(&mut self, stmt: &Stmt) {
         let (line, _) = self.source.position(stmt.span().start);
-        self.out.insert(line);
+        self.lines.insert(line);
     }
 
     fn block(&mut self, block: &Block) {
@@ -236,7 +235,13 @@ impl Collector<'_> {
                     }
                 }
             }
-            _ => {}
+            Literal::Number { .. }
+            | Literal::BigInt { .. }
+            | Literal::String { .. }
+            | Literal::Boolean { .. }
+            | Literal::Null { .. }
+            | Literal::Undefined { .. }
+            | Literal::RegExp { .. } => {}
         }
     }
 
@@ -318,6 +323,12 @@ mod tests {
     fn collects_arrow_function_bodies() {
         let lines = lines_of("гыы f = () => {\n    гыы b = 1;\n    отвечаю b;\n};\n");
         assert!(lines.contains(&2) && lines.contains(&3));
+    }
+
+    #[test]
+    fn collects_function_bodies_inside_computed_property_keys() {
+        let lines = lines_of("гыы o = {\n    [(() => {\n        гыы k = 1;\n        отвечаю k;\n    })()]: 1\n};\n");
+        assert!(lines.contains(&3) && lines.contains(&4), "{lines:?}");
     }
 
     #[test]
