@@ -250,7 +250,9 @@ impl Session {
             "stepIn" => self.resume(request, ResumeCmd::StepIn, json!({})),
             "stepOut" => self.resume(request, ResumeCmd::StepOut, json!({})),
             "pause" => {
-                if let Some(handle) = &self.debuggee {
+                if self.state == State::Running
+                    && let Some(handle) = &self.debuggee
+                {
                     handle.pause_flag.store(true, Ordering::SeqCst);
                 }
                 vec![self.response(request, json!({}))]
@@ -381,7 +383,10 @@ impl Session {
         if self.state != State::Stopped {
             return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         }
-        let sent = self.debuggee.as_ref().is_some_and(|handle| handle.resume_tx.send(cmd).is_ok());
+        let sent = self.debuggee.as_ref().is_some_and(|handle| {
+            handle.pause_flag.store(false, Ordering::SeqCst);
+            handle.resume_tx.send(cmd).is_ok()
+        });
         if !sent {
             return vec![self.failure(request, ErrorCode::DebuggeeGone, "Отлаживаемая программа недоступна")];
         }
@@ -484,6 +489,52 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debuggee::StopReason;
+    use std::sync::mpsc::{Receiver, channel};
+
+    fn running_session() -> (Session, Receiver<ResumeCmd>, Arc<std::sync::atomic::AtomicBool>) {
+        let (events_tx, _) = channel();
+        let mut session = Session::new(events_tx);
+        let (resume_tx, resume_rx) = channel();
+        let pause_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        session.debuggee = Some(DebuggeeHandle { resume_tx, pause_flag: Arc::clone(&pause_flag) });
+        session.state = State::Running;
+        (session, resume_rx, pause_flag)
+    }
+
+    fn stopped(reason: StopReason) -> Incoming {
+        let frame = debuggee::DapFrame { name: "(модуль)".to_string(), line: 1, column: 1 };
+        Incoming::Debug(DebugMsg::Stopped(Box::new(StopInfo { reason, frames: vec![frame], locals: Vec::new() })))
+    }
+
+    fn request(seq: i64, command: &str) -> Incoming {
+        Incoming::Client(json!({ "seq": seq, "type": "request", "command": command, "arguments": { "threadId": 1 } }))
+    }
+
+    fn kinds(out: &[Value]) -> Vec<String> {
+        out.iter()
+            .map(|message| match message["type"].as_str() {
+                Some("event") => format!("event:{}", message["event"].as_str().unwrap_or_default()),
+                _ => format!("response:{}:{}", message["command"].as_str().unwrap_or_default(), message["success"]),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pause_raced_with_a_stop_does_not_survive_continue() {
+        let (mut session, resume_rx, pause_flag) = running_session();
+
+        session.handle(request(1, "pause"));
+        session.handle(stopped(StopReason::Breakpoint));
+
+        assert!(pause_flag.load(Ordering::SeqCst));
+
+        let out = session.handle(request(2, "continue"));
+
+        assert_eq!(kinds(&out), ["response:continue:true"]);
+        assert!(!pause_flag.load(Ordering::SeqCst), "флаг паузы должен сброситься перед продолжением");
+        assert_eq!(resume_rx.try_recv().ok(), Some(ResumeCmd::Continue));
+    }
 
     #[test]
     fn error_codes_keep_their_wire_strings() {

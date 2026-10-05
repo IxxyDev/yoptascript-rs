@@ -71,6 +71,16 @@ impl Client {
         }
     }
 
+    fn expect_exit_without_stop(&mut self) -> Value {
+        loop {
+            let message = self.next_message();
+            assert!(!(message["type"] == "event" && message["event"] == "stopped"), "лишняя остановка: {message}");
+            if message["type"] == "event" && message["event"] == "exited" {
+                return message;
+            }
+        }
+    }
+
     fn set_breakpoints(&mut self, path: &str, lines: &[usize]) -> Value {
         let breakpoints: Vec<Value> = lines.iter().map(|line| json!({ "line": line })).collect();
         self.call("setBreakpoints", json!({ "source": { "path": path }, "breakpoints": breakpoints }))
@@ -396,6 +406,31 @@ fn set_exception_breakpoints_and_loaded_sources_succeed() {
     let sources = client.call("loadedSources", json!({}));
 
     assert_eq!(sources["body"]["sources"].as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn pause_while_stopped_does_not_stop_again_after_continue() {
+    let mut client = Client::start();
+    client.handshake("call.yopta", false, &[5]);
+    let stopped = client.wait_event("stopped");
+    assert_eq!(stopped["body"]["reason"], "breakpoint");
+
+    client.call("pause", json!({ "threadId": 1 }));
+    client.call("continue", json!({ "threadId": 1 }));
+
+    assert_eq!(client.expect_exit_without_stop()["body"]["exitCode"], 0);
+}
+
+#[test]
+fn pause_while_running_stops_with_reason_pause() {
+    let mut client = Client::start();
+    client.handshake("spin.yopta", false, &[]);
+
+    client.call("pause", json!({ "threadId": 1 }));
+    let stopped = client.wait_event("stopped");
+
+    assert_eq!(stopped["body"]["reason"], "pause");
+    client.call("disconnect", json!({}));
 }
 
 fn assert_error(response: &Value, code: &str) {
