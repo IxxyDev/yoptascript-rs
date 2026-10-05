@@ -5,6 +5,51 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Debug adapter follows the DAP specification more closely** — failed
+  requests carry a short machine-readable `message` (`notStopped`,
+  `cancelled`, `unsupported`, …) with the Russian text in `body.error`;
+  `linesStartAt1` / `columnsStartAt1` are honoured and columns are counted
+  in UTF-16 code units; `Variable.type` is sent only to clients that ask
+  for it; `stopped` names the hit breakpoint and unverified breakpoints
+  explain why; adapter-side messages use the `console` output category;
+  `stackTrace` and `variables` page with `startFrame` / `levels` and
+  `filter` / `start` / `count`; `step*` and `continue` sent while the
+  program runs are rejected with `notStopped` instead of being queued.
+- **Debug adapter `launch`** understands `noDebug`, `args` (they reach the
+  script as `Процесс.аргументы`) and `cwd`, and `evaluate` resolves the
+  name of an innermost-frame local.
+- **`terminate` no longer shuts the adapter down** — it answers at once and
+  sends `terminated`; only `disconnect` (or the client closing the stream)
+  ends the adapter, and `exited` follows when the program really stops.
+
+### Fixed
+
+- **Debug adapter stepping cost** — every executed statement used to scan
+  the source from the start to find its line, so a 100 KB program with a
+  200 000-iteration loop took 18.7 s under the adapter; lines now come from
+  a precomputed index and the same run takes 0.084 s, on par with plain
+  `yps`.
+- **Debug adapter no longer hangs on an interpreter panic** — the client
+  always receives exactly one `exited`, with exit code 1 after a panic.
+- **Debug adapter `pause`** — it is armed only while the program runs, so
+  pausing at a breakpoint no longer produces a spurious stop after the next
+  `continue`; `terminate` no longer emits a stray `stopped`.
+- **Debug adapter launch errors** — only errors abort a launch (warnings
+  are ignored), the message names `file:line:column`, an unreadable program
+  fails the `launch` request, and a runtime error inside an imported module
+  names the module's file and line. Breakpoints no longer fire on module
+  code and module frames show the module's own file and line.
+- **Debug adapter protocol robustness** — a malformed frame is reported
+  instead of silently ending the session, header lines and bodies are
+  capped (8 KiB / 64 MiB), a bad `frameId` no longer panics, requests
+  queued while the program runs are answered with `cancelled` on
+  `terminate`, `configurationDone` without `launch` gets a single reply,
+  breakpoint ids are unique and messages that are not requests are ignored.
+
 ## [1.17.3] - 2026-10-04
 
 ### Changed
