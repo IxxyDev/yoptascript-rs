@@ -810,6 +810,18 @@ fn zero_based_client_lines_and_columns_are_converted() {
 }
 
 #[test]
+fn no_debug_launch_ignores_breakpoints_and_stop_on_entry() {
+    let mut client = Client::start();
+    let program = fixture_path("loop.yopta");
+    client.call("initialize", json!({ "adapterID": "yopta" }));
+    client.call("launch", json!({ "program": program, "stopOnEntry": true, "noDebug": true }));
+    client.set_breakpoints(&program, &[3]);
+    client.call("configurationDone", json!({}));
+
+    assert_eq!(client.expect_exit_without_stop()["body"]["exitCode"], 0);
+}
+
+#[test]
 fn stopped_event_names_the_breakpoint_that_was_hit() {
     let mut client = Client::start();
 
@@ -892,4 +904,47 @@ fn evaluate_resolves_innermost_local_names() {
     assert_eq!(found["body"]["variablesReference"], 0);
     assert_error(&missing, "notAvailable");
     client.call("disconnect", json!({}));
+}
+
+#[test]
+fn launch_args_and_cwd_reach_the_script() {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yps-dap"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("адаптер должен запуститься");
+    let mut input = child.stdin.take().expect("stdin");
+    let mut output = BufReader::new(child.stdout.take().expect("stdout"));
+    let fixtures = PathBuf::from(fixture_path("args.yopta")).parent().expect("каталог").display().to_string();
+    let requests = [
+        json!({ "seq": 1, "type": "request", "command": "initialize", "arguments": { "adapterID": "yopta" } }),
+        json!({
+            "seq": 2,
+            "type": "request",
+            "command": "launch",
+            "arguments": { "program": "args.yopta", "cwd": fixtures, "args": ["раз", "два"] },
+        }),
+        json!({ "seq": 3, "type": "request", "command": "configurationDone" }),
+    ];
+    for request in &requests {
+        protocol::write_message(&mut input, request).expect("запрос должен уйти");
+    }
+
+    let mut printed = String::new();
+    loop {
+        let message = protocol::read_message(&mut output).expect("чтение").expect("поток не должен закрыться");
+        if message["type"] == "event" && message["event"] == "output" {
+            printed.push_str(message["body"]["output"].as_str().unwrap_or_default());
+        }
+        if message["type"] == "event" && message["event"] == "exited" {
+            break;
+        }
+    }
+    protocol::write_message(&mut input, &json!({ "seq": 4, "type": "request", "command": "disconnect" }))
+        .expect("запрос должен уйти");
+    let _ = child.wait();
+
+    assert_eq!(printed, "3 раз два\n");
 }

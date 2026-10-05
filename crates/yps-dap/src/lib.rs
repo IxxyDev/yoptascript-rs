@@ -20,6 +20,12 @@
 //! - Variables are rendered flat (no expandable children for objects, arrays or maps).
 //! - `evaluate` only resolves the exact name of an innermost-frame local; any other expression
 //!   is answered with an error, and `supportsEvaluateForHovers` is not advertised.
+//! - `launch.args` become `Процесс.аргументы` (`[program, ...args]`, as in `yps-cli`), but that
+//!   store is process-global and set-once, so only the first `launch` in a process counts; VS Code
+//!   starts one adapter process per session. `launch.cwd` only resolves a relative `program`: the
+//!   adapter's working directory, and with it relative paths opened by the script, is unchanged.
+//! - `launch.noDebug` ignores breakpoints and `stopOnEntry`, but the statement hook stays
+//!   installed so `pause`/`terminate` keep working.
 //! - After `terminate`, `terminated` is sent at once and `exited` follows only when the program
 //!   actually stops: a pending `чутка` delays it and an active `интервал` keeps the interpreter
 //!   alive indefinitely, because terminating only aborts the current timer tick. `disconnect`

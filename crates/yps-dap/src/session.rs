@@ -145,6 +145,7 @@ pub struct Session {
     next_breakpoint_id: i64,
     program: Option<Source>,
     stop_on_entry: bool,
+    no_debug: bool,
     caps: ClientCaps,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     breakpoint_ids: HashMap<usize, Vec<i64>>,
@@ -165,6 +166,7 @@ impl Session {
             next_breakpoint_id: 0,
             program: None,
             stop_on_entry: false,
+            no_debug: false,
             caps: ClientCaps::default(),
             breakpoints: Arc::new(Mutex::new(HashSet::new())),
             breakpoint_ids: HashMap::new(),
@@ -376,10 +378,14 @@ impl Session {
             return vec![self.failure(request, ErrorCode::NoProgram, "В 'launch' не указан аргумент 'program'")];
         };
         let mut program_path = PathBuf::from(program);
-        if program_path.is_relative()
-            && let Ok(cwd) = std::env::current_dir()
-        {
-            program_path = cwd.join(program_path);
+        if program_path.is_relative() {
+            let mut base = arguments["cwd"].as_str().map(PathBuf::from).unwrap_or_default();
+            if base.is_relative()
+                && let Ok(cwd) = std::env::current_dir()
+            {
+                base = cwd.join(base);
+            }
+            program_path = base.join(program_path);
         }
         let statement_lines = match load_statement_lines(&program_path) {
             Ok(lines) => lines,
@@ -389,6 +395,12 @@ impl Session {
             }
         };
         self.stop_on_entry = arguments["stopOnEntry"].as_bool().unwrap_or(false);
+        self.no_debug = arguments["noDebug"].as_bool().unwrap_or(false);
+        let script_args =
+            arguments["args"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from);
+        yps_interpreter::set_script_args(
+            std::iter::once(program_path.display().to_string()).chain(script_args).collect(),
+        );
         self.program = Some(Source { path: program_path, statement_lines });
         let response = self.response(request, json!({}));
         let initialized = self.event("initialized", json!({}));
@@ -445,8 +457,13 @@ impl Session {
             return;
         };
         let tx = self.events_tx.clone();
+        let (stop_on_entry, breakpoints) = if self.no_debug {
+            (false, Arc::new(Mutex::new(HashSet::new())))
+        } else {
+            (self.stop_on_entry, Arc::clone(&self.breakpoints))
+        };
         let handle = debuggee::spawn(
-            LaunchConfig { program, stop_on_entry: self.stop_on_entry, breakpoints: Arc::clone(&self.breakpoints) },
+            LaunchConfig { program, stop_on_entry, breakpoints },
             Arc::new(move |msg| {
                 let _ = tx.send(Incoming::Debug(msg));
             }),
