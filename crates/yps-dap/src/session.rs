@@ -16,8 +16,18 @@ pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
 const INNERMOST_FRAME_ID: i64 = 1;
 const NOT_PAUSED: &str = "Программа не находится на паузе";
-const ANSWERED_WHILE_RUNNING: [&str; 9] =
-    ["pause", "disconnect", "terminate", "setBreakpoints", "threads", "continue", "next", "stepIn", "stepOut"];
+const ANSWERED_WHILE_RUNNING: [&str; 10] = [
+    "pause",
+    "disconnect",
+    "terminate",
+    "setBreakpoints",
+    "threads",
+    "continue",
+    "next",
+    "stepIn",
+    "stepOut",
+    "evaluate",
+];
 
 #[derive(Clone, Copy)]
 enum ErrorCode {
@@ -27,6 +37,7 @@ enum ErrorCode {
     NoProgram = 4,
     UnknownFrame = 5,
     DebuggeeGone = 6,
+    NotAvailable = 7,
     SessionEnded = 8,
 }
 
@@ -39,6 +50,7 @@ impl ErrorCode {
             Self::NoProgram => "noProgram",
             Self::UnknownFrame => "unknownFrame",
             Self::DebuggeeGone => "debuggeeGone",
+            Self::NotAvailable => "notAvailable",
             Self::SessionEnded => "sessionEnded",
         }
     }
@@ -302,6 +314,7 @@ impl Session {
             "stackTrace" => self.handle_stack_trace(request),
             "scopes" => self.handle_scopes(request),
             "variables" => self.handle_variables(request),
+            "evaluate" => self.handle_evaluate(request),
             "continue" => {
                 let body = json!({ "allThreadsContinued": true });
                 self.resume(request, ResumeCmd::Continue, body)
@@ -550,6 +563,7 @@ impl Session {
                         let mut variable = json!({
                             "name": var.name,
                             "value": var.value,
+                            "evaluateName": var.name,
                             "variablesReference": 0,
                         });
                         if self.caps.variable_type {
@@ -562,6 +576,25 @@ impl Session {
                 Vec::new()
             };
         vec![self.response(request, json!({ "variables": variables }))]
+    }
+
+    fn handle_evaluate(&mut self, request: &Value) -> Vec<Value> {
+        let Some(info) = self.stopped.as_ref() else {
+            return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
+        };
+        let arguments = &request["arguments"];
+        let expression = arguments["expression"].as_str().unwrap_or_default().trim();
+        let innermost = arguments["frameId"].as_i64().is_none_or(|frame_id| frame_id == INNERMOST_FRAME_ID);
+        let found = info.locals.iter().find(|var| innermost && var.name == expression);
+        let Some(var) = found else {
+            let text = format!("Можно вычислить только имя локальной переменной верхнего кадра: '{expression}'");
+            return vec![self.failure(request, ErrorCode::NotAvailable, text)];
+        };
+        let mut body = json!({ "result": var.value, "variablesReference": 0 });
+        if self.caps.variable_type {
+            body["type"] = json!(var.type_name);
+        }
+        vec![self.response(request, body)]
     }
 }
 
@@ -955,6 +988,7 @@ mod tests {
             (ErrorCode::NoProgram, "noProgram"),
             (ErrorCode::UnknownFrame, "unknownFrame"),
             (ErrorCode::DebuggeeGone, "debuggeeGone"),
+            (ErrorCode::NotAvailable, "notAvailable"),
             (ErrorCode::SessionEnded, "sessionEnded"),
         ];
         for (code, text) in expected {

@@ -18,6 +18,8 @@
 //! - Only the innermost stack frame exposes real locals; the interpreter keeps no per-frame
 //!   environment snapshots, so outer frames report an empty `Locals` scope.
 //! - Variables are rendered flat (no expandable children for objects, arrays or maps).
+//! - `evaluate` only resolves the exact name of an innermost-frame local; any other expression
+//!   is answered with an error, and `supportsEvaluateForHovers` is not advertised.
 //! - After `terminate`, `terminated` is sent at once and `exited` follows only when the program
 //!   actually stops: a pending `чутка` delays it and an active `интервал` keeps the interpreter
 //!   alive indefinitely, because terminating only aborts the current timer tick. `disconnect`

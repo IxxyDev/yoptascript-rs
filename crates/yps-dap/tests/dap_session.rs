@@ -848,6 +848,7 @@ fn variable_type_is_sent_only_to_clients_that_support_it() {
 
     assert!(!variables.is_empty());
     assert!(variables.iter().all(|variable| variable.get("type").is_none()), "{variables:?}");
+    assert!(variables.iter().all(|variable| variable["evaluateName"] == variable["name"]), "{variables:?}");
     plain.call("disconnect", json!({}));
 
     let mut typed = Client::start();
@@ -875,5 +876,20 @@ fn variables_honour_filter_start_and_count() {
     assert_eq!(indexed["body"]["variables"], json!([]));
     assert_eq!(page["body"]["variables"], json!([all[1]]));
     assert_eq!(beyond["body"]["variables"], json!([]));
+    client.call("disconnect", json!({}));
+}
+
+#[test]
+fn evaluate_resolves_innermost_local_names() {
+    let mut client = Client::start();
+    client.handshake("loop.yopta", false, &[3]);
+    client.wait_event("stopped");
+
+    let found = client.call("evaluate", json!({ "expression": " i ", "frameId": 1, "context": "watch" }));
+    let missing = client.answer("evaluate", json!({ "expression": "нетТакой", "frameId": 1 }));
+
+    assert_eq!(found["body"]["result"], "0");
+    assert_eq!(found["body"]["variablesReference"], 0);
+    assert_error(&missing, "notAvailable");
     client.call("disconnect", json!({}));
 }
