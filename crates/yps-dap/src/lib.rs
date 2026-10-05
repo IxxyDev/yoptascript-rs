@@ -39,11 +39,11 @@
 //! - VS Code editor wiring (`contributes.debuggers`, adapter factory) lives in `editors/vscode`,
 //!   not in this crate.
 
-pub mod breakpoints;
-pub mod debuggee;
+mod breakpoints;
+mod debuggee;
 mod line_index;
 pub mod protocol;
-pub mod session;
+mod session;
 #[cfg(test)]
 mod test_support;
 

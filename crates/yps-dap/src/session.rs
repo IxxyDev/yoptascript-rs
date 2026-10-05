@@ -231,8 +231,9 @@ impl Session {
     }
 
     fn event(&mut self, name: &str, body: Value) -> Value {
-        let seq = self.next_seq();
-        json!({ "seq": seq, "type": "event", "event": name, "body": body })
+        let mut message = json!({ "seq": self.next_seq(), "type": "event", "event": name });
+        message["body"] = body;
+        message
     }
 
     pub fn handle(&mut self, incoming: Incoming) -> Vec<Value> {
@@ -304,9 +305,7 @@ impl Session {
             "initialize" => self.handle_initialize(request),
             "launch" => self.handle_launch(request),
             "setBreakpoints" => self.handle_set_breakpoints(request),
-            "setExceptionBreakpoints" => {
-                vec![self.response(request, json!({ "breakpoints": [] }))]
-            }
+            "setExceptionBreakpoints" => vec![self.response(request, json!({ "breakpoints": [] }))],
             "loadedSources" => vec![self.response(request, json!({ "sources": [] }))],
             "configurationDone" => self.handle_configuration_done(request),
             "threads" => {
@@ -317,10 +316,7 @@ impl Session {
             "scopes" => self.handle_scopes(request),
             "variables" => self.handle_variables(request),
             "evaluate" => self.handle_evaluate(request),
-            "continue" => {
-                let body = json!({ "allThreadsContinued": true });
-                self.resume(request, ResumeCmd::Continue, body)
-            }
+            "continue" => self.resume(request, ResumeCmd::Continue, json!({ "allThreadsContinued": true })),
             "next" => self.resume(request, ResumeCmd::Next, json!({})),
             "stepIn" => self.resume(request, ResumeCmd::StepIn, json!({})),
             "stepOut" => self.resume(request, ResumeCmd::StepOut, json!({})),

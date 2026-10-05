@@ -15,7 +15,7 @@ use yps_parser::Parser;
 
 use crate::line_index::LineIndex;
 
-pub const MODULE_FRAME: &str = "(модуль)";
+const MODULE_FRAME: &str = "(модуль)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
