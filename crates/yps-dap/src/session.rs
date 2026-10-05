@@ -68,6 +68,7 @@ struct Source {
 pub enum Incoming {
     Client(Value),
     ClientEof,
+    ClientError(String),
     Debug(DebugMsg),
 }
 
@@ -161,6 +162,9 @@ impl Session {
                 self.terminate_debuggee();
                 self.should_exit = true;
                 Vec::new()
+            }
+            Incoming::ClientError(text) => {
+                vec![self.event("output", json!({ "category": "console", "output": format!("{text}\n") }))]
             }
             Incoming::Debug(msg) => self.handle_debuggee(msg),
         }

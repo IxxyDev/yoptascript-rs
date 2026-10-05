@@ -51,9 +51,20 @@ pub fn serve<R: Read + Send + 'static, W: Write>(input: R, output: &mut W) -> io
                         return;
                     }
                 }
-                _ => {
+                Ok(None) => {
                     let _ = tx.send(Incoming::ClientEof);
                     return;
+                }
+                Err(err) => {
+                    let recoverable = protocol::is_recoverable(&err);
+                    if tx.send(Incoming::ClientError(format!("Некорректное сообщение протокола: {err}"))).is_err()
+                    {
+                        return;
+                    }
+                    if !recoverable {
+                        let _ = tx.send(Incoming::ClientEof);
+                        return;
+                    }
                 }
             }
         }

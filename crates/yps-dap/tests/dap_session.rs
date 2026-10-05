@@ -1,6 +1,6 @@
 use std::io::{BufReader, PipeWriter};
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -42,8 +42,16 @@ impl Client {
         self.seq
     }
 
+    fn next_or_end(&mut self) -> Option<Value> {
+        match self.from_server.recv_timeout(MESSAGE_TIMEOUT) {
+            Ok(message) => Some(message),
+            Err(RecvTimeoutError::Disconnected) => None,
+            Err(RecvTimeoutError::Timeout) => panic!("адаптер не ответил вовремя"),
+        }
+    }
+
     fn next_message(&mut self) -> Value {
-        self.from_server.recv_timeout(MESSAGE_TIMEOUT).expect("адаптер не ответил вовремя")
+        self.next_or_end().expect("поток не должен закрыться")
     }
 
     fn answer(&mut self, command: &str, arguments: Value) -> Value {
@@ -460,6 +468,38 @@ fn runtime_error_inside_a_module_names_the_module_file_and_line() {
     assert!(text.contains("module_throw_lib.yopta:4:"), "ошибка должна указывать на модуль и строку: {text}");
     assert!(text.contains("module_throw_main.yopta:2:"), "кадр вызова должен указывать на главный файл: {text}");
     assert_eq!(exited["body"]["exitCode"], 1);
+}
+
+#[test]
+fn malformed_json_frame_is_reported_and_the_session_keeps_answering() {
+    use std::io::Write;
+
+    let mut client = Client::start();
+    client.call("initialize", json!({}));
+
+    client.to_server.write_all(b"Content-Length: 5\r\n\r\n{nope").expect("кадр должен уйти");
+    let report = client.wait_event("output");
+    let threads = client.call("threads", json!({}));
+
+    assert_eq!(report["body"]["category"], "console");
+    let text = report["body"]["output"].as_str().unwrap_or_default();
+    assert!(text.contains("Некорректное сообщение протокола"), "{text}");
+    assert_eq!(threads["body"]["threads"].as_array().map(Vec::len), Some(1));
+}
+
+#[test]
+fn unrecoverable_framing_error_ends_the_session() {
+    use std::io::Write;
+
+    let mut client = Client::start();
+    client.call("initialize", json!({}));
+
+    client.to_server.write_all(b"Content-Length: abc\r\n\r\n").expect("кадр должен уйти");
+    let report = client.wait_event("output");
+
+    let text = report["body"]["output"].as_str().unwrap_or_default();
+    assert!(text.contains("некорректное значение Content-Length"), "{text}");
+    assert!(client.next_or_end().is_none(), "сессия должна закрыться");
 }
 
 #[test]
