@@ -751,6 +751,20 @@ fn error_responses_carry_a_short_code_and_a_structured_message() {
 }
 
 #[test]
+fn step_requests_while_running_are_rejected_instead_of_queued() {
+    let mut client = Client::start();
+    client.handshake("spin.yopta", false, &[]);
+
+    let response = client.answer("continue", json!({ "threadId": 1 }));
+    client.call("pause", json!({ "threadId": 1 }));
+    let stopped = client.wait_event("stopped");
+
+    assert_error(&response, "notStopped");
+    assert_eq!(stopped["body"]["reason"], "pause", "программа должна была продолжать работать");
+    client.call("disconnect", json!({}));
+}
+
+#[test]
 fn zero_based_client_lines_and_columns_are_converted() {
     let mut client = Client::start();
     let initialize = json!({ "adapterID": "yopta", "linesStartAt1": false, "columnsStartAt1": false });

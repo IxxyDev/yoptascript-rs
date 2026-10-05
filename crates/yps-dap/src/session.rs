@@ -15,6 +15,8 @@ use crate::debuggee::{self, DebugMsg, DebuggeeHandle, LaunchConfig, ResumeCmd, S
 pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
 const NOT_PAUSED: &str = "Программа не находится на паузе";
+const ANSWERED_WHILE_RUNNING: [&str; 9] =
+    ["pause", "disconnect", "terminate", "setBreakpoints", "threads", "continue", "next", "stepIn", "stepOut"];
 
 #[derive(Clone, Copy)]
 enum ErrorCode {
@@ -270,11 +272,7 @@ impl Session {
 
     fn handle_client(&mut self, request: &Value) -> Vec<Value> {
         let command = request["command"].as_str().unwrap_or_default();
-        // While the debuggee runs, only control requests may interleave; everything else waits
-        // for the next `stopped` so the client always sees state from a real pause point.
-        if self.state == State::Running
-            && !matches!(command, "pause" | "disconnect" | "terminate" | "setBreakpoints" | "threads")
-        {
+        if self.state == State::Running && !ANSWERED_WHILE_RUNNING.contains(&command) {
             self.deferred.push_back(request.clone());
             return Vec::new();
         }
