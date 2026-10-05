@@ -447,6 +447,66 @@ fn syntax_error_reports_position_and_exit_code_one() {
     assert_eq!(exited["body"]["exitCode"], 1);
 }
 
+#[test]
+fn runtime_error_inside_a_module_names_the_module_file_and_line() {
+    let mut client = Client::start();
+    client.handshake("module_throw_main.yopta", false, &[]);
+
+    let output = client.wait_event("output");
+    let exited = client.wait_event("exited");
+
+    assert_eq!(output["body"]["category"], "stderr");
+    let text = output["body"]["output"].as_str().unwrap_or_default();
+    assert!(text.contains("module_throw_lib.yopta:4:"), "ошибка должна указывать на модуль и строку: {text}");
+    assert!(text.contains("module_throw_main.yopta:2:"), "кадр вызова должен указывать на главный файл: {text}");
+    assert_eq!(exited["body"]["exitCode"], 1);
+}
+
+#[test]
+fn breakpoint_on_the_last_main_line_does_not_fire_inside_module_code() {
+    let mut client = Client::start();
+    client.handshake("module_step_main.yopta", false, &[3]);
+
+    let stopped = client.wait_event("stopped");
+    let frames = client.frames();
+    let variables = client.locals(1);
+
+    assert_eq!(stopped["body"]["reason"], "breakpoint");
+    assert_eq!(frames.len(), 1, "остановка должна быть в главном файле, а не в модуле: {frames:?}");
+    assert_eq!(frames[0]["line"], 3);
+    assert_eq!(local_value(&variables, "итог").as_deref(), Some("13"));
+    client.call("disconnect", json!({}));
+}
+
+#[test]
+fn stepping_into_a_module_function_reports_the_module_file_and_line() {
+    let mut client = Client::start();
+    client.handshake("module_step_main.yopta", true, &[]);
+    client.wait_event("stopped");
+    client.call("next", json!({ "threadId": 1 }));
+    client.wait_event("stopped");
+
+    assert_eq!(client.frames()[0]["line"], 2);
+
+    client.call("stepIn", json!({ "threadId": 1 }));
+    client.wait_event("stopped");
+    let frames = client.frames();
+
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(frames[0]["name"], "посчитать");
+    assert_eq!(frames[0]["source"]["name"], "module_step_lib.yopta", "{frames:?}");
+    assert_eq!(frames[0]["line"], 2, "{frames:?}");
+    assert_eq!(frames[0]["column"], 3, "{frames:?}");
+    assert_eq!(frames[1]["source"]["name"], "module_step_main.yopta", "{frames:?}");
+    assert_eq!(frames[1]["line"], 2, "{frames:?}");
+
+    client.call("next", json!({ "threadId": 1 }));
+    client.wait_event("stopped");
+
+    assert_eq!(client.frames()[0]["line"], 3);
+    client.call("disconnect", json!({}));
+}
+
 fn assert_error(response: &Value, code: &str) {
     assert_eq!(response["success"], false, "{response}");
     assert_eq!(response["message"], code, "{response}");

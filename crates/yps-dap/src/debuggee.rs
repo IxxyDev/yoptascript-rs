@@ -1,14 +1,16 @@
 use std::any::Any;
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use yps_interpreter::{DebugAction, DebugEvent, DebugHook, Interpreter, OutputSink};
-use yps_lexer::{Lexer, Severity, SourceFile};
+use yps_lexer::{Lexer, Severity, SourceFile, Sources};
 use yps_parser::Parser;
 
 use crate::line_index::LineIndex;
@@ -40,6 +42,7 @@ pub struct DapFrame {
     pub name: String,
     pub line: usize,
     pub column: usize,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +99,8 @@ pub struct DebuggeeHandle {
 struct DapHook {
     source: SourceFile,
     lines: LineIndex,
+    sources: Rc<RefCell<Sources>>,
+    module_lines: HashMap<usize, LineIndex>,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     pause_flag: Arc<AtomicBool>,
     notify: Notify,
@@ -106,7 +111,8 @@ struct DapHook {
 impl DebugHook for DapHook {
     fn on_statement(&mut self, event: DebugEvent<'_>) -> Option<DebugAction> {
         let paused = self.pause_flag.swap(false, Ordering::SeqCst);
-        let hit_breakpoint = self.breakpoints.lock().is_ok_and(|set| set.contains(&self.lines.line(event.span.start)));
+        let hit_breakpoint = self.source.contains(event.span.start)
+            && self.breakpoints.lock().is_ok_and(|set| set.contains(&self.lines.line(event.span.start)));
         if !paused && !hit_breakpoint && !event.step_complete {
             return None;
         }
@@ -151,16 +157,30 @@ impl DebugHook for DapHook {
 impl DapHook {
     /// The interpreter records a call-site span per frame, so DAP frame `n` shows the name of
     /// the function being executed and the position of the call that led into frame `n - 1`.
-    fn build_frames(&self, event: &DebugEvent<'_>) -> Vec<DapFrame> {
+    fn build_frames(&mut self, event: &DebugEvent<'_>) -> Vec<DapFrame> {
         let stack = event.interp.debug_call_stack();
         let mut frames = Vec::with_capacity(stack.len() + 1);
-        let mut position = self.lines.position(&self.source, event.span.start);
+        let mut position = self.locate(event.span.start);
         for frame in stack.iter().rev() {
-            frames.push(DapFrame { name: frame.name.to_string(), line: position.0, column: position.1 });
-            position = self.lines.position(&self.source, frame.span.start);
+            let (path, line, column) = std::mem::replace(&mut position, self.locate(frame.span.start));
+            frames.push(DapFrame { name: frame.name.to_string(), line, column, path });
         }
-        frames.push(DapFrame { name: MODULE_FRAME.to_string(), line: position.0, column: position.1 });
+        let (path, line, column) = position;
+        frames.push(DapFrame { name: MODULE_FRAME.to_string(), line, column, path });
         frames
+    }
+
+    fn locate(&mut self, offset: usize) -> (Option<String>, usize, usize) {
+        if !self.source.contains(offset)
+            && let Ok(sources) = self.sources.try_borrow()
+            && let Some(file) = sources.lookup(offset)
+        {
+            let lines = self.module_lines.entry(file.base()).or_insert_with(|| LineIndex::new(file));
+            let (line, column) = lines.position(file, offset);
+            return (Some(file.name.clone()), line, column);
+        }
+        let (line, column) = self.lines.position(&self.source, offset);
+        (None, line, column)
     }
 }
 
@@ -206,7 +226,8 @@ fn run_program(
         Ok(text) => text,
         Err(err) => return Some(format!("Не удалось прочитать '{}': {err}", config.program.display())),
     };
-    let source = SourceFile::new(config.program.display().to_string(), text);
+    let sources = Rc::new(RefCell::new(Sources::default()));
+    let source = SourceFile::clone(&sources.borrow_mut().add(config.program.display().to_string(), text));
     let (tokens, lex_diags) = Lexer::new(&source).tokenize();
     if let Some(diag) = lex_diags.iter().find(|diag| diag.severity == Severity::Error) {
         return Some(source.describe(diag));
@@ -217,6 +238,8 @@ fn run_program(
     }
 
     let mut interp = Interpreter::new();
+    interp.set_sources(Rc::clone(&sources));
+    let main_source = source.clone();
     interp.set_output_sink(Box::new(NotifySink { notify: Arc::clone(notify) }));
     interp.block_stdin("чтение из stdin недоступно под отладчиком: канал занят протоколом DAP");
     if let Some(parent) = config.program.parent() {
@@ -225,6 +248,8 @@ fn run_program(
     interp.set_debug_hook(Box::new(DapHook {
         lines: LineIndex::new(&source),
         source,
+        sources: Rc::clone(&sources),
+        module_lines: HashMap::new(),
         breakpoints: config.breakpoints,
         pause_flag,
         notify: Arc::clone(notify),
@@ -238,8 +263,20 @@ fn run_program(
     match interp.run(&program) {
         Ok(()) => None,
         Err(err) if err.message == yps_interpreter::DEBUG_TERMINATED => None,
-        Err(err) => Some(err.to_string()),
+        Err(err) => Some(describe_runtime_error(&err, &sources.borrow(), &main_source)),
     }
+}
+
+fn describe_runtime_error(err: &yps_interpreter::RuntimeError, sources: &Sources, main: &SourceFile) -> String {
+    let locate = |offset: usize| {
+        let file = sources.lookup(offset).map_or(main, AsRef::as_ref);
+        let (line, column) = file.position(offset);
+        format!("{}:{line}:{column}", file.name)
+    };
+    std::iter::once(format!("{}: {err}", locate(err.span.start)))
+        .chain(err.stack.iter().map(|frame| format!("  в {}:{}", frame.name, locate(frame.span.start))))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

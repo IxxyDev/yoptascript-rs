@@ -13,6 +13,8 @@
 //!   client's debug console.
 //! - Breakpoints are accepted only for the launched file: `setBreakpoints` for any other path
 //!   answers with unverified breakpoints instead of resolving lines against the wrong source.
+//!   Statements of imported modules never match them, but stepping into a module function reports
+//!   that module's file and line in `stackTrace`.
 //! - Only the innermost stack frame exposes real locals; the interpreter keeps no per-frame
 //!   environment snapshots, so outer frames report an empty `Locals` scope.
 //! - Variables are rendered flat (no expandable children for objects, arrays or maps).

@@ -410,21 +410,18 @@ impl Session {
         self.deferred.clear();
     }
 
-    fn source_object(&self) -> Value {
-        match self.program.as_ref().map(|source| source.path.as_path()) {
-            Some(path) => json!({
-                "name": path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
-                "path": path.display().to_string(),
-            }),
-            None => Value::Null,
-        }
+    fn source_object(&self, module: Option<&str>) -> Option<Value> {
+        let path = module.map(Path::new).or_else(|| self.program.as_ref().map(|source| source.path.as_path()))?;
+        Some(json!({
+            "name": path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+            "path": path.display().to_string(),
+        }))
     }
 
     fn handle_stack_trace(&mut self, request: &Value) -> Vec<Value> {
         let Some(info) = self.stopped.as_ref() else {
             return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
-        let source = self.source_object();
         let frames: Vec<Value> = info
             .frames
             .iter()
@@ -435,7 +432,7 @@ impl Session {
                     "name": frame.name,
                     "line": frame.line,
                     "column": frame.column,
-                    "source": source,
+                    "source": self.source_object(frame.path.as_deref()),
                 })
             })
             .collect();
@@ -505,7 +502,7 @@ mod tests {
     }
 
     fn stopped(reason: StopReason) -> Incoming {
-        let frame = debuggee::DapFrame { name: "(модуль)".to_string(), line: 1, column: 1 };
+        let frame = debuggee::DapFrame { name: "(модуль)".to_string(), line: 1, column: 1, path: None };
         Incoming::Debug(DebugMsg::Stopped(Box::new(StopInfo { reason, frames: vec![frame], locals: Vec::new() })))
     }
 
