@@ -221,6 +221,33 @@ fn step_over_stays_in_the_caller() {
 }
 
 #[test]
+fn stack_trace_honours_start_frame_and_levels() {
+    let mut client = Client::start();
+    client.handshake("call.yopta", false, &[2]);
+    client.wait_event("stopped");
+
+    let all = client.call("stackTrace", json!({ "threadId": 1 }));
+    assert_eq!(all["body"]["stackFrames"].as_array().map(Vec::len), Some(2));
+    assert_eq!(all["body"]["totalFrames"], 2);
+
+    let first = client.call("stackTrace", json!({ "threadId": 1, "startFrame": 0, "levels": 1 }));
+    assert_eq!(first["body"]["stackFrames"].as_array().map(Vec::len), Some(1));
+    assert_eq!(first["body"]["stackFrames"][0]["id"], 1);
+    assert_eq!(first["body"]["totalFrames"], 2);
+
+    let second = client.call("stackTrace", json!({ "threadId": 1, "startFrame": 1, "levels": 20 }));
+    assert_eq!(second["body"]["stackFrames"].as_array().map(Vec::len), Some(1));
+    assert_eq!(second["body"]["stackFrames"][0]["id"], 2);
+    assert_eq!(second["body"]["stackFrames"][0]["name"], "(модуль)");
+
+    let past_end = client.call("stackTrace", json!({ "threadId": 1, "startFrame": 5 }));
+    assert_eq!(past_end["body"]["stackFrames"].as_array().map(Vec::len), Some(0));
+    assert_eq!(past_end["body"]["totalFrames"], 2);
+
+    client.call("disconnect", json!({}));
+}
+
+#[test]
 fn step_in_descends_into_the_callee_and_step_out_returns() {
     let mut client = Client::start();
     client.handshake("call.yopta", true, &[]);
@@ -407,6 +434,7 @@ fn initialized_event_arrives_only_after_launch() {
 
     assert_eq!(message["type"], "response");
     assert_eq!(message["request_seq"], seq);
+    assert_eq!(message["body"]["supportsDelayedStackTraceLoading"], true);
 
     let launch_seq = client.request("launch", json!({ "program": fixture_path("loop.yopta"), "stopOnEntry": false }));
     let response = client.next_message();
@@ -829,4 +857,23 @@ fn variable_type_is_sent_only_to_clients_that_support_it() {
 
     assert!(variables.iter().all(|variable| variable["type"].is_string()), "{variables:?}");
     typed.call("disconnect", json!({}));
+}
+
+#[test]
+fn variables_honour_filter_start_and_count() {
+    let mut client = Client::start();
+    client.handshake("loop.yopta", false, &[3]);
+    client.wait_event("stopped");
+    let reference = client.call("scopes", json!({ "frameId": 1 }))["body"]["scopes"][0]["variablesReference"].clone();
+
+    let all = client.call("variables", json!({ "variablesReference": reference }))["body"]["variables"].clone();
+    let indexed = client.call("variables", json!({ "variablesReference": reference, "filter": "indexed" }));
+    let page = client.call("variables", json!({ "variablesReference": reference, "start": 1, "count": 1 }));
+    let beyond = client.call("variables", json!({ "variablesReference": reference, "start": 999 }));
+
+    assert!(all.as_array().map_or(0, Vec::len) >= 2, "{all}");
+    assert_eq!(indexed["body"]["variables"], json!([]));
+    assert_eq!(page["body"]["variables"], json!([all[1]]));
+    assert_eq!(beyond["body"]["variables"], json!([]));
+    client.call("disconnect", json!({}));
 }

@@ -14,6 +14,7 @@ use crate::debuggee::{self, DebugMsg, DebuggeeHandle, LaunchConfig, ResumeCmd, S
 
 pub const THREAD_ID: i64 = 1;
 const LOCALS_SCOPE_BASE: i64 = 1000;
+const INNERMOST_FRAME_ID: i64 = 1;
 const NOT_PAUSED: &str = "Программа не находится на паузе";
 const ANSWERED_WHILE_RUNNING: [&str; 9] =
     ["pause", "disconnect", "terminate", "setBreakpoints", "threads", "continue", "next", "stepIn", "stepOut"];
@@ -57,8 +58,16 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+const fn locals_reference(frame_id: i64) -> i64 {
+    LOCALS_SCOPE_BASE + frame_id
+}
+
 fn arg_index(value: &Value) -> Option<usize> {
     value.as_u64().and_then(|n| usize::try_from(n).ok())
+}
+
+fn arg_limit(value: &Value) -> usize {
+    arg_index(value).filter(|&n| n != 0).unwrap_or(usize::MAX)
 }
 
 fn unverified(id: i64, line: usize, message: &str, reason: &str) -> Value {
@@ -321,10 +330,7 @@ impl Session {
         let body = json!({
             "supportsConfigurationDoneRequest": true,
             "supportsTerminateRequest": true,
-            "supportsStepInTargetsRequest": false,
-            "supportsEvaluateForHovers": false,
-            "supportsFunctionBreakpoints": false,
-            "supportsConditionalBreakpoints": false,
+            "supportsDelayedStackTraceLoading": true,
         });
         vec![self.response(request, body)]
     }
@@ -478,13 +484,19 @@ impl Session {
         let Some(info) = self.stopped.as_ref() else {
             return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
+        let arguments = &request["arguments"];
+        let start = arg_index(&arguments["startFrame"]).unwrap_or(0);
+        let levels = arg_limit(&arguments["levels"]);
+        let total = info.frames.len();
         let frames: Vec<Value> = info
             .frames
             .iter()
-            .enumerate()
-            .map(|(index, frame)| {
+            .zip(INNERMOST_FRAME_ID..)
+            .skip(start)
+            .take(levels)
+            .map(|(frame, id)| {
                 json!({
-                    "id": index as i64 + 1,
+                    "id": id,
                     "name": frame.name,
                     "line": self.line_to_client(frame.line),
                     "column": self.column_to_client(frame.column),
@@ -492,7 +504,6 @@ impl Session {
                 })
             })
             .collect();
-        let total = frames.len();
         vec![self.response(request, json!({ "stackFrames": frames, "totalFrames": total }))]
     }
 
@@ -500,15 +511,19 @@ impl Session {
         let Some(frame_count) = self.stopped.as_ref().map(|info| info.frames.len()) else {
             return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
-        let frame_id = request["arguments"]["frameId"].as_i64().unwrap_or(1);
-        if frame_id < 1 || frame_id > frame_count as i64 {
+        let frame_id = request["arguments"]["frameId"].as_i64().unwrap_or(INNERMOST_FRAME_ID);
+        let known = frame_id
+            .checked_sub(INNERMOST_FRAME_ID)
+            .and_then(|offset| usize::try_from(offset).ok())
+            .is_some_and(|offset| offset < frame_count);
+        if !known {
             return vec![self.failure(request, ErrorCode::UnknownFrame, "Неизвестный кадр стека")];
         }
         let body = json!({
             "scopes": [{
                 "name": "Локальные",
                 "presentationHint": "locals",
-                "variablesReference": LOCALS_SCOPE_BASE + frame_id,
+                "variablesReference": locals_reference(frame_id),
                 "expensive": false,
             }],
         });
@@ -519,27 +534,33 @@ impl Session {
         let Some(info) = self.stopped.as_ref() else {
             return vec![self.failure(request, ErrorCode::NotStopped, NOT_PAUSED)];
         };
-        let reference = request["arguments"]["variablesReference"].as_i64().unwrap_or(0);
+        let arguments = &request["arguments"];
+        let reference = arguments["variablesReference"].as_i64().unwrap_or(0);
+        let start = arg_index(&arguments["start"]).unwrap_or(0);
+        let count = arg_limit(&arguments["count"]);
         // Only the innermost frame has a live environment: the interpreter keeps no
         // per-call-frame scope snapshots, so outer frames report an empty Locals scope.
-        let variables: Vec<Value> = if reference == LOCALS_SCOPE_BASE + 1 {
-            info.locals
-                .iter()
-                .map(|var| {
-                    let mut variable = json!({
-                        "name": var.name,
-                        "value": var.value,
-                        "variablesReference": 0,
-                    });
-                    if self.caps.variable_type {
-                        variable["type"] = json!(var.type_name);
-                    }
-                    variable
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let variables: Vec<Value> =
+            if reference == locals_reference(INNERMOST_FRAME_ID) && arguments["filter"] != "indexed" {
+                info.locals
+                    .iter()
+                    .skip(start)
+                    .take(count)
+                    .map(|var| {
+                        let mut variable = json!({
+                            "name": var.name,
+                            "value": var.value,
+                            "variablesReference": 0,
+                        });
+                        if self.caps.variable_type {
+                            variable["type"] = json!(var.type_name);
+                        }
+                        variable
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
         vec![self.response(request, json!({ "variables": variables }))]
     }
 }

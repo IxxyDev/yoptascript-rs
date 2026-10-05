@@ -22,6 +22,9 @@
 //!   actually stops: a pending `чутка` delays it and an active `интервал` keeps the interpreter
 //!   alive indefinitely, because terminating only aborts the current timer tick. `disconnect`
 //!   always ends the adapter.
+//! - No exception breakpoints, `restart`, `source`, `setVariable` or `cancel`: none of them is
+//!   advertised, and `disconnect`'s `terminateDebuggee`/`suspendDebuggee` are ignored (a launched
+//!   debuggee is always terminated).
 //! - A module-level variable that shadows a builtin name (e.g. `гыы длина = 99;`) is invisible in
 //!   `variables`: top-level script bindings share the same `EnvFrame` as builtins, so the debugger
 //!   filters out anything present in the pre-run global snapshot to avoid listing every builtin.
