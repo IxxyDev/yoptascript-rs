@@ -68,6 +68,28 @@ struct Source {
     statement_lines: BTreeSet<usize>,
 }
 
+struct ClientCaps {
+    lines_start_at1: bool,
+    columns_start_at1: bool,
+    variable_type: bool,
+}
+
+impl ClientCaps {
+    fn from_initialize(arguments: &Value) -> Self {
+        Self {
+            lines_start_at1: arguments["linesStartAt1"].as_bool().unwrap_or(true),
+            columns_start_at1: arguments["columnsStartAt1"].as_bool().unwrap_or(true),
+            variable_type: arguments["supportsVariableType"].as_bool().unwrap_or(false),
+        }
+    }
+}
+
+impl Default for ClientCaps {
+    fn default() -> Self {
+        Self::from_initialize(&Value::Null)
+    }
+}
+
 /// What arrives on the adapter's single event queue.
 pub enum Incoming {
     Client(Value),
@@ -92,6 +114,7 @@ pub struct Session {
     next_breakpoint_id: i64,
     program: Option<Source>,
     stop_on_entry: bool,
+    caps: ClientCaps,
     breakpoints: Arc<Mutex<HashSet<usize>>>,
     debuggee: Option<DebuggeeHandle>,
     stopped: Option<StopInfo>,
@@ -110,6 +133,7 @@ impl Session {
             next_breakpoint_id: 0,
             program: None,
             stop_on_entry: false,
+            caps: ClientCaps::default(),
             breakpoints: Arc::new(Mutex::new(HashSet::new())),
             debuggee: None,
             stopped: None,
@@ -161,6 +185,14 @@ impl Session {
 
     fn failure(&mut self, request: &Value, code: ErrorCode, text: impl Into<String>) -> Value {
         self.reply(request, Err((code, text.into())))
+    }
+
+    const fn line_to_client(&self, line: usize) -> usize {
+        if self.caps.lines_start_at1 { line } else { line.saturating_sub(1) }
+    }
+
+    const fn column_to_client(&self, column: usize) -> usize {
+        if self.caps.columns_start_at1 { column } else { column.saturating_sub(1) }
     }
 
     fn event(&mut self, name: &str, body: Value) -> Value {
@@ -239,20 +271,7 @@ impl Session {
         }
 
         match command {
-            "initialize" => {
-                let response = self.response(
-                    request,
-                    json!({
-                        "supportsConfigurationDoneRequest": true,
-                        "supportsTerminateRequest": true,
-                        "supportsStepInTargetsRequest": false,
-                        "supportsEvaluateForHovers": false,
-                        "supportsFunctionBreakpoints": false,
-                        "supportsConditionalBreakpoints": false,
-                    }),
-                );
-                vec![response]
-            }
+            "initialize" => self.handle_initialize(request),
             "launch" => self.handle_launch(request),
             "setBreakpoints" => self.handle_set_breakpoints(request),
             "setExceptionBreakpoints" => {
@@ -288,6 +307,19 @@ impl Session {
                 vec![self.failure(request, ErrorCode::Unsupported, message)]
             }
         }
+    }
+
+    fn handle_initialize(&mut self, request: &Value) -> Vec<Value> {
+        self.caps = ClientCaps::from_initialize(&request["arguments"]);
+        let body = json!({
+            "supportsConfigurationDoneRequest": true,
+            "supportsTerminateRequest": true,
+            "supportsStepInTargetsRequest": false,
+            "supportsEvaluateForHovers": false,
+            "supportsFunctionBreakpoints": false,
+            "supportsConditionalBreakpoints": false,
+        });
+        vec![self.response(request, body)]
     }
 
     fn handle_configuration_done(&mut self, request: &Value) -> Vec<Value> {
@@ -374,13 +406,14 @@ impl Session {
 
         let empty = BTreeSet::new();
         let statement_lines = self.program.as_ref().map_or(&empty, |program| &program.statement_lines);
+        let offset = usize::from(!self.caps.lines_start_at1);
         let mut verified = Vec::new();
         let mut resolved = HashSet::new();
         for (line, id) in requested.into_iter().zip(ids) {
-            match breakpoints::resolve_line(line, statement_lines) {
+            match line.checked_add(offset).and_then(|line| breakpoints::resolve_line(line, statement_lines)) {
                 Some(actual) => {
                     resolved.insert(actual);
-                    verified.push(json!({ "id": id, "verified": true, "line": actual }));
+                    verified.push(json!({ "id": id, "verified": true, "line": self.line_to_client(actual) }));
                 }
                 None => verified.push(json!({
                     "id": id,
@@ -464,8 +497,8 @@ impl Session {
                 json!({
                     "id": index as i64 + 1,
                     "name": frame.name,
-                    "line": frame.line,
-                    "column": frame.column,
+                    "line": self.line_to_client(frame.line),
+                    "column": self.column_to_client(frame.column),
                     "source": self.source_object(frame.path.as_deref()),
                 })
             })
@@ -504,12 +537,15 @@ impl Session {
             info.locals
                 .iter()
                 .map(|var| {
-                    json!({
+                    let mut variable = json!({
                         "name": var.name,
                         "value": var.value,
-                        "type": var.type_name,
                         "variablesReference": 0,
-                    })
+                    });
+                    if self.caps.variable_type {
+                        variable["type"] = json!(var.type_name);
+                    }
+                    variable
                 })
                 .collect()
         } else {

@@ -100,7 +100,17 @@ impl Client {
     }
 
     fn handshake(&mut self, fixture: &str, stop_on_entry: bool, breakpoint_lines: &[usize]) -> Value {
-        self.call("initialize", json!({ "adapterID": "yopta" }));
+        self.handshake_with(json!({ "adapterID": "yopta" }), fixture, stop_on_entry, breakpoint_lines)
+    }
+
+    fn handshake_with(
+        &mut self,
+        initialize: Value,
+        fixture: &str,
+        stop_on_entry: bool,
+        breakpoint_lines: &[usize],
+    ) -> Value {
+        self.call("initialize", initialize);
         let program = fixture_path(fixture);
         self.call("launch", json!({ "program": program, "stopOnEntry": stop_on_entry }));
         let set = self.set_breakpoints(&program, breakpoint_lines);
@@ -738,4 +748,41 @@ fn error_responses_carry_a_short_code_and_a_structured_message() {
     assert_error(&not_stopped, "notStopped");
     assert_error(&step, "notStopped");
     assert_error(&no_program, "noProgram");
+}
+
+#[test]
+fn zero_based_client_lines_and_columns_are_converted() {
+    let mut client = Client::start();
+    let initialize = json!({ "adapterID": "yopta", "linesStartAt1": false, "columnsStartAt1": false });
+    let set = client.handshake_with(initialize, "loop.yopta", false, &[2]);
+
+    assert_eq!(set["body"]["breakpoints"][0]["verified"], true);
+    assert_eq!(set["body"]["breakpoints"][0]["line"], 2);
+
+    client.wait_event("stopped");
+    let frames = client.frames();
+
+    assert_eq!(frames[0]["line"], 2);
+    assert_eq!(frames[0]["column"], 4);
+    client.call("disconnect", json!({}));
+}
+
+#[test]
+fn variable_type_is_sent_only_to_clients_that_support_it() {
+    let mut plain = Client::start();
+    plain.handshake("loop.yopta", false, &[3]);
+    plain.wait_event("stopped");
+    let variables = plain.locals(1);
+
+    assert!(!variables.is_empty());
+    assert!(variables.iter().all(|variable| variable.get("type").is_none()), "{variables:?}");
+    plain.call("disconnect", json!({}));
+
+    let mut typed = Client::start();
+    typed.handshake_with(json!({ "adapterID": "yopta", "supportsVariableType": true }), "loop.yopta", false, &[3]);
+    typed.wait_event("stopped");
+    let variables = typed.locals(1);
+
+    assert!(variables.iter().all(|variable| variable["type"].is_string()), "{variables:?}");
+    typed.call("disconnect", json!({}));
 }
