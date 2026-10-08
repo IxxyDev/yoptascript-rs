@@ -38,13 +38,6 @@ struct Occurrence {
     kind: OccurrenceKind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RenameRefusal {
-    NoIdentifier,
-    Unresolved,
-    NotRenamable,
-}
-
 struct Binding {
     occurrences: Vec<Occurrence>,
     renamable: bool,
@@ -513,7 +506,7 @@ impl Resolver {
 
 #[must_use]
 pub fn prepare(text: &str, byte_pos: usize) -> Option<Span> {
-    rename_occurrences_at(text, byte_pos).ok()?;
+    rename_occurrences_at(text, byte_pos)?;
     identifier_token_at(text, byte_pos)
 }
 
@@ -524,14 +517,10 @@ pub fn occurrences_at(text: &str, byte_pos: usize) -> Option<Vec<Span>> {
     resolver.binding_at(byte_pos).map(|b| b.occurrences.iter().map(|o| o.span).collect())
 }
 
-fn rename_occurrences_at(text: &str, byte_pos: usize) -> Result<Vec<Occurrence>, RenameRefusal> {
-    identifier_token_at(text, byte_pos).ok_or(RenameRefusal::NoIdentifier)?;
+fn rename_occurrences_at(text: &str, byte_pos: usize) -> Option<Vec<Occurrence>> {
+    identifier_token_at(text, byte_pos)?;
     let resolver = Resolver::build(text);
-    let binding = resolver.binding_at(byte_pos).ok_or(RenameRefusal::Unresolved)?;
-    if !binding.renamable {
-        return Err(RenameRefusal::NotRenamable);
-    }
-    Ok(binding.occurrences.clone())
+    resolver.binding_at(byte_pos).filter(|b| b.renamable).map(|b| b.occurrences.clone())
 }
 
 #[must_use]
@@ -539,7 +528,7 @@ pub fn rename_edits(text: &str, byte_pos: usize, new_name: &str) -> Option<Vec<(
     if !is_valid_new_name(new_name) {
         return None;
     }
-    let occurrences = rename_occurrences_at(text, byte_pos).ok()?;
+    let occurrences = rename_occurrences_at(text, byte_pos)?;
     let edits = occurrences
         .into_iter()
         .map(|o| {
@@ -829,7 +818,7 @@ mod tests {
         let byte = src.find("фу").unwrap();
         assert!(prepare(src, byte).is_none());
         assert!(rename_edits(src, byte, "бар").is_none());
-        assert_eq!(rename_occurrences_at(src, src.rfind("фу").unwrap()), Err(RenameRefusal::NotRenamable));
+        assert!(prepare(src, src.rfind("фу").unwrap()).is_none());
         assert_eq!(occurrences_at(src, byte).map(|o| o.len()), Some(2));
     }
 
@@ -839,14 +828,6 @@ mod tests {
         assert_eq!(renamed(src, "кент", "друг").unwrap(), "спиздить друг из \"./м\";\nсказать(друг);");
         let src = "спиздить * как м из \"./м\";\nсказать(м.фу);";
         assert_eq!(renamed(src, "м из", "мод").unwrap(), "спиздить * как мод из \"./м\";\nсказать(мод.фу);");
-    }
-
-    #[test]
-    fn refusal_reasons_are_distinguished() {
-        let src = "гыы х = 1;\nсказать(х);";
-        assert_eq!(rename_occurrences_at(src, 0), Err(RenameRefusal::NoIdentifier));
-        assert_eq!(rename_occurrences_at(src, src.find("сказать").unwrap()), Err(RenameRefusal::Unresolved));
-        assert_eq!(rename_occurrences_at(src, src.find('х').unwrap()).map(|o| o.len()), Ok(2));
     }
 
     #[test]

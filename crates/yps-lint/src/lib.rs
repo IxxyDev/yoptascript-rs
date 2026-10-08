@@ -151,8 +151,20 @@ mod tests {
         lint_source(src).unwrap_or_else(|errors| panic!("неожиданные ошибки разбора: {errors:?}"))
     }
 
+    fn of_rule(src: &str, rule: Rule) -> Vec<LintDiagnostic> {
+        diagnostics(src).into_iter().filter(|d| d.rule == rule).collect()
+    }
+
     fn count(src: &str, rule: Rule) -> usize {
-        diagnostics(src).iter().filter(|d| d.rule == rule).count()
+        of_rule(src, rule).len()
+    }
+
+    fn spans_of(src: &str, rule: Rule) -> Vec<&str> {
+        of_rule(src, rule).iter().map(|d| &src[d.span.start..d.span.end]).collect()
+    }
+
+    fn messages(src: &str, rule: Rule) -> Vec<String> {
+        of_rule(src, rule).into_iter().map(|d| d.message).collect()
     }
 
     fn assert_silent(src: &str) {
@@ -169,8 +181,7 @@ mod tests {
 
     #[test]
     fn parse_error_yields_no_lint() {
-        let errors = lint_source("гыы = ;\n").expect_err("ожидалась ошибка разбора");
-        assert!(!errors.is_empty());
+        assert!(lint_source("гыы = ;\n").is_err());
     }
 
     #[test]
@@ -215,10 +226,6 @@ mod tests {
         let mut sorted = spans.clone();
         sorted.sort_unstable();
         assert_eq!(spans, sorted);
-    }
-
-    fn spans_of(src: &str, rule: Rule) -> Vec<&str> {
-        diagnostics(src).iter().filter(|d| d.rule == rule).map(|d| &src[d.span.start..d.span.end]).collect()
     }
 
     #[test]
@@ -575,10 +582,6 @@ mod tests {
         assert_silent(src);
     }
 
-    fn messages(src: &str, rule: Rule) -> Vec<String> {
-        diagnostics(src).into_iter().filter(|d| d.rule == rule).map(|d| d.message).collect()
-    }
-
     #[test]
     fn deep_nested_chains_do_not_overflow_small_stack() {
         let depth = 8;
@@ -616,7 +619,7 @@ mod tests {
     #[test]
     fn body_local_redeclaring_param_is_the_same_binding() {
         let src = "йопта ф(а) { гыы а = 5; отвечаю 1; }\nсказать(ф(1));\n";
-        assert_eq!(messages(src, Rule::UnusedVariable), vec!["параметр «а» не используется".to_string()]);
+        assert_eq!(messages(src, Rule::UnusedVariable), ["параметр «а» не используется"]);
         assert_eq!(count(src, Rule::ShadowedDeclaration), 0);
     }
 
@@ -628,26 +631,19 @@ mod tests {
     #[test]
     fn var_redeclaring_function_adopts_var_kind() {
         let src = "йопта ф() { отвечаю 1; }\nгыы ф = 1;\n";
-        assert_eq!(
-            messages(src, Rule::UnusedVariable),
-            vec!["переменная «ф» объявлена, но не используется".to_string()]
-        );
+        assert_eq!(messages(src, Rule::UnusedVariable), ["переменная «ф» объявлена, но не используется"]);
     }
 
     #[test]
     fn body_local_redeclaring_catch_param_is_reported() {
         let src = "хапнуть { сказать(1); } гоп (е) { гыы е = 2; }\n";
-        assert_eq!(
-            messages(src, Rule::UnusedVariable),
-            vec!["переменная «е» объявлена, но не используется".to_string()]
-        );
+        assert_eq!(messages(src, Rule::UnusedVariable), ["переменная «е» объявлена, но не используется"]);
     }
 
     #[test]
     fn param_named_like_function_expression_is_reported() {
         let src = "гыы ф = йопта г(г) { отвечаю 1; };\nсказать(ф(1));\n";
-        let unused = messages(src, Rule::UnusedVariable);
-        assert_eq!(unused, vec!["параметр «г» не используется".to_string()]);
+        assert_eq!(messages(src, Rule::UnusedVariable), ["параметр «г» не используется"]);
         assert_eq!(count(src, Rule::ShadowedDeclaration), 0);
     }
 
@@ -714,9 +710,6 @@ mod tests {
     #[test]
     fn const_loop_variable_is_reported_as_constant() {
         let src = "го (ясенХуй к сашаГрей [1]) { }\n";
-        assert_eq!(
-            messages(src, Rule::UnusedVariable),
-            vec!["константа «к» объявлена, но не используется".to_string()]
-        );
+        assert_eq!(messages(src, Rule::UnusedVariable), ["константа «к» объявлена, но не используется"]);
     }
 }

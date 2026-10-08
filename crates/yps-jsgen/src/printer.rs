@@ -227,31 +227,13 @@ impl Printer {
                 self.print_branch(body);
             }
             Stmt::ForIn { variable, iterable, body, is_const, .. } => {
-                self.print_for_each(
-                    if *is_const { "for (const " } else { "for (let " },
-                    variable,
-                    " in ",
-                    iterable,
-                    body,
-                );
+                self.print_for_each("for (", *is_const, variable, " in ", iterable, body);
             }
             Stmt::ForOf { variable, iterable, body, is_const, .. } => {
-                self.print_for_each(
-                    if *is_const { "for (const " } else { "for (let " },
-                    variable,
-                    " of ",
-                    iterable,
-                    body,
-                );
+                self.print_for_each("for (", *is_const, variable, " of ", iterable, body);
             }
             Stmt::ForAwaitOf { variable, iterable, body, is_const, .. } => {
-                self.print_for_each(
-                    if *is_const { "for await (const " } else { "for await (let " },
-                    variable,
-                    " of ",
-                    iterable,
-                    body,
-                );
+                self.print_for_each("for await (", *is_const, variable, " of ", iterable, body);
             }
             Stmt::Break { label, .. } => {
                 self.write("break");
@@ -429,8 +411,17 @@ impl Printer {
         self.write(";");
     }
 
-    fn print_for_each(&mut self, head: &str, variable: &Pattern, keyword: &str, iterable: &Expr, body: &Stmt) {
+    fn print_for_each(
+        &mut self,
+        head: &str,
+        is_const: bool,
+        variable: &Pattern,
+        keyword: &str,
+        iterable: &Expr,
+        body: &Stmt,
+    ) {
         self.write(head);
+        self.write(if is_const { "const " } else { "let " });
         self.print_pattern(variable);
         self.write(keyword);
         self.print_expr(iterable, 0);

@@ -807,17 +807,8 @@ mod suite {
             "го сидетьНахуй (ясенХуй к сашаГрей ист) {}\n",
             "го (гыы к сашаГрей [1]) {}\n",
         );
-        let out = parse_and_format(src);
-        assert!(out.contains("го (ясенХуй к сашаГрей [1])"), "форматтер должен сохранить 'ясенХуй': {out:?}");
-        assert!(out.contains("го (ясенХуй к из об)"), "форматтер должен сохранить 'ясенХуй': {out:?}");
-        assert!(
-            out.contains("го сидетьНахуй (ясенХуй к сашаГрей ист)"),
-            "форматтер должен сохранить 'ясенХуй': {out:?}"
-        );
-        assert!(out.contains("го (гыы к сашаГрей [1])"), "форматтер должен сохранить 'гыы': {out:?}");
-        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для ясенХуй в for-of/for-in: {out:?}");
+        assert_eq!(parse_and_format(src), src);
         assert!(!programs_equivalent_str("го (ясенХуй к сашаГрей [1]) {}\n", "го (гыы к сашаГрей [1]) {}\n"));
-        assert_eq!(out, parse_and_format(&out));
     }
 
     #[test]
