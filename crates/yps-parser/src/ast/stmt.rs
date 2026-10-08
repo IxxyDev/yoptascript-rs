@@ -135,18 +135,21 @@ pub enum Stmt {
         variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
+        is_const: bool,
         span: Span,
     },
     ForOf {
         variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
+        is_const: bool,
         span: Span,
     },
     ForAwaitOf {
         variable: Pattern,
         iterable: Expr,
         body: Box<Stmt>,
+        is_const: bool,
         span: Span,
     },
     ClassDecl {

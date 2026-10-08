@@ -448,11 +448,11 @@ impl Compiler {
                 *span,
             ),
             Stmt::Switch { expr, cases, default, span } => self.compile_switch(expr, cases, default.as_ref(), *span),
-            Stmt::ForIn { variable, iterable, body, span } => self.compile_for_in(variable, iterable, body, *span),
-            Stmt::ForOf { variable, iterable, body, span } => {
+            Stmt::ForIn { variable, iterable, body, span, .. } => self.compile_for_in(variable, iterable, body, *span),
+            Stmt::ForOf { variable, iterable, body, span, .. } => {
                 self.compile_for_of(variable, iterable, body, false, *span)
             }
-            Stmt::ForAwaitOf { variable, iterable, body, span } => {
+            Stmt::ForAwaitOf { variable, iterable, body, span, .. } => {
                 self.compile_for_of(variable, iterable, body, true, *span)
             }
             Stmt::Debugger { .. } => Ok(()),

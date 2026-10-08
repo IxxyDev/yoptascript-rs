@@ -226,14 +226,32 @@ impl Printer {
                 self.write(") ");
                 self.print_branch(body);
             }
-            Stmt::ForIn { variable, iterable, body, .. } => {
-                self.print_for_each("for (let ", variable, " in ", iterable, body);
+            Stmt::ForIn { variable, iterable, body, is_const, .. } => {
+                self.print_for_each(
+                    if *is_const { "for (const " } else { "for (let " },
+                    variable,
+                    " in ",
+                    iterable,
+                    body,
+                );
             }
-            Stmt::ForOf { variable, iterable, body, .. } => {
-                self.print_for_each("for (let ", variable, " of ", iterable, body);
+            Stmt::ForOf { variable, iterable, body, is_const, .. } => {
+                self.print_for_each(
+                    if *is_const { "for (const " } else { "for (let " },
+                    variable,
+                    " of ",
+                    iterable,
+                    body,
+                );
             }
-            Stmt::ForAwaitOf { variable, iterable, body, .. } => {
-                self.print_for_each("for await (let ", variable, " of ", iterable, body);
+            Stmt::ForAwaitOf { variable, iterable, body, is_const, .. } => {
+                self.print_for_each(
+                    if *is_const { "for await (const " } else { "for await (let " },
+                    variable,
+                    " of ",
+                    iterable,
+                    body,
+                );
             }
             Stmt::Break { label, .. } => {
                 self.write("break");
@@ -1350,6 +1368,14 @@ mod tests {
         let out = js("ассо йопта ф() { го сидетьНахуй (гыы к сашаГрей о) { г(к); } }\n");
         assert_contains(&out, "for await (let к of о) {");
         assert_contains(&out, "async function ф() {");
+    }
+
+    #[test]
+    fn const_for_in_of_and_await_of() {
+        assert_contains(&js("го (ясенХуй к из о) { ф(к); }\n"), "for (const к in о) {");
+        assert_contains(&js("го (ясенХуй к сашаГрей [1]) { ф(к); }\n"), "for (const к of [1]) {");
+        let out = js("ассо йопта ф() { го сидетьНахуй (ясенХуй к сашаГрей о) { г(к); } }\n");
+        assert_contains(&out, "for await (const к of о) {");
     }
 
     #[test]

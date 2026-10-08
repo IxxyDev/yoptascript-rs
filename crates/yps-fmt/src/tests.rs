@@ -800,6 +800,27 @@ mod suite {
     }
 
     #[test]
+    fn const_for_loops_round_trip() {
+        let src = concat!(
+            "го (ясенХуй к сашаГрей [1]) {}\n",
+            "го (ясенХуй к из об) {}\n",
+            "го сидетьНахуй (ясенХуй к сашаГрей ист) {}\n",
+            "го (гыы к сашаГрей [1]) {}\n",
+        );
+        let out = parse_and_format(src);
+        assert!(out.contains("го (ясенХуй к сашаГрей [1])"), "форматтер должен сохранить 'ясенХуй': {out:?}");
+        assert!(out.contains("го (ясенХуй к из об)"), "форматтер должен сохранить 'ясенХуй': {out:?}");
+        assert!(
+            out.contains("го сидетьНахуй (ясенХуй к сашаГрей ист)"),
+            "форматтер должен сохранить 'ясенХуй': {out:?}"
+        );
+        assert!(out.contains("го (гыы к сашаГрей [1])"), "форматтер должен сохранить 'гыы': {out:?}");
+        assert!(programs_equivalent_str(src, &out), "round-trip нарушен для ясенХуй в for-of/for-in: {out:?}");
+        assert!(!programs_equivalent_str("го (ясенХуй к сашаГрей [1]) {}\n", "го (гыы к сашаГрей [1]) {}\n"));
+        assert_eq!(out, parse_and_format(&out));
+    }
+
+    #[test]
     fn async_generator_round_trip() {
         let src = concat!(
             "ассо пиздюли ген() {\n",

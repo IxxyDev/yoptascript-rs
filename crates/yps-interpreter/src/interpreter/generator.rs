@@ -648,7 +648,7 @@ fn step_block_stmt(
             });
             Ok(None)
         }
-        Stmt::ForOf { variable, iterable, body, span: fs } => {
+        Stmt::ForOf { variable, iterable, body, span: fs, .. } => {
             let val = interp.eval_expr(iterable)?;
             let iter_rc = value_to_iterator(val, *fs)?;
             interp.env.push_scope();
@@ -660,7 +660,7 @@ fn step_block_stmt(
             });
             Ok(None)
         }
-        Stmt::ForAwaitOf { variable, iterable, body, span: fs } if g.is_async => {
+        Stmt::ForAwaitOf { variable, iterable, body, span: fs, .. } if g.is_async => {
             let val = interp.eval_expr(iterable)?;
             let val = interp.do_await(val, *fs)?;
             match interp.get_async_iterator(&val, *fs)? {
@@ -688,7 +688,7 @@ fn step_block_stmt(
             }
             Ok(None)
         }
-        Stmt::ForIn { variable, iterable, body, span: fs } => {
+        Stmt::ForIn { variable, iterable, body, span: fs, .. } => {
             let val = interp.eval_expr(iterable)?;
             let keys: Vec<Value> = match val {
                 Value::Array(arr) => (0..arr.borrow().len()).map(|i| Value::Number(i as f64)).collect(),

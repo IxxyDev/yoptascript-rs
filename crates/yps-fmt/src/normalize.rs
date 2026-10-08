@@ -55,17 +55,17 @@ fn stmt_eq(a: &Stmt, b: &Stmt) -> bool {
             Stmt::For { init: i2, condition: c2, update: u2, body: b2, .. },
         ) => opt_stmt_eq(i1, i2) && opt_expr_eq(c1, c2) && opt_expr_eq(u1, u2) && stmt_eq(b1, b2),
         (
-            Stmt::ForIn { variable: v1, iterable: it1, body: b1, .. },
-            Stmt::ForIn { variable: v2, iterable: it2, body: b2, .. },
-        ) => pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
+            Stmt::ForIn { variable: v1, iterable: it1, body: b1, is_const: c1, .. },
+            Stmt::ForIn { variable: v2, iterable: it2, body: b2, is_const: c2, .. },
+        ) => c1 == c2 && pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
         (
-            Stmt::ForOf { variable: v1, iterable: it1, body: b1, .. },
-            Stmt::ForOf { variable: v2, iterable: it2, body: b2, .. },
-        ) => pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
+            Stmt::ForOf { variable: v1, iterable: it1, body: b1, is_const: c1, .. },
+            Stmt::ForOf { variable: v2, iterable: it2, body: b2, is_const: c2, .. },
+        ) => c1 == c2 && pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
         (
-            Stmt::ForAwaitOf { variable: v1, iterable: it1, body: b1, .. },
-            Stmt::ForAwaitOf { variable: v2, iterable: it2, body: b2, .. },
-        ) => pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
+            Stmt::ForAwaitOf { variable: v1, iterable: it1, body: b1, is_const: c1, .. },
+            Stmt::ForAwaitOf { variable: v2, iterable: it2, body: b2, is_const: c2, .. },
+        ) => c1 == c2 && pattern_eq(v1, v2) && expr_eq(it1, it2) && stmt_eq(b1, b2),
         (Stmt::Break { label: l1, .. }, Stmt::Break { label: l2, .. }) => opt_ident_eq(l1, l2),
         (Stmt::Continue { label: l1, .. }, Stmt::Continue { label: l2, .. }) => opt_ident_eq(l1, l2),
         (Stmt::Labeled { label: l1, body: b1, .. }, Stmt::Labeled { label: l2, body: b2, .. }) => {

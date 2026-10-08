@@ -217,6 +217,7 @@ impl<'a> Parser<'a> {
         } else {
             0
         };
+        let is_const = matches!(self.current().kind, TokenKind::Keyword(KeywordKind::YasenHuy));
 
         match self.scan_for_head_keyword(decl_offset) {
             Some(KeywordKind::In) => {
@@ -229,16 +230,16 @@ impl<'a> Parser<'a> {
                 if decl_offset == 1 {
                     self.advance();
                 }
-                return self.parse_for_in_rest(start);
+                return self.parse_for_in_rest(start, is_const);
             }
             Some(KeywordKind::Of) => {
                 if decl_offset == 1 {
                     self.advance();
                 }
                 if is_await {
-                    return self.parse_for_await_of_rest(start);
+                    return self.parse_for_await_of_rest(start, is_const);
                 }
-                return self.parse_for_of_rest(start);
+                return self.parse_for_of_rest(start, is_const);
             }
             _ => {}
         }
@@ -461,7 +462,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parse_for_in_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+    pub(super) fn parse_for_in_rest(&mut self, start: usize, is_const: bool) -> Result<Stmt, ()> {
         let variable = self.parse_pattern()?;
         self.advance();
 
@@ -473,10 +474,10 @@ impl<'a> Parser<'a> {
 
         let end = body.span().end;
 
-        Ok(Stmt::ForIn { variable, iterable, body, span: Span { start, end } })
+        Ok(Stmt::ForIn { variable, iterable, body, is_const, span: Span { start, end } })
     }
 
-    pub(super) fn parse_for_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+    pub(super) fn parse_for_of_rest(&mut self, start: usize, is_const: bool) -> Result<Stmt, ()> {
         let variable = self.parse_pattern()?;
         self.advance();
 
@@ -487,10 +488,10 @@ impl<'a> Parser<'a> {
         let body = Box::new(self.parse_loop_body()?);
         let end = body.span().end;
 
-        Ok(Stmt::ForOf { variable, iterable, body, span: Span { start, end } })
+        Ok(Stmt::ForOf { variable, iterable, body, is_const, span: Span { start, end } })
     }
 
-    pub(super) fn parse_for_await_of_rest(&mut self, start: usize) -> Result<Stmt, ()> {
+    pub(super) fn parse_for_await_of_rest(&mut self, start: usize, is_const: bool) -> Result<Stmt, ()> {
         let variable = self.parse_pattern()?;
         self.advance();
 
@@ -501,7 +502,7 @@ impl<'a> Parser<'a> {
         let body = Box::new(self.parse_loop_body()?);
         let end = body.span().end;
 
-        Ok(Stmt::ForAwaitOf { variable, iterable, body, span: Span { start, end } })
+        Ok(Stmt::ForAwaitOf { variable, iterable, body, is_const, span: Span { start, end } })
     }
 
     pub(super) fn parse_do_while_stmt(&mut self) -> Result<Stmt, ()> {

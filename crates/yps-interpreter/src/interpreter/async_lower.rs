@@ -314,17 +314,35 @@ impl Lowerer {
                     span: *span,
                 });
             }
-            Stmt::ForOf { variable, iterable, body, span } => {
+            Stmt::ForOf { variable, iterable, body, is_const, span } => {
                 let iterable = self.expr(iterable, out);
-                out.push(Stmt::ForOf { variable: variable.clone(), iterable, body: self.body(body), span: *span });
+                out.push(Stmt::ForOf {
+                    variable: variable.clone(),
+                    iterable,
+                    body: self.body(body),
+                    is_const: *is_const,
+                    span: *span,
+                });
             }
-            Stmt::ForIn { variable, iterable, body, span } => {
+            Stmt::ForIn { variable, iterable, body, is_const, span } => {
                 let iterable = self.expr(iterable, out);
-                out.push(Stmt::ForIn { variable: variable.clone(), iterable, body: self.body(body), span: *span });
+                out.push(Stmt::ForIn {
+                    variable: variable.clone(),
+                    iterable,
+                    body: self.body(body),
+                    is_const: *is_const,
+                    span: *span,
+                });
             }
-            Stmt::ForAwaitOf { variable, iterable, body, span } => {
+            Stmt::ForAwaitOf { variable, iterable, body, is_const, span } => {
                 let iterable = self.expr(iterable, out);
-                out.push(Stmt::ForAwaitOf { variable: variable.clone(), iterable, body: self.body(body), span: *span });
+                out.push(Stmt::ForAwaitOf {
+                    variable: variable.clone(),
+                    iterable,
+                    body: self.body(body),
+                    is_const: *is_const,
+                    span: *span,
+                });
             }
             Stmt::TryCatch { try_block, catch_param, catch_block, finally_block, span } => {
                 out.push(Stmt::TryCatch {

@@ -299,24 +299,27 @@ impl Printer<'_> {
                 self.write(") ");
                 self.print_branch(body);
             }
-            Stmt::ForIn { variable, iterable, body, .. } => {
-                self.write("го (гыы ");
+            Stmt::ForIn { variable, iterable, body, is_const, .. } => {
+                self.write("го (");
+                self.write(if *is_const { "ясенХуй " } else { "гыы " });
                 self.print_pattern(variable);
                 self.write(" из ");
                 self.print_expr(iterable, 0);
                 self.write(") ");
                 self.print_branch(body);
             }
-            Stmt::ForOf { variable, iterable, body, .. } => {
-                self.write("го (гыы ");
+            Stmt::ForOf { variable, iterable, body, is_const, .. } => {
+                self.write("го (");
+                self.write(if *is_const { "ясенХуй " } else { "гыы " });
                 self.print_pattern(variable);
                 self.write(" сашаГрей ");
                 self.print_expr(iterable, 0);
                 self.write(") ");
                 self.print_branch(body);
             }
-            Stmt::ForAwaitOf { variable, iterable, body, .. } => {
-                self.write("го сидетьНахуй (гыы ");
+            Stmt::ForAwaitOf { variable, iterable, body, is_const, .. } => {
+                self.write("го сидетьНахуй (");
+                self.write(if *is_const { "ясенХуй " } else { "гыы " });
                 self.print_pattern(variable);
                 self.write(" сашаГрей ");
                 self.print_expr(iterable, 0);
