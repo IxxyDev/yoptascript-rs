@@ -109,21 +109,7 @@ impl<'a> Parser<'a> {
     fn check_assignment_target(&mut self, op: BinaryOp, lhs: &Expr) -> Result<(), ()> {
         let valid = match op {
             BinaryOp::Assign => is_assign_target(lhs),
-            BinaryOp::PlusAssign
-            | BinaryOp::MinusAssign
-            | BinaryOp::MulAssign
-            | BinaryOp::DivAssign
-            | BinaryOp::ExpAssign
-            | BinaryOp::ModAssign
-            | BinaryOp::NullishAssign
-            | BinaryOp::AndAssign
-            | BinaryOp::OrAssign
-            | BinaryOp::BitAndAssign
-            | BinaryOp::BitOrAssign
-            | BinaryOp::BitXorAssign
-            | BinaryOp::ShlAssign
-            | BinaryOp::ShrAssign
-            | BinaryOp::UshrAssign => is_simple_target(lhs),
+            op if op.is_compound_assign() => is_simple_target(lhs),
             _ => true,
         };
         if valid {
