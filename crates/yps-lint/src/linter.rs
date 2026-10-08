@@ -6,28 +6,7 @@ use yps_parser::{
 
 use crate::{LintDiagnostic, LintSeverity, Rule};
 
-fn is_compound_assign(op: BinaryOp) -> bool {
-    matches!(
-        op,
-        BinaryOp::PlusAssign
-            | BinaryOp::MinusAssign
-            | BinaryOp::MulAssign
-            | BinaryOp::DivAssign
-            | BinaryOp::ExpAssign
-            | BinaryOp::ModAssign
-            | BinaryOp::NullishAssign
-            | BinaryOp::AndAssign
-            | BinaryOp::OrAssign
-            | BinaryOp::BitAndAssign
-            | BinaryOp::BitOrAssign
-            | BinaryOp::BitXorAssign
-            | BinaryOp::ShlAssign
-            | BinaryOp::ShrAssign
-            | BinaryOp::UshrAssign
-    )
-}
-
-pub fn lint_program(program: &Program) -> Vec<LintDiagnostic> {
+pub(crate) fn lint_program(program: &Program) -> Vec<LintDiagnostic> {
     let mut linter = Linter { scopes: Vec::new(), diags: Vec::new() };
     linter.push_scope();
     linter.visit_stmt_list(&program.items);
@@ -550,7 +529,7 @@ impl Linter {
         match expr {
             Expr::Grouping { expr, .. } => self.visit_discarded_expr(expr),
             Expr::Binary { op, lhs, rhs, .. }
-                if is_compound_assign(*op) && matches!(lhs.as_ref(), Expr::Identifier(_)) =>
+                if op.is_compound_assign() && matches!(lhs.as_ref(), Expr::Identifier(_)) =>
             {
                 self.visit_expr(rhs);
             }

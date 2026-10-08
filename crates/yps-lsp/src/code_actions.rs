@@ -40,8 +40,7 @@ mod tests {
     use yps_lint::lint_source;
 
     fn only_diag(src: &str, rule: Rule) -> LintDiagnostic {
-        let result = lint_source(src);
-        result.diagnostics.into_iter().find(|d| d.rule == rule).expect("ожидалась диагностика")
+        lint_source(src).expect("ошибки разбора").into_iter().find(|d| d.rule == rule).expect("ожидалась диагностика")
     }
 
     #[test]

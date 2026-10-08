@@ -34,8 +34,8 @@ mod tests {
     #[test]
     fn lint_diagnostic_carries_rule_code_and_source() {
         let src = "гыы х = 1;\n";
-        let result = lint_source(src);
-        let diags = to_lsp_diagnostics(src, &result.diagnostics);
+        let findings = lint_source(src).expect("ошибки разбора");
+        let diags = to_lsp_diagnostics(src, &findings);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].source.as_deref(), Some(SOURCE));
         assert_eq!(diags[0].code, Some(NumberOrString::String("unused-variable".to_string())));
@@ -45,16 +45,16 @@ mod tests {
     #[test]
     fn shadowed_declaration_is_a_hint() {
         let src = "гыы х = 1;\nсказать(х);\nйопта ф() { гыы х = 2; сказать(х); }\n";
-        let result = lint_source(src);
-        let diags = to_lsp_diagnostics(src, &result.diagnostics);
+        let findings = lint_source(src).expect("ошибки разбора");
+        let diags = to_lsp_diagnostics(src, &findings);
         assert!(diags.iter().any(|d| d.severity == Some(DiagnosticSeverity::HINT)));
     }
 
     #[test]
     fn cyrillic_positions_use_utf16_columns() {
         let src = "йопта фу() { отвечаю 1; сказать(2); }\n";
-        let result = lint_source(src);
-        let diags = to_lsp_diagnostics(src, &result.diagnostics);
+        let findings = lint_source(src).expect("ошибки разбора");
+        let diags = to_lsp_diagnostics(src, &findings);
         let unreachable = diags.iter().find(|d| d.code == Some(NumberOrString::String("unreachable-code".to_string())));
         let diag = unreachable.expect("unreachable diagnostic");
         assert_eq!(diag.range.start.character, 24);

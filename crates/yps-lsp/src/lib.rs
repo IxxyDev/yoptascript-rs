@@ -71,7 +71,7 @@ pub struct Analyzed {
     pub diagnostics: Vec<Diagnostic>,
     pub symbols: Vec<DocumentSymbol>,
     pub declarations: Vec<Declaration>,
-    pub lint: yps_lint::LintResult,
+    pub lint: Vec<yps_lint::LintDiagnostic>,
 }
 
 #[must_use]
@@ -79,10 +79,11 @@ pub fn analyze(text: &str) -> Analyzed {
     let sf = SourceFile::new("inline".to_string(), text.to_string());
     let (tokens, lex_diags) = Lexer::new(&sf).tokenize();
     let (program, parse_diags) = Parser::new(&tokens, &sf).parse_program();
-    let lint = yps_lint::lint_source(text);
+    let lint =
+        if lex_diags.is_empty() && parse_diags.is_empty() { yps_lint::lint_program(&program) } else { Vec::new() };
 
     let mut diagnostics = diagnostics::to_lsp_diagnostics(text, &lex_diags, &parse_diags);
-    diagnostics.extend(lint::to_lsp_diagnostics(text, &lint.diagnostics));
+    diagnostics.extend(lint::to_lsp_diagnostics(text, &lint));
 
     Analyzed {
         diagnostics,
@@ -125,13 +126,13 @@ mod tests {
     fn lint_diagnostics_are_included_in_published_diagnostics() {
         let analyzed = analyze("гыы х = 1;\n");
         assert!(analyzed.diagnostics.iter().any(|d| d.source.as_deref() == Some(lint::SOURCE)));
-        assert_eq!(analyzed.lint.diagnostics.len(), 1);
+        assert_eq!(analyzed.lint.len(), 1);
     }
 
     #[test]
     fn broken_source_publishes_no_lint_diagnostics() {
         let analyzed = analyze("йопта (");
-        assert!(analyzed.lint.diagnostics.is_empty());
+        assert!(analyzed.lint.is_empty());
         assert!(!analyzed.diagnostics.iter().any(|d| d.source.as_deref() == Some(lint::SOURCE)));
     }
 }

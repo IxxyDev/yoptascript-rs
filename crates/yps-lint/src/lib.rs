@@ -1,9 +1,9 @@
 mod linter;
 
-use yps_lexer::{Diagnostic, Lexer, Severity, SourceFile, Span};
-use yps_parser::Parser;
+use yps_lexer::{Diagnostic, Lexer, SourceFile, Span};
+use yps_parser::{Parser, Program};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Rule {
     UnusedVariable,
     UnreachableCode,
@@ -29,7 +29,7 @@ impl Rule {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LintSeverity {
     Warning,
     Hint,
@@ -44,7 +44,7 @@ impl std::fmt::Display for LintSeverity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintDiagnostic {
     pub span: Span,
     pub rule: Rule,
@@ -52,27 +52,18 @@ pub struct LintDiagnostic {
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct LintResult {
-    pub diagnostics: Vec<LintDiagnostic>,
-    pub parse_errors: Vec<Diagnostic>,
+#[must_use]
+pub fn lint_program(program: &Program) -> Vec<LintDiagnostic> {
+    linter::lint_program(program)
 }
 
-#[must_use]
-pub fn lint_source(source: &str) -> LintResult {
+pub fn lint_source(source: &str) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
     let sf = SourceFile::new("<lint>".to_string(), source.to_string());
-    let (tokens, lex_diags) = Lexer::new(&sf).tokenize();
+    let (tokens, mut diags) = Lexer::new(&sf).tokenize();
     let (program, parse_diags) = Parser::new(&tokens, &sf).parse_program();
+    diags.extend(parse_diags);
 
-    let mut parse_errors = lex_diags;
-    parse_errors.extend(parse_diags);
-
-    if parse_errors.iter().any(|d| d.severity == Severity::Error) {
-        return LintResult { diagnostics: Vec::new(), parse_errors };
-    }
-
-    let diagnostics = linter::lint_program(&program);
-    LintResult { diagnostics, parse_errors }
+    if diags.is_empty() { Ok(lint_program(&program)) } else { Err(diags) }
 }
 
 #[cfg(test)]
@@ -86,9 +77,7 @@ mod tests {
     }
 
     fn diagnostics(src: &str) -> Vec<LintDiagnostic> {
-        let result = lint_source(src);
-        assert!(result.parse_errors.is_empty(), "неожиданные ошибки разбора: {:?}", result.parse_errors);
-        result.diagnostics
+        lint_source(src).unwrap_or_else(|errors| panic!("неожиданные ошибки разбора: {errors:?}"))
     }
 
     fn count(src: &str, rule: Rule) -> usize {
@@ -104,9 +93,8 @@ mod tests {
 
     #[test]
     fn parse_error_yields_no_lint() {
-        let result = lint_source("гыы = ;\n");
-        assert!(!result.parse_errors.is_empty());
-        assert!(result.diagnostics.is_empty());
+        let errors = lint_source("гыы = ;\n").expect_err("ожидалась ошибка разбора");
+        assert!(!errors.is_empty());
     }
 
     #[test]

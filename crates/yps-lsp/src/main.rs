@@ -240,7 +240,7 @@ impl LanguageServer for Backend {
             }
 
             let Some(lint_diag) =
-                analyzed.lint.diagnostics.iter().find(|d| span_to_range(&analyzed.text, d.span) == lsp_diag.range)
+                analyzed.lint.iter().find(|d| span_to_range(&analyzed.text, d.span) == lsp_diag.range)
             else {
                 continue;
             };

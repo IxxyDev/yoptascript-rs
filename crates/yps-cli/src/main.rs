@@ -161,18 +161,19 @@ fn run_disasm(file: &Path) -> Result<(), Failure> {
 
 fn run_lint(file: &Path) -> Result<(), Failure> {
     let source = read_source(file)?;
-    let result = yps_lint::lint_source(&source.source);
-
-    if !result.parse_errors.is_empty() {
-        print_diagnostics(&source, &result.parse_errors);
-        return Err(Failure::reported());
-    }
-    if result.diagnostics.is_empty() {
+    let findings = match yps_lint::lint_source(&source.source) {
+        Ok(findings) => findings,
+        Err(errors) => {
+            print_diagnostics(&source, &errors);
+            return Err(Failure::reported());
+        }
+    };
+    if findings.is_empty() {
         return Ok(());
     }
 
     let mut report = String::new();
-    for d in &result.diagnostics {
+    for d in &findings {
         let (line, col) = source.position(d.span.start);
         let _ = writeln!(report, "{}:{line}:{col}: {} [{}]: {}", source.name, d.severity, d.rule.code(), d.message);
     }
