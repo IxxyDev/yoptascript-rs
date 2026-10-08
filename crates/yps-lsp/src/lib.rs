@@ -12,6 +12,8 @@ pub mod rename;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
+#[cfg(test)]
+mod test_support;
 pub mod types;
 
 use tower_lsp::lsp_types::{

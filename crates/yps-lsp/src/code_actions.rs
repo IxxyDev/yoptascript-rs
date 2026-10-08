@@ -2,7 +2,7 @@ use tower_lsp::lsp_types::TextEdit;
 use yps_lint::{LintDiagnostic, Rule};
 
 use crate::position::span_to_range;
-use crate::rename::occurrences_at;
+use crate::rename::rename_edits;
 
 #[must_use]
 pub fn quick_fix(text: &str, diag: &LintDiagnostic) -> Option<(String, Vec<TextEdit>)> {
@@ -20,11 +20,9 @@ fn unused_variable_fix(text: &str, diag: &LintDiagnostic) -> Option<(String, Vec
     }
     let new_name = format!("_{original}");
 
-    let spans = occurrences_at(text, diag.span.start).unwrap_or_else(|| vec![diag.span]);
-    let edits: Vec<TextEdit> = spans
-        .into_iter()
-        .map(|span| TextEdit { range: span_to_range(text, span), new_text: new_name.clone() })
-        .collect();
+    let renames = rename_edits(text, diag.span.start, &new_name)?;
+    let edits: Vec<TextEdit> =
+        renames.into_iter().map(|(span, new_text)| TextEdit { range: span_to_range(text, span), new_text }).collect();
 
     Some((format!("Переименовать «{original}» в «{new_name}»"), edits))
 }
@@ -37,6 +35,7 @@ fn unreachable_code_fix(text: &str, diag: &LintDiagnostic) -> (String, Vec<TextE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::apply_edits;
     use yps_lint::lint_source;
 
     fn only_diag(src: &str, rule: Rule) -> LintDiagnostic {
@@ -91,5 +90,47 @@ mod tests {
         let src = "гыы х = 1;\nсказать(х);\nйопта ф() { гыы х = 2; сказать(х); }\n";
         let diag = only_diag(src, Rule::ShadowedDeclaration);
         assert!(quick_fix(src, &diag).is_none());
+    }
+
+    fn apply(src: &str, edits: &[TextEdit]) -> String {
+        apply_edits(
+            src,
+            edits.iter().map(|e| {
+                let start = crate::position::pos_to_byte(src, e.range.start);
+                let end = crate::position::pos_to_byte(src, e.range.end);
+                (yps_lexer::Span { start, end }, e.new_text.clone())
+            }),
+        )
+    }
+
+    #[test]
+    fn unused_shorthand_destructuring_fix_keeps_property_key() {
+        let src = "гыы о = {а: 1};\nгыы {а} = о;\n";
+        let diag = only_diag(src, Rule::UnusedVariable);
+        let (_, edits) = quick_fix(src, &diag).expect("должен быть quick fix");
+        assert_eq!(apply(src, &edits), "гыы о = {а: 1};\nгыы {а: _а} = о;\n");
+    }
+
+    #[test]
+    fn unused_shorthand_param_fix_keeps_property_key() {
+        let src = "йопта ф({а}) {}\nф({а: 1});\n";
+        let diag = only_diag(src, Rule::UnusedVariable);
+        let (_, edits) = quick_fix(src, &diag).expect("должен быть quick fix");
+        assert_eq!(apply(src, &edits), "йопта ф({а: _а}) {}\nф({а: 1});\n");
+    }
+
+    #[test]
+    fn unused_named_import_has_no_quick_fix() {
+        let src = "спиздить { фу } из \"./м\";\n";
+        let diag = only_diag(src, Rule::UnusedImport);
+        assert!(quick_fix(src, &diag).is_none());
+    }
+
+    #[test]
+    fn unused_default_import_fix_renames() {
+        let src = "спиздить кент из \"./м\";\n";
+        let diag = only_diag(src, Rule::UnusedImport);
+        let (_, edits) = quick_fix(src, &diag).expect("должен быть quick fix");
+        assert_eq!(apply(src, &edits), "спиздить _кент из \"./м\";\n");
     }
 }

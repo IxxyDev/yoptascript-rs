@@ -139,13 +139,13 @@ impl LanguageServer for Backend {
         };
 
         let byte_pos = pos_to_byte(&analyzed.text, pos);
-        let Some(spans) = rename_edits(&analyzed.text, byte_pos, &params.new_name) else {
+        let Some(edits) = rename_edits(&analyzed.text, byte_pos, &params.new_name) else {
             return Ok(None);
         };
 
-        let edits: Vec<TextEdit> = spans
+        let edits: Vec<TextEdit> = edits
             .into_iter()
-            .map(|span| TextEdit { range: span_to_range(&analyzed.text, span), new_text: params.new_name.clone() })
+            .map(|(span, new_text)| TextEdit { range: span_to_range(&analyzed.text, span), new_text })
             .collect();
 
         let mut changes = HashMap::new();
