@@ -5,6 +5,57 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`yps-lint` API** — `lint_source` returns `Result<Vec<LintDiagnostic>,
+  Vec<Diagnostic>>` instead of a `LintResult` that could carry both lint
+  findings and parse errors; `lint_program(&Program)` is public, so the
+  language server lints the AST it already has instead of lexing and
+  parsing every document a second time. `Rule` and `LintSeverity` derive
+  `Hash`, `LintDiagnostic` derives `Eq`, and `Rule::severity()` /
+  `Rule::ALL` are exposed. The crate now has documentation describing
+  every rule, the `_` opt-out, the after-used parameter rule and the
+  scoping model.
+- **Parser keeps the const-ness of loop variables** — `for-in`,
+  `for-of` and `for-await-of` nodes record whether the variable was
+  declared with `ясенХуй`. The formatter prints the original keyword
+  back (and its round-trip self-check compares it), the JS transpiler
+  emits `const` instead of `let`, and `BinaryOp::is_assign` /
+  `is_compound_assign` replace three hand-written operator lists.
+- **Language server refuses unsound renames** — a binding introduced by a
+  named import (`спиздить { х } из …`) or taking part in an export
+  (`предъява { х }`, `предъява гыы х`) cannot be renamed, because the
+  language has no alias syntax and the rename would silently change the
+  module's public name. Find-references and highlights still work for
+  them.
+
+### Fixed
+
+- **Linter stack overflow** — `yps lint` crashed (and the language
+  server died with it) on deeply nested long operator chains that `yps`
+  itself ran fine; the linter now grows the native stack the way the
+  parser and interpreter do.
+- **Linter scoping** — each `тема`/`нуичо` body of `базарпо` is its own
+  scope, as at runtime, so a variable declared in one case is no longer
+  treated as read by another; a catch parameter, a function-expression
+  name or a function declaration that is later redeclared with
+  `гыы`/`ясенХуй` (or shadowed by a parameter of the same name) is now
+  checked for use; `гыы ф = йопта ф() { … }` no longer yields a spurious
+  shadowing hint.
+- **Linter rules** — `duplicate-object-key` also sees getters and
+  setters (`{ get а() {…}, а: 1 }`; a get/set pair is still fine),
+  `self-assignment` also covers `х ??= х`, `х ||= х` and `х &&= х`, and
+  an unused `ясенХуй` loop variable is reported as a constant.
+- **Language server rename of shorthand bindings** — renaming a binding
+  declared through object-pattern shorthand (`гыы {а} = о`, `{а = 1}`,
+  destructured parameters) or used as object-literal shorthand now
+  expands the occurrence to `а: новоеИмя` instead of changing which
+  property is read; the «rename to `_х`» quick fix for an unused
+  variable relies on the same machinery, so it no longer breaks the
+  program, and it is not offered for named imports.
+
 ## [1.17.4] - 2026-10-05
 
 ### Changed
