@@ -1530,6 +1530,7 @@ version = "1.17.4"
 name = "yps-lint"
 version = "1.17.4"
 dependencies = [
+ "stacker",
  "yps-lexer",
  "yps-parser",
 ]

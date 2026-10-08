@@ -9,3 +9,4 @@ publish.workspace = true
 [dependencies]
 yps-lexer.workspace = true
 yps-parser.workspace = true
+stacker.workspace = true
