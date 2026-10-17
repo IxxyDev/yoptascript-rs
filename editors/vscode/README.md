@@ -100,11 +100,11 @@ Then either put the binary on `PATH`, or point the extension at it directly:
 
 ```bash
 cd editors/vscode
-npm ci
-npm run compile      # bundle src/extension.ts -> dist/extension.js with esbuild
-npm test             # tokenization + server-resolution tests
-npm run package      # produce a .vsix without bundled binaries (requires @vscode/vsce)
-npm run package:local # cargo build the yps-lsp + yps-dap release binaries, bundle them under bin/, then package a .vsix
+pnpm install --frozen-lockfile
+pnpm run compile      # bundle src/extension.ts -> dist/extension.js with esbuild
+pnpm test             # tokenization + server-resolution tests
+pnpm run package      # produce a .vsix without bundled binaries (requires @vscode/vsce)
+pnpm run package:local # cargo build the yps-lsp + yps-dap release binaries, bundle them under bin/, then package a .vsix
 ```
 
 ## License

@@ -155,6 +155,7 @@
     "test": "node --test",
     "package": "vsce package --no-dependencies",
     "package:local": "node scripts/package-local.mjs",
-    "vscode:prepublish": "npm run compile"
-  }
+    "vscode:prepublish": "pnpm run compile"
+  },
+  "packageManager": "pnpm@12.6.0"
 }
