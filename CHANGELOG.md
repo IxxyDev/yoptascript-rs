@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Module globals under `--vm`** — a function exported from a module
+  and called from the importer looked its module's imports and top-level
+  bindings up in the importer instead, failing with "переменная не
+  определена"; closures created in a module now resolve globals in that
+  module's own table. The main program's global lookup is unchanged.
+- **Finally-block locals on the throw path (`--vm`)** — when a
+  `тюряжка` block ran because of a throw, every local declared in it
+  (including the parameter of a nested `гоп`) read the exception being
+  propagated instead of its own value.
+- **Generator step results (`--vm`)** — the VM added English
+  `value`/`done` keys next to `значение`/`готово`, so printing a step
+  result or reading `.value` differed from the interpreter; the result
+  now carries only the Russian keys, as everywhere else.
+
 ## [1.17.5] - 2026-10-08
 
 ### Changed
