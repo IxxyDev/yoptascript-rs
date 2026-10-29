@@ -10,8 +10,8 @@ use crate::chunk::{ClassBlueprint, Constant, FnProto, MemberKind, Op};
 use crate::error::VmError;
 use crate::promise::{MacrotaskQueue, Microtask};
 use crate::value::{
-    CapKind, ClassDef, ClassMembers, Closure, GenState, MethodDef, ObjMap, PromiseState, Upvalue, UpvalueState, Value,
-    abstract_eq, strict_eq, to_int32, to_uint32,
+    CapKind, ClassDef, ClassMembers, Closure, GenState, Globals, MethodDef, ObjMap, PromiseState, Upvalue,
+    UpvalueState, Value, abstract_eq, strict_eq, to_int32, to_uint32,
 };
 
 const MAX_CALL_DEPTH: usize = 1000;
@@ -27,6 +27,7 @@ const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
 type ModuleExports = std::collections::HashMap<String, Value>;
 type ModuleCache = Rc<RefCell<std::collections::HashMap<std::path::PathBuf, Rc<ModuleExports>>>>;
 type ModuleLoading = Rc<RefCell<std::collections::HashSet<std::path::PathBuf>>>;
+type ModuleGlobalsList = Rc<RefCell<Vec<Rc<Globals>>>>;
 
 enum Step {
     Continue,
@@ -95,6 +96,8 @@ pub struct Vm {
     stack: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: std::collections::HashMap<String, (Value, bool)>,
+    module_globals: Option<Rc<Globals>>,
+    all_module_globals: ModuleGlobalsList,
     open_upvalues: Vec<Upvalue>,
     handlers: Vec<Handler>,
     region_floor: usize,
@@ -131,6 +134,8 @@ impl Vm {
             stack: Vec::new(),
             frames: Vec::new(),
             globals: std::collections::HashMap::new(),
+            module_globals: None,
+            all_module_globals: Rc::new(RefCell::new(Vec::new())),
             open_upvalues: Vec::new(),
             handlers: Vec::new(),
             region_floor: 0,
@@ -165,15 +170,22 @@ impl Vm {
     }
 
     pub fn run(&mut self, proto: Rc<FnProto>) -> Result<(), VmError> {
-        let closure = Rc::new(Closure { proto, upvalues: Vec::new() });
+        let closure = Rc::new(Closure {
+            proto,
+            upvalues: Vec::new(),
+            module_globals: self.module_globals.as_ref().map(Rc::downgrade),
+        });
         self.stack.push(Value::Function(Rc::clone(&closure)));
         self.frames.push(CallFrame { closure, ip: 0, base: 0, owner: None });
         self.run_loop()?;
         self.drive_event_loop(Span { start: 0, end: 0 })
     }
 
-    fn global_get(&self, name: &str) -> Option<&Value> {
-        self.globals.get(name).map(|(v, _)| v)
+    fn global_get(&self, name: &str) -> Option<Value> {
+        match &self.module_globals {
+            Some(table) => table.borrow().get(name).map(|(v, _)| v.clone()),
+            None => self.globals.get(name).map(|(v, _)| v.clone()),
+        }
     }
 
     fn run_loop(&mut self) -> Result<(), VmError> {
@@ -451,12 +463,20 @@ impl Vm {
                 Op::DefineGlobal(idx, is_const) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.pop();
-                    self.globals.insert(name.to_string(), (value, is_const));
+                    match &closure.module_globals {
+                        None => {
+                            self.globals.insert(name.to_string(), (value, is_const));
+                        }
+                        Some(table) => module_global_define(table, &name, value, is_const),
+                    }
                 }
                 Op::GetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
-                    if let Some(v) = self.global_get(&name) {
-                        let v = v.clone();
+                    let found = match &closure.module_globals {
+                        None => self.globals.get(&*name).map(|(v, _)| v.clone()),
+                        Some(table) => module_global_get(table, &name),
+                    };
+                    if let Some(v) = found {
                         self.stack.push(v);
                     } else if builtins::is_builtin(&name) {
                         self.stack.push(Value::Builtin(Rc::clone(&name)));
@@ -469,15 +489,19 @@ impl Vm {
                 Op::SetGlobal(idx) => {
                     let name = self.const_str(chunk, idx);
                     let value = self.peek(0).clone();
-                    match self.globals.get_mut(&*name) {
-                        Some((slot, is_const)) => {
-                            if *is_const {
-                                return Err(VmError::new(format!("нельзя менять константу '{name}'"), span));
+                    if let Some(table) = &closure.module_globals {
+                        module_global_set(table, &name, value, span)?;
+                    } else {
+                        match self.globals.get_mut(&*name) {
+                            Some((slot, is_const)) => {
+                                if *is_const {
+                                    return Err(VmError::new(format!("нельзя менять константу '{name}'"), span));
+                                }
+                                *slot = value;
                             }
-                            *slot = value;
-                        }
-                        None => {
-                            return Err(VmError::new(format!("переменная не определена: '{name}'"), span));
+                            None => {
+                                return Err(VmError::new(format!("переменная не определена: '{name}'"), span));
+                            }
                         }
                     }
                 }
@@ -975,7 +999,7 @@ impl Vm {
                 }
                 Op::RecordExport(idx) => {
                     let name = self.const_str(chunk, idx);
-                    if let Some(value) = self.global_get(&name).cloned() {
+                    if let Some(value) = self.global_get(&name) {
                         self.exports.insert(name.to_string(), value);
                     }
                 }
@@ -1148,7 +1172,11 @@ impl Vm {
                 upvalues.push(Rc::clone(&parent.upvalues[desc.index]));
             }
         }
-        self.stack.push(Value::Function(Rc::new(Closure { proto, upvalues })));
+        self.stack.push(Value::Function(Rc::new(Closure {
+            proto,
+            upvalues,
+            module_globals: parent.module_globals.clone(),
+        })));
     }
 
     fn pop_args(&mut self, argc: usize) -> Vec<Value> {
@@ -2500,6 +2528,10 @@ impl Vm {
         let mut sub = Vm::with_writer(Box::new(io::stdout()));
         sub.module_cache = Rc::clone(&self.module_cache);
         sub.module_loading = Rc::clone(&self.module_loading);
+        let table = Rc::new(Globals::default());
+        self.all_module_globals.borrow_mut().push(Rc::clone(&table));
+        sub.module_globals = Some(table);
+        sub.all_module_globals = Rc::clone(&self.all_module_globals);
         sub.base_path = resolved.parent().map(std::path::Path::to_path_buf);
         sub.sources = self.sources.clone();
         sub.run_uninstrumented(proto)?;
@@ -2533,7 +2565,11 @@ impl Vm {
     }
 
     fn run_uninstrumented(&mut self, proto: Rc<FnProto>) -> Result<(), VmError> {
-        let closure = Rc::new(Closure { proto, upvalues: Vec::new() });
+        let closure = Rc::new(Closure {
+            proto,
+            upvalues: Vec::new(),
+            module_globals: self.module_globals.as_ref().map(Rc::downgrade),
+        });
         self.stack.push(Value::Function(Rc::clone(&closure)));
         self.frames.push(CallFrame { closure, ip: 0, base: 0, owner: None });
         self.run_loop()
@@ -2571,7 +2607,14 @@ impl Vm {
     }
 
     fn define_module_global(&mut self, name: String, value: Value) {
-        self.globals.insert(name, (value, true));
+        match &self.module_globals {
+            Some(table) => {
+                table.borrow_mut().insert(name, (value, true));
+            }
+            None => {
+                self.globals.insert(name, (value, true));
+            }
+        }
     }
 
     fn has_dispose_kind(&self, value: &Value, sym_key: &str, method_name: &str) -> bool {
@@ -3087,6 +3130,11 @@ impl Vm {
         for (value, _) in self.globals.values() {
             marker.push_value(value);
         }
+        for table in self.all_module_globals.borrow().iter() {
+            for (value, _) in table.borrow().values() {
+                marker.push_value(value);
+            }
+        }
         for up in &self.open_upvalues {
             marker.push_upvalue(up);
         }
@@ -3291,6 +3339,31 @@ fn described(source: &yps_lexer::SourceFile, diagnostics: &[yps_lexer::Diagnosti
 
 fn uncaught_message(value: &Value) -> String {
     format!("Необработанное исключение: {value}")
+}
+
+#[cold]
+fn module_global_get(table: &std::rc::Weak<Globals>, name: &str) -> Option<Value> {
+    table.upgrade()?.borrow().get(name).map(|(v, _)| v.clone())
+}
+
+#[cold]
+fn module_global_define(table: &std::rc::Weak<Globals>, name: &str, value: Value, is_const: bool) {
+    if let Some(table) = table.upgrade() {
+        table.borrow_mut().insert(name.to_string(), (value, is_const));
+    }
+}
+
+#[cold]
+fn module_global_set(table: &std::rc::Weak<Globals>, name: &str, value: Value, span: Span) -> Result<(), VmError> {
+    let table = table.upgrade().ok_or_else(|| VmError::new(format!("переменная не определена: '{name}'"), span))?;
+    match table.borrow_mut().get_mut(name) {
+        Some((_, true)) => Err(VmError::new(format!("нельзя менять константу '{name}'"), span)),
+        Some((slot, false)) => {
+            *slot = value;
+            Ok(())
+        }
+        None => Err(VmError::new(format!("переменная не определена: '{name}'"), span)),
+    }
 }
 
 fn iter_result_pair(value: Value, done: bool) -> Value {

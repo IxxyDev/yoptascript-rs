@@ -15,10 +15,13 @@ pub enum UpvalueState {
 
 pub type Upvalue = Rc<RefCell<UpvalueState>>;
 
+pub type Globals = RefCell<HashMap<String, (Value, bool)>>;
+
 #[derive(Debug)]
 pub struct Closure {
     pub proto: Rc<FnProto>,
     pub upvalues: Vec<Upvalue>,
+    pub module_globals: Option<std::rc::Weak<Globals>>,
 }
 
 pub const GETTER_PREFIX: &str = "__get_";

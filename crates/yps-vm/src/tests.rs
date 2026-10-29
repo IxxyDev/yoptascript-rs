@@ -2467,6 +2467,24 @@ fn nested_module_inherits_the_source_registry() {
     assert_eq!(owner.position(err.span.start), (3, 11));
 }
 
+#[test]
+fn exported_function_reads_and_writes_its_own_module_globals() {
+    let dir = ModuleDir::new("globals");
+    dir.write("inner.yopta", "предъява йопта дай() { отвечаю 1; }\n");
+    dir.write(
+        "outer.yopta",
+        "спиздить { дай } из \"inner\";\nгыы счёт = 10;\nпредъява йопта шаг() { счёт = счёт + дай(); отвечаю счёт; }\n",
+    );
+
+    let (_, result) = run_registered(
+        &dir,
+        "спиздить { шаг } из \"outer\";\nгыы счёт = 100;\nшаг();\nвилкойвглаз (шаг() !== 12 || счёт !== 100) { кидай \"мимо\"; }\n",
+    );
+
+    result.expect("функция модуля должна видеть глобалы своего модуля");
+}
+
+
 fn vm_error(src: &str) -> VmError {
     let proto = compile_program(&parse(src)).expect("компиляция");
     let mut vm = Vm::with_writer(Box::new(std::io::sink()));
