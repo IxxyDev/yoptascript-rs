@@ -908,6 +908,17 @@ fn finally_locals_on_the_throw_path_do_not_alias_the_pending_exception() {
 }
 
 #[test]
+fn generator_step_result_has_only_the_russian_keys() {
+    let src = r#"
+        пиздюли г() { хапнуть { поебалу 1; } гоп (е) {} }
+        гыы р = г().next();
+        сказать(р, р.value);
+    "#;
+    assert_eq!(run(src), "{значение: 1, готово: false} undefined\n");
+    assert_eq!(run(src), run_interp(src));
+}
+
+#[test]
 fn switch_no_fallthrough() {
     let src = r#"
         йопта тест(х) {
@@ -2501,7 +2512,6 @@ fn exported_function_reads_and_writes_its_own_module_globals() {
 
     result.expect("функция модуля должна видеть глобалы своего модуля");
 }
-
 
 fn vm_error(src: &str) -> VmError {
     let proto = compile_program(&parse(src)).expect("компиляция");

@@ -1659,10 +1659,8 @@ impl Vm {
 
     fn gen_iter_result(&self, value: Value, done: bool) -> Value {
         let mut map = ObjMap::new();
-        map.insert("значение".to_string(), value.clone());
-        map.insert("value".to_string(), value);
+        map.insert("значение".to_string(), value);
         map.insert("готово".to_string(), Value::Bool(done));
-        map.insert("done".to_string(), Value::Bool(done));
         self.gc_object(map)
     }
 
