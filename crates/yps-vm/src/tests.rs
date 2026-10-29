@@ -890,6 +890,24 @@ fn finally_runs_on_return() {
 }
 
 #[test]
+fn finally_locals_on_the_throw_path_do_not_alias_the_pending_exception() {
+    let src = r#"
+        хапнуть {
+            хапнуть {
+                кидай "внеш";
+            } тюряжка {
+                гыы х = 5;
+                хапнуть { кидай "вн"; } гоп (е) { сказать(х, е); }
+            }
+        } гоп (е) {
+            сказать("поймал", е);
+        }
+    "#;
+    assert_eq!(run(src), "5 вн\nпоймал внеш\n");
+    assert_eq!(run(src), run_interp(src));
+}
+
+#[test]
 fn switch_no_fallthrough() {
     let src = r#"
         йопта тест(х) {

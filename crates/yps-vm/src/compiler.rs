@@ -517,7 +517,9 @@ impl Compiler {
 
             let finally_throw = self.here();
             self.cur().chunk.patch_jump(outer_push, finally_throw);
+            self.push_temp(span);
             self.compile_block_scoped(finally_block.unwrap())?;
+            self.cur().locals.pop();
             self.emit(Op::Rethrow, span);
 
             let end = self.here();
