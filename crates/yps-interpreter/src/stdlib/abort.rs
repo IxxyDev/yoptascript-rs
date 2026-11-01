@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn t1_abort_idempotent() {
+    fn abort_is_idempotent() {
         let ctrl_val = make_controller();
         let state = match &ctrl_val {
             Value::AbortController { state } => Rc::clone(state),
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn t2_listener_fire_and_clear() {
+    fn listeners_fire_once_and_clear() {
         let ctrl_val = make_controller();
         let state = match &ctrl_val {
             Value::AbortController { state } => Rc::clone(state),
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn t3_late_subscribe_via_microtask() {
+    fn late_subscribe_runs_as_microtask() {
         let interp = run_script(
             r#"
             гыы контроллёр = захуярить КонтроллёрОтмены();
@@ -318,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn t5_signal_any_fires_on_first_abort() {
+    fn signal_any_fires_on_first_abort() {
         let interp = run_script(
             r#"
             гыы а = захуярить КонтроллёрОтмены();
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn t6_timer_cancelled_by_signal() {
+    fn timer_cancelled_by_signal() {
         let interp = run_script(
             r#"
             гыы контроллёр = захуярить КонтроллёрОтмены();
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn t7_interval_stops_after_abort() {
+    fn interval_stops_after_abort() {
         let interp = run_script(
             r#"
             гыы контроллёр = захуярить КонтроллёрОтмены();
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn t8_preaborted_signal_never_fires_timer() {
+    fn preaborted_signal_never_fires_timer() {
         let interp = run_script(
             r#"
             гыы контроллёр = захуярить КонтроллёрОтмены();
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn t5_signal_any_empty_never_aborts() {
+    fn signal_any_empty_never_aborts() {
         let interp = run_script(
             r#"
             гыы комбо = СигналОтмены.любой([]);
