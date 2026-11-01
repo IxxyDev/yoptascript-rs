@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Console timers and table under `--vm`** — `сказать.время`,
+  `сказать.времяСтоп` and `сказать.таблица` now work on the VM.
+- **Abort signals under `--vm`** — `сигнал.обещание`,
+  `СигналОтмены.отВремени`, `СловоПацана.отПодождать` and the `сигнал`
+  option of `чутка`, `интервал` and `подождать` now work on the VM.
+
+### Fixed
+
+- **Closures over suspended locals (`--vm`)** — a closure called while the
+  generator or `ассо` function owning its variable was suspended read an
+  unrelated value and lost its writes; so did a closure over a caller's local
+  called from inside a generator.
+- **Abort listeners (`--vm`)** — `подписатьсяНаОтмену` no longer fails on its
+  return value, a listener added to an aborted signal now runs, and the cycle
+  collector no longer clears listeners and coroutines waiting on a signal.
+
+### Testing
+
+- The interpreter-vs-VM parity suite now runs every program in `examples/`,
+  except the three listed in `EXAMPLES_WITHOUT_PARITY` with their reasons.
+
 ## [1.17.6] - 2026-10-29
 
 ### Fixed
