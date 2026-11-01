@@ -3,12 +3,13 @@ use std::rc::Rc;
 
 use yps_lexer::Span;
 
+use crate::bridge::{map_err, vm_to_interp};
 use crate::error::VmError;
 use crate::value::{BigIntOperand, Value, bigint_from_operand, number_to_string};
 
 pub fn is_builtin(name: &str) -> bool {
     if let Some(method) = name.strip_prefix("сказать.") {
-        return matches!(method, "ошибка" | "предупреждение" | "инфо" | "отладка");
+        return matches!(method, "ошибка" | "предупреждение" | "инфо" | "отладка" | "таблица" | "время" | "времяСтоп");
     }
     matches!(
         name,
@@ -137,7 +138,23 @@ fn console_method(out: &mut dyn std::io::Write, method: &str, args: &[Value], sp
             eprintln!("{line}");
             Ok(Value::Undefined)
         }
-        other => Err(VmError::new(format!("у 'сказать' нет метода '{other}' в VM"), span)),
+        other => {
+            let args: Vec<_> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
+            yps_interpreter::stdlib::console::dispatch(&mut WriteSink(out), other, args, span).map_err(map_err)?;
+            Ok(Value::Undefined)
+        }
+    }
+}
+
+struct WriteSink<'a>(&'a mut dyn std::io::Write);
+
+impl yps_interpreter::OutputSink for WriteSink<'_> {
+    fn write_line(&mut self, line: &str) {
+        let _ = writeln!(self.0, "{line}");
+    }
+
+    fn write_error_line(&mut self, line: &str) {
+        eprintln!("{line}");
     }
 }
 

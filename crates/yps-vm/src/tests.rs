@@ -2700,3 +2700,22 @@ fn generator_calls_closure_over_a_local_of_its_caller() {
     assert_eq!(run(src), "7\n");
     assert_eq!(run(src), run_interp(src));
 }
+
+#[test]
+fn console_time_reports_elapsed_for_a_started_label() {
+    let out = run("сказать.время(\"м\"); сказать.времяСтоп(\"м\");");
+    assert!(out.starts_with("м: ") && out.ends_with(" мс\n"), "вывод: {out:?}");
+}
+
+#[test]
+fn console_time_stop_without_start_is_an_error() {
+    let src = "сказать.времяСтоп(\"нет такой\");";
+    assert!(run_err(src).contains("не запущен"));
+    assert!(run_interp_err(src).contains("не запущен"));
+}
+
+#[test]
+fn console_table_matches_interpreter() {
+    let src = "сказать.таблица([{ а: 1, б: \"два\" }, { а: 3 }]);";
+    assert_eq!(run(src), run_interp(src));
+}
