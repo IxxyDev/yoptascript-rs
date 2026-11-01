@@ -125,7 +125,10 @@ fn diag_decorator_on_non_class() {
 #[test]
 fn synchronize_does_not_hang_on_missing_semi_in_arrow_block() {
     let (_, diags) = parse_program_from_source("ф(() => { z = 1 });\n");
-    assert!(!diags.is_empty(), "ожидалась диагностика на пропущенную ';' в теле стрелки");
+    assert!(
+        diags.iter().any(|d| d.message.contains("Ожидалась ';' после выражения")),
+        "ожидалась диагностика на пропущенную ';' в теле стрелки: {diags:?}"
+    );
 }
 
 fn parse_extended(src: &str) -> (Program, Vec<Diagnostic>, bool) {

@@ -158,7 +158,7 @@ fn repl_incomplete_input_at_eof_fails() {
 fn repl_recovers_after_a_parse_error() {
     let out = run(&["repl"], "гыы = ;\n7 + 0;\n");
 
-    assert!(out.stdout.contains("7"), "REPL должен продолжить после ошибки: {}", out.stdout);
+    assert_eq!(out.stdout, "7\n", "REPL должен продолжить после ошибки");
 }
 
 #[test]

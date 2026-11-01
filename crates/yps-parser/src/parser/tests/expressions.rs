@@ -305,8 +305,8 @@ fn test_parse_ternary_nested_else() {
 
 #[test]
 fn test_parse_ternary_missing_colon() {
-    let result = parse_expr_from_source("правда ? 1 2");
-    assert!(result.is_err());
+    let diags = parse_expr_from_source("правда ? 1 2").unwrap_err();
+    assert!(diags.iter().any(|d| d.message.contains("Ожидалось ':'")), "{diags:?}");
 }
 
 #[test]

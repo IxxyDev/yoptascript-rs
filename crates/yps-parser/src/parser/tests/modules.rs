@@ -96,13 +96,13 @@ fn test_parse_import_namespace() {
 #[test]
 fn test_parse_import_namespace_missing_kak() {
     let (_program, diags) = parse_program_from_source(r#"спиздить * из "./м";"#);
-    assert!(!diags.is_empty(), "Expected parse error for missing 'как'");
+    assert!(diags.iter().any(|d| d.message.contains("Ожидалось 'как'")), "{diags:?}");
 }
 
 #[test]
 fn test_parse_import_namespace_missing_identifier() {
     let (_program, diags) = parse_program_from_source(r#"спиздить * как из "./м";"#);
-    assert!(!diags.is_empty(), "Expected parse error for missing identifier after 'как'");
+    assert!(diags.iter().any(|d| d.message.contains("Ожидался идентификатор")), "{diags:?}");
 }
 
 #[test]

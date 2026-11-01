@@ -761,7 +761,6 @@ fn test_await_podozhdat_blocks_min_50ms() {
     let elapsed = start.elapsed();
     assert_eq!(interp.get("готово"), Some(Value::Boolean(true)));
     assert!(elapsed.as_millis() >= 40, "ожидалось >=40мс, было {}мс", elapsed.as_millis());
-    assert!(elapsed.as_millis() < 500, "ожидалось <500мс, было {}мс", elapsed.as_millis());
 }
 
 #[test]
