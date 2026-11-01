@@ -189,7 +189,7 @@ impl Marker {
 
     fn mark_upvalue(&mut self, up: &UpCell) {
         if self.marked_upvalues.insert(Rc::as_ptr(up) as usize)
-            && let UpvalueState::Closed(value) = &*up.borrow()
+            && let UpvalueState::Closed(value) | UpvalueState::Parked { value, .. } = &*up.borrow()
         {
             self.push_value(value);
         }

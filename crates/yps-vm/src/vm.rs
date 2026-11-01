@@ -517,21 +517,20 @@ impl Vm {
                     let uv = Rc::clone(&closure.upvalues[slot as usize]);
                     let v = match &*uv.borrow() {
                         UpvalueState::Open(i) => self.stack.get(*i).cloned().unwrap_or(Value::Undefined),
-                        UpvalueState::Closed(v) => v.clone(),
+                        UpvalueState::Closed(v) | UpvalueState::Parked { value: v, .. } => v.clone(),
                     };
                     self.stack.push(v);
                 }
                 Op::SetUpvalue(slot) => {
                     let v = self.peek(0).clone();
                     let uv = Rc::clone(&closure.upvalues[slot as usize]);
-                    let target = match &*uv.borrow() {
-                        UpvalueState::Open(i) => Some(*i),
-                        UpvalueState::Closed(_) => None,
-                    };
-                    match target {
-                        Some(i) if i < self.stack.len() => self.stack[i] = v,
-                        Some(_) => {}
-                        None => *uv.borrow_mut() = UpvalueState::Closed(v),
+                    match &mut *uv.borrow_mut() {
+                        UpvalueState::Open(i) => {
+                            if let Some(local) = self.stack.get_mut(*i) {
+                                *local = v;
+                            }
+                        }
+                        UpvalueState::Closed(value) | UpvalueState::Parked { value, .. } => *value = v,
                     }
                 }
                 Op::CloseUpvalue => {
@@ -1739,6 +1738,7 @@ impl Vm {
             });
         }
 
+        self.park_open_upvalues();
         let saved_stack = std::mem::take(&mut self.stack);
         let saved_frames = std::mem::take(&mut self.frames);
         let saved_handlers = std::mem::take(&mut self.handlers);
@@ -1754,6 +1754,7 @@ impl Vm {
             self.handlers = std::mem::take(&mut g.handlers);
             self.open_upvalues = std::mem::take(&mut g.open_upvalues);
         }
+        self.unpark_open_upvalues();
 
         let mut pending = PendingInject::None;
         if !started {
@@ -1785,6 +1786,7 @@ impl Vm {
         let outcome = self.run_generator(&mut pending, span);
         self.coroutine_depth -= 1;
 
+        self.park_open_upvalues();
         {
             let mut g = genrc.borrow_mut();
             g.stack = std::mem::take(&mut self.stack);
@@ -1836,6 +1838,31 @@ impl Vm {
         self.open_upvalues = upvalues;
         self.region_floor = floor;
         self.gen_yield = yield_slot;
+        self.unpark_open_upvalues();
+    }
+
+    fn park_open_upvalues(&self) {
+        for uv in &self.open_upvalues {
+            let slot = match &*uv.borrow() {
+                UpvalueState::Open(slot) => *slot,
+                _ => continue,
+            };
+            let value = self.stack.get(slot).cloned().unwrap_or(Value::Undefined);
+            *uv.borrow_mut() = UpvalueState::Parked { slot, value };
+        }
+    }
+
+    fn unpark_open_upvalues(&mut self) {
+        for uv in &self.open_upvalues {
+            let mut state = uv.borrow_mut();
+            if let UpvalueState::Parked { slot, value } = &*state {
+                let slot = *slot;
+                if let Some(local) = self.stack.get_mut(slot) {
+                    *local = value.clone();
+                }
+                *state = UpvalueState::Open(slot);
+            }
+        }
     }
 
     fn run_generator(&mut self, pending: &mut PendingInject, span: Span) -> Result<GenRun, VmError> {

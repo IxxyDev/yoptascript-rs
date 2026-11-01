@@ -2629,3 +2629,74 @@ fn a_caught_and_rethrown_value_reports_the_rethrow_statement() {
 
     assert_both_backends_report(src, (4, 3));
 }
+
+#[test]
+fn closure_reads_local_of_suspended_async_function() {
+    let src = r#"
+        ассо йопта д() {
+            гыы к = 5;
+            чутка(() => сказать(к), 0);
+            сидетьНахуй подождать(5);
+        }
+        д();
+    "#;
+    assert_eq!(run(src), "5\n");
+    assert_eq!(run(src), run_interp(src));
+}
+
+#[test]
+fn closure_writes_local_of_suspended_async_function() {
+    let src = r#"
+        ассо йопта д() {
+            гыы к = 1;
+            чутка(() => { к = 2; }, 0);
+            сидетьНахуй подождать(5);
+            сказать(к);
+            к = 3;
+            сказать(к);
+        }
+        д();
+    "#;
+    assert_eq!(run(src), "2\n3\n");
+    assert_eq!(run(src), run_interp(src));
+}
+
+#[test]
+fn closure_shares_local_with_suspended_generator() {
+    let src = r#"
+        пиздюли г() {
+            гыы к = 1;
+            поебалу (н) => { к = н; отвечаю к; };
+            сказать(к);
+            к = 3;
+            поебалу 0;
+            сказать(к);
+        }
+        гыы и = г();
+        гыы ф = и.следующий().значение;
+        сказать(ф(2));
+        и.следующий();
+        сказать(ф(4));
+        и.следующий();
+    "#;
+    assert_eq!(run(src), "2\n2\n4\n4\n");
+    assert_eq!(run(src), run_interp(src));
+}
+
+#[test]
+fn generator_calls_closure_over_a_local_of_its_caller() {
+    let src = r#"
+        пиздюли г(прочесть) {
+            гыы мусор = 0;
+            поебалу прочесть() + мусор;
+        }
+        йопта ф() {
+            гыы н = 7;
+            ясенХуй прочесть = () => н;
+            отвечаю г(прочесть).следующий().значение;
+        }
+        сказать(ф());
+    "#;
+    assert_eq!(run(src), "7\n");
+    assert_eq!(run(src), run_interp(src));
+}

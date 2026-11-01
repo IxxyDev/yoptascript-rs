@@ -11,6 +11,7 @@ use crate::chunk::FnProto;
 pub enum UpvalueState {
     Open(usize),
     Closed(Value),
+    Parked { slot: usize, value: Value },
 }
 
 pub type Upvalue = Rc<RefCell<UpvalueState>>;
