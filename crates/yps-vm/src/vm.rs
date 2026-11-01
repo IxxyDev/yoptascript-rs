@@ -1314,8 +1314,17 @@ impl Vm {
     ) -> Result<Value, VmError> {
         stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || {
             let target_depth = self.frames.len();
-            self.push_call_frame(closure, this, owner, args, span)?;
-            self.run_to_depth(target_depth)?;
+            let stack_len = self.stack.len();
+            let handlers_len = self.handlers.len();
+            let result =
+                self.push_call_frame(closure, this, owner, args, span).and_then(|_| self.run_to_depth(target_depth));
+            if let Err(e) = result {
+                self.close_upvalues(stack_len);
+                self.frames.truncate(target_depth);
+                self.stack.truncate(stack_len);
+                self.handlers.truncate(handlers_len);
+                return Err(e);
+            }
             Ok(self.pop())
         })
     }

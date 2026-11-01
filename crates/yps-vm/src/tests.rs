@@ -2880,3 +2880,39 @@ fn coroutine_awaiting_signal_promise_survives_cycle_collection() {
     "#;
     assert_eq!(run(src), "жив стоп\n");
 }
+
+#[test]
+fn abort_listener_stops_at_its_throw() {
+    let src = r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        к.сигнал.подписатьсяНаОтмену(() => { кидай "б"; сказать("нет"); });
+        к.отменить();
+        сказать("конец");
+    "#;
+    assert_same_as_interpreter(src, "конец\n");
+}
+
+#[test]
+fn timer_callback_stops_at_its_throw() {
+    let src = r#"
+        чутка(() => { кидай "б"; сказать("нет"); }, 0);
+        чутка(() => сказать("конец"), 1);
+    "#;
+    assert_same_as_interpreter(src, "конец\n");
+}
+
+#[test]
+fn caught_callback_error_leaves_the_caller_running() {
+    let src = r#"
+        йопта ф() {
+            гыы местная = 7;
+            хапнуть {
+                Отражение.применить(() => { гыы в = 1; кидай в; }, ноль, []);
+            } гоп (е) {
+                отвечаю местная + е;
+            }
+        }
+        сказать(ф());
+    "#;
+    assert_same_as_interpreter(src, "8\n");
+}
