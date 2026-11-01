@@ -214,7 +214,7 @@ mod tests {
     impl TempDir {
         fn new(prefix: &str) -> Self {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir().join(format!("yps_test_{prefix}_{n}"));
+            let dir = std::env::temp_dir().join(format!("yps_test_{prefix}_{}_{n}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
             TempDir(dir)
         }
