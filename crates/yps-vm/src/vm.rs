@@ -398,12 +398,14 @@ impl Vm {
                 Op::Eq => {
                     let b = self.pop();
                     let a = self.pop();
-                    self.stack.push(Value::Bool(abstract_eq(&a, &b)));
+                    let equal = self.loose_eq(&a, &b, span)?;
+                    self.stack.push(Value::Bool(equal));
                 }
                 Op::Ne => {
                     let b = self.pop();
                     let a = self.pop();
-                    self.stack.push(Value::Bool(!abstract_eq(&a, &b)));
+                    let equal = self.loose_eq(&a, &b, span)?;
+                    self.stack.push(Value::Bool(!equal));
                 }
                 Op::StrictEq => {
                     let b = self.pop();
@@ -3259,6 +3261,20 @@ impl Vm {
         } else {
             Ok(Value::Number(lp.to_number() + rp.to_number()))
         }
+    }
+
+    fn loose_eq(&mut self, a: &Value, b: &Value, span: Span) -> Result<bool, VmError> {
+        let (object, other, object_first) = match (a, b) {
+            (Value::Object(_), Value::Object(_)) => return Ok(abstract_eq(a, b)),
+            (Value::Object(_), other) => (a, other, true),
+            (other, Value::Object(_)) => (b, other, false),
+            _ => return Ok(abstract_eq(a, b)),
+        };
+        if matches!(other, Value::Null | Value::Undefined) || !is_primitive(other) {
+            return Ok(abstract_eq(a, b));
+        }
+        let primitive = self.coerce_primitive(object, span)?;
+        Ok(if object_first { abstract_eq(&primitive, other) } else { abstract_eq(other, &primitive) })
     }
 
     fn coerce_primitive(&mut self, value: &Value, span: Span) -> Result<Value, VmError> {

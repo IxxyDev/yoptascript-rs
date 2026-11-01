@@ -3055,3 +3055,18 @@ fn spread_copies_symbol_keys() {
         "1 1 2 1\n",
     );
 }
+
+#[test]
+fn loose_equality_uses_user_coercion_hooks() {
+    assert_same_as_interpreter(
+        r#"
+        гыы об = { вЧисло: йопта() { отвечаю 42; } };
+        сказать(об == 42, 42 == об, об != 42, об == об, об == ноль);
+        гыы стр = { вСтроку: йопта() { отвечаю "а"; } };
+        сказать(стр == "а", стр == {});
+        гыы один = { вЧисло: () => 1 };
+        сказать(один == правда);
+        "#,
+        "true true false true false\ntrue false\ntrue\n",
+    );
+}
