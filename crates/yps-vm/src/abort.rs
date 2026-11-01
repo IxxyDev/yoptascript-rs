@@ -95,19 +95,35 @@ pub(crate) fn signal_promise(vm: &mut Vm, state: &SignalState, span: Span) -> Va
 }
 
 pub(crate) fn subscribe(vm: &mut Vm, state: &SignalState, callback: &Value) -> Option<Value> {
-    if !matches!(callback, Value::Function(_) | Value::Builtin(_)) {
-        return None;
-    }
-    vm.signal_listeners.push(callback.clone());
-    if !state.borrow().aborted {
+    let callable = match callback {
+        Value::Host(host) => host.is_callable(),
+        Value::Function(_)
+        | Value::Builtin(_)
+        | Value::Class(_)
+        | Value::PromiseCapability { .. }
+        | Value::PromiseThenHandler { .. }
+        | Value::PromiseFinallyHandler { .. }
+        | Value::PromiseAggregateHandler { .. } => true,
+        _ => false,
+    };
+    if !callable {
         return None;
     }
     let callback = callback.clone();
-    vm.enqueue_microtask(
-        vec![callback.clone()],
-        Box::new(move |vm, span| vm.call_value(callback, None, &[], span).map(|_| ())),
-    );
-    Some(Value::Host(IValue::AbortUnsubscribe { state: Rc::clone(state), token: u64::MAX }))
+    if state.borrow().aborted {
+        vm.enqueue_microtask(
+            vec![callback.clone()],
+            Box::new(move |vm, span| vm.call_value(callback, None, &[], span).map(|_| ())),
+        );
+        return Some(Value::Host(IValue::AbortUnsubscribe { state: Rc::clone(state), token: u64::MAX }));
+    }
+    vm.signal_listeners.push(callback.clone());
+    let token = listen_for_abort(state, move |vm, span| {
+        if let Err(e) = vm.call_value(callback.clone(), None, &[], span) {
+            report_async_error("отмена", &e);
+        }
+    });
+    Some(Value::Host(IValue::AbortUnsubscribe { state: Rc::clone(state), token }))
 }
 
 pub(crate) fn timeout_signal(vm: &mut Vm, args: &[Value], span: Span) -> Result<Value, VmError> {
