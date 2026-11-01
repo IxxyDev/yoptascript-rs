@@ -23,7 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   called from inside a generator.
 - **Abort listeners (`--vm`)** — `подписатьсяНаОтмену` no longer fails on its
   return value, a listener added to an aborted signal now runs, and the cycle
-  collector no longer clears listeners and coroutines waiting on a signal.
+  collector no longer clears listeners and coroutines waiting on a signal. A
+  listener stops at its `кидай` instead of resuming after it, and may be any
+  callable, including an `ассо` function.
+- **Generator return through `тюряжка` (`--vm`)** — a closure over a local of a
+  generator ended by `вернуть` while inside `хапнуть`/`тюряжка` no longer reads
+  `undefined`.
 
 ### Testing
 
