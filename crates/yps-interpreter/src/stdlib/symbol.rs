@@ -186,10 +186,11 @@ mod tests {
 
     #[test]
     fn json_stringify_symbol_throws() {
-        let result = run(r#"
-            Жсон.строка(Симбол("x"));
-        "#);
-        assert!(result.is_err());
+        let err = run(r#"
+            Жсон.вСтроку(Симбол("x"));
+        "#)
+        .unwrap_err();
+        assert!(err.to_string().contains("Символы нельзя сериализовать"), "ошибка: {err}");
     }
 
     #[test]
