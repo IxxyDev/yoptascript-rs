@@ -2719,3 +2719,57 @@ fn console_table_matches_interpreter() {
     let src = "сказать.таблица([{ а: 1, б: \"два\" }, { а: 3 }]);";
     assert_eq!(run(src), run_interp(src));
 }
+
+fn assert_same_as_interpreter(src: &str, expected: &str) {
+    assert_eq!(run(src), expected);
+    assert_eq!(run_interp(src), expected);
+}
+
+#[test]
+fn abort_unsubscribe_is_callable() {
+    assert_same_as_interpreter(
+        r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        гыы отписка = к.сигнал.подписатьсяНаОтмену(() => сказать("нет"));
+        отписка();
+        к.отменить("стоп");
+        сказать("конец");
+        "#,
+        "конец\n",
+    );
+}
+
+#[test]
+fn abort_listener_on_aborted_signal_runs_as_microtask() {
+    assert_same_as_interpreter(
+        r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        к.отменить("стоп");
+        к.сигнал.подписатьсяНаОтмену(() => сказать("слушатель"));
+        сказать("синхронно");
+        "#,
+        "синхронно\nслушатель\n",
+    );
+}
+
+#[test]
+fn abort_listener_survives_cycle_collection() {
+    let src = r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        йопта подписать() {
+            гыы а = { имя: "жив" };
+            а.я = а;
+            к.сигнал.подписатьсяНаОтмену(() => сказать(а.я.имя));
+        }
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.д = б;
+            б.д = а;
+        }
+        подписать();
+        го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+        к.отменить("стоп");
+    "#;
+    assert_eq!(run(src), "жив\n");
+}

@@ -209,6 +209,13 @@ pub fn call_host_method(
     args: Vec<Value>,
     span: Span,
 ) -> Result<Value, VmError> {
+    if method == "подписатьсяНаОтмену"
+        && let IValue::AbortSignal { state } = receiver
+        && let Some(callback) = args.first()
+        && let Some(noop) = crate::abort::subscribe(vm, state, callback)
+    {
+        return Ok(noop);
+    }
     with_interp(vm, |interp| {
         let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
         let (value, _) = yps_interpreter::stdlib::call_method(interp, receiver.clone(), method, interp_args, span)
@@ -434,6 +441,7 @@ pub fn interp_to_vm(value: &IValue) -> Result<Value, String> {
         | IValue::FinalizationRegistry(_)
         | IValue::AbortController { .. }
         | IValue::AbortSignal { .. }
+        | IValue::AbortUnsubscribe { .. }
         | IValue::Iterator(_) => Ok(Value::Host(value.clone())),
         other => Err(format!("значение типа '{}' из stdlib пока нельзя вернуть в VM", other.type_name())),
     }

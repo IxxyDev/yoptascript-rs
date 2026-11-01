@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use yps_parser::ast::Program;
 
+mod abort;
 pub mod bridge;
 mod builtins;
 pub mod chunk;

@@ -112,6 +112,7 @@ pub struct Vm {
     exports: ModuleExports,
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
     pub(crate) macrotasks: MacrotaskQueue,
+    pub(crate) signal_listeners: Vec<Value>,
     gc: Rc<crate::gc::GcRegistry>,
     gc_counter: usize,
     out: Box<dyn Write>,
@@ -150,6 +151,7 @@ impl Vm {
             exports: std::collections::HashMap::new(),
             microtasks: std::collections::VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
+            signal_listeners: Vec::new(),
             gc: Rc::new(crate::gc::GcRegistry::default()),
             gc_counter: 0,
             out,
@@ -3184,6 +3186,9 @@ impl Vm {
         }
         for root in self.macrotasks.roots() {
             marker.push_value(root);
+        }
+        for listener in &self.signal_listeners {
+            marker.push_value(listener);
         }
         marker.run();
         marker.sweep(&self.gc)
