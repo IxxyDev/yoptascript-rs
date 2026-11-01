@@ -1938,6 +1938,7 @@ impl Vm {
                 Ok(Step::YieldDelegate(it)) => return Ok(GenRun::Delegate(it)),
                 Ok(Step::Throw(value, thrown_at)) => {
                     if let Some(ret) = as_return_token(&value) {
+                        self.close_upvalues(0);
                         self.frames.clear();
                         self.stack.clear();
                         self.handlers.clear();

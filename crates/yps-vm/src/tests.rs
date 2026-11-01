@@ -2916,3 +2916,20 @@ fn caught_callback_error_leaves_the_caller_running() {
     "#;
     assert_same_as_interpreter(src, "8\n");
 }
+
+#[test]
+fn closure_keeps_local_after_generator_return_runs_finally() {
+    let src = r#"
+        гыы ф = ноль;
+        пиздюли г() {
+            гыы х = 41;
+            ф = () => х + 1;
+            хапнуть { поебалу 1; } тюряжка { }
+        }
+        гыы и = г();
+        и.следующий();
+        и.вернуть(5);
+        сказать(ф());
+    "#;
+    assert_same_as_interpreter(src, "42\n");
+}
