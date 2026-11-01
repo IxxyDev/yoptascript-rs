@@ -535,8 +535,7 @@ impl Interpreter {
                             }
                             match val {
                                 Value::Object(src) => {
-                                    for (k, v) in
-                                        src.borrow().iter().filter(|(k, _)| !crate::symbols::is_internal_key(k))
+                                    for (k, v) in src.borrow().iter().filter(|(k, _)| crate::symbols::is_copied_key(k))
                                     {
                                         map.insert(k.clone(), v.clone());
                                     }
@@ -681,11 +680,11 @@ impl Interpreter {
             }
             BinaryOp::In => match right {
                 Value::Proxy { target, handler } => {
-                    let key = coercion::to_ecma_string(&left);
+                    let key = coercion::property_key(&left);
                     Ok(Value::Boolean(self.proxy_has(&target, &handler, &key, span)?))
                 }
                 Value::Object(map) => {
-                    let key = coercion::to_ecma_string(&left);
+                    let key = coercion::property_key(&left);
                     Ok(Value::Boolean(map.borrow().contains_key(&key)))
                 }
                 Value::Array(arr) => {

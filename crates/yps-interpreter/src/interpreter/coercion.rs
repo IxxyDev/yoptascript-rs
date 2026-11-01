@@ -172,6 +172,13 @@ pub(crate) fn to_primitive_builtin(value: &Value) -> Value {
     Value::String(to_ecma_string(value).into())
 }
 
+pub fn property_key(key: &Value) -> String {
+    match key {
+        Value::Symbol { id, .. } => crate::symbols::symbol_key(*id),
+        other => to_ecma_string(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

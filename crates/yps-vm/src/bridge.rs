@@ -373,7 +373,7 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
         Value::Object(map) => {
             let mut out = indexmap::IndexMap::new();
             for (k, v) in map.borrow().iter() {
-                if crate::value::is_internal_key(k) {
+                if !crate::value::is_copied_key(k) {
                     continue;
                 }
                 out.insert(k.clone(), vm_to_interp(v, span)?);

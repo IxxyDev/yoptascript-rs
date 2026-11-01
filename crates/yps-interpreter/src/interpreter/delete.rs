@@ -26,14 +26,14 @@ impl Interpreter {
                 let idx = self.eval_expr(index)?;
                 let obj = self.eval_expr(object)?;
                 if let Some((target, handler)) = obj.proxy_parts() {
-                    let key = idx.to_string();
+                    let key = super::coercion::property_key(&idx);
                     let removed = self.proxy_delete(&target, &handler, &key, span)?;
                     return Ok(Value::Boolean(removed));
                 }
                 match &obj {
                     Value::Object(map) => {
                         if map.borrow().can_delete() {
-                            let key = idx.to_string();
+                            let key = super::coercion::property_key(&idx);
                             map.borrow_mut().shift_remove(&key);
                         }
                     }

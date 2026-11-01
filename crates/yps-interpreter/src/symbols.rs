@@ -46,6 +46,16 @@ pub fn symbol_key(id: u64) -> String {
 }
 
 #[must_use]
+pub fn is_symbol_key(k: &str) -> bool {
+    k.starts_with(SYMBOL_KEY_PREFIX)
+}
+
+#[must_use]
+pub fn is_copied_key(k: &str) -> bool {
+    is_symbol_key(k) || !is_internal_key(k)
+}
+
+#[must_use]
 pub fn is_internal_key(k: &str) -> bool {
     k == CLASS_TAG
         || k == PROTO

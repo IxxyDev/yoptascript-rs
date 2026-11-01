@@ -105,11 +105,11 @@ impl Interpreter {
             Value::Proxy { target, handler } => {
                 let target = Rc::clone(target);
                 let handler = Rc::clone(handler);
-                let key = crate::interpreter::coercion::to_ecma_string(key);
+                let key = crate::interpreter::coercion::property_key(key);
                 self.proxy_has(&target, &handler, &key, span)
             }
             Value::Object(map) => {
-                let key = crate::interpreter::coercion::to_ecma_string(key);
+                let key = crate::interpreter::coercion::property_key(key);
                 Ok(map.borrow().contains_key(&key))
             }
             Value::Array(arr) => {

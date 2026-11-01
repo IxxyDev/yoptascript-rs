@@ -440,7 +440,7 @@ impl Vm {
                     let key = self.pop();
                     let result = match container {
                         Value::Host(iv) => crate::bridge::host_in(self, &key, &iv, span)?,
-                        Value::Object(map) => map.borrow().contains_key(&key.to_ecma_string()),
+                        Value::Object(map) => map.borrow().contains_key(&crate::value::prop_key(&key)),
                         Value::Array(arr) => {
                             let len = arr.borrow().len();
                             match &key {
@@ -795,7 +795,7 @@ impl Vm {
                     match src {
                         Value::Object(m) => {
                             for (k, v) in m.borrow().iter() {
-                                if !keys.contains(k) && !crate::value::is_internal_key(k) {
+                                if !keys.contains(k) && crate::value::is_copied_key(k) {
                                     map.insert(k.clone(), v.clone());
                                 }
                             }
@@ -817,7 +817,7 @@ impl Vm {
                     let mut map = ObjMap::new();
                     let mut it = flat.into_iter();
                     while let (Some(k), Some(v)) = (it.next(), it.next()) {
-                        map.insert(k.to_ecma_string(), v);
+                        map.insert(crate::value::prop_key(&k), v);
                     }
                     let obj = self.gc_object(map);
                     self.stack.push(obj);
@@ -827,7 +827,7 @@ impl Vm {
                     let k = self.pop();
                     match self.peek(0) {
                         Value::Object(m) => {
-                            m.borrow_mut().insert(k.to_ecma_string(), v);
+                            m.borrow_mut().insert(crate::value::prop_key(&k), v);
                         }
                         _ => return Err(VmError::new("ObjSet ожидает объект", span)),
                     }
@@ -839,7 +839,7 @@ impl Vm {
                             let pairs: Vec<(String, Value)> = s
                                 .borrow()
                                 .iter()
-                                .filter(|(k, _)| !crate::value::is_internal_key(k))
+                                .filter(|(k, _)| crate::value::is_copied_key(k))
                                 .map(|(k, v)| (k.clone(), v.clone()))
                                 .collect();
                             let mut d = dst.borrow_mut();
@@ -860,7 +860,7 @@ impl Vm {
                     let key = self.pop();
                     match self.peek(0) {
                         Value::Object(m) => {
-                            m.borrow_mut().insert(crate::value::getter_key(&key.to_ecma_string()), closure);
+                            m.borrow_mut().insert(crate::value::getter_key(&crate::value::prop_key(&key)), closure);
                         }
                         _ => return Err(VmError::new("DefineGetter ожидает объект", span)),
                     }
@@ -870,7 +870,7 @@ impl Vm {
                     let key = self.pop();
                     match self.peek(0) {
                         Value::Object(m) => {
-                            m.borrow_mut().insert(crate::value::setter_key(&key.to_ecma_string()), closure);
+                            m.borrow_mut().insert(crate::value::setter_key(&crate::value::prop_key(&key)), closure);
                         }
                         _ => return Err(VmError::new("DefineSetter ожидает объект", span)),
                     }
@@ -949,7 +949,7 @@ impl Vm {
                     match &obj {
                         Value::Object(map) => {
                             if map.borrow().can_delete() {
-                                map.borrow_mut().remove(&index.to_ecma_string());
+                                map.borrow_mut().remove(&crate::value::prop_key(&index));
                             }
                         }
                         Value::Array(a) => {
@@ -3527,7 +3527,10 @@ fn for_of_values(src: &Value, span: Span) -> Result<Vec<Value>, VmError> {
 }
 
 fn well_known_symbol_key(name: &str) -> String {
-    Value::Builtin(Rc::from(format!("Симбол.{name}"))).to_ecma_string()
+    match yps_interpreter::stdlib::symbol::well_known(name) {
+        Some(yps_interpreter::value::Value::Symbol { id, .. }) => yps_interpreter::symbols::symbol_key(id),
+        _ => unreachable!("неизвестный встроенный символ '{name}'"),
+    }
 }
 
 fn well_known_iterator_key() -> String {
@@ -3617,7 +3620,7 @@ fn get_index(obj: &Value, index: &Value, span: Span) -> Result<Value, VmError> {
             let arr = a.borrow();
             Ok(array_index(index, arr.len()).map(|i| arr[i].clone()).unwrap_or(Value::Undefined))
         }
-        Value::Object(map) => Ok(map.borrow().get(&index.to_ecma_string()).cloned().unwrap_or(Value::Undefined)),
+        Value::Object(map) => Ok(map.borrow().get(&crate::value::prop_key(index)).cloned().unwrap_or(Value::Undefined)),
         Value::Str(s) => {
             let n = index.to_number();
             if n.is_finite() && n.fract() == 0.0 && n >= 0.0 {
@@ -3650,7 +3653,7 @@ fn set_index(obj: &Value, index: &Value, value: Value, span: Span) -> Result<(),
             }
         }
         Value::Object(map) => {
-            let key = index.to_ecma_string();
+            let key = crate::value::prop_key(index);
             if map.borrow().can_write_key(&key) {
                 map.borrow_mut().insert(key, value);
             }
@@ -3710,7 +3713,10 @@ fn ic_set(map: &Rc<RefCell<ObjMap>>, value: &Value, slot: &RefCell<crate::chunk:
 
 fn get_prop(obj: &Value, name: &str, span: Span) -> Result<Value, VmError> {
     match obj {
-        Value::Builtin(base) => Ok(Value::Builtin(Rc::from(format!("{base}.{name}").as_str()))),
+        Value::Builtin(base) => match yps_interpreter::stdlib::symbol::well_known(name) {
+            Some(symbol) if &**base == "Симбол" => Ok(Value::Host(symbol)),
+            _ => Ok(Value::Builtin(Rc::from(format!("{base}.{name}").as_str()))),
+        },
         Value::Object(map) => Ok(map.borrow().get(name).cloned().unwrap_or(Value::Undefined)),
         Value::RegExp { .. } => Ok(crate::regexp::member(obj, name).unwrap_or(Value::Undefined)),
         Value::Str(s) => {

@@ -128,7 +128,7 @@ pub fn call_static(
                         let entries: Vec<(String, Value)> = m
                             .borrow()
                             .iter()
-                            .filter(|(k, _)| !symbols::is_internal_key(k))
+                            .filter(|(k, _)| symbols::is_copied_key(k))
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
                         let mut guard = target_rc.borrow_mut();

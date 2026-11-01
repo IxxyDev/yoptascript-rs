@@ -44,14 +44,24 @@ pub fn setter_key(prop: &str) -> String {
 
 #[must_use]
 pub fn is_internal_key(k: &str) -> bool {
-    k == CLASS_TAG || k == PROTO_KEY || k.starts_with(GETTER_PREFIX) || k.starts_with(SETTER_PREFIX)
+    k == CLASS_TAG
+        || k == PROTO_KEY
+        || k.starts_with(GETTER_PREFIX)
+        || k.starts_with(SETTER_PREFIX)
+        || yps_interpreter::symbols::is_symbol_key(k)
 }
 
-pub const WELL_KNOWN_SYMBOL_KEY_PREFIX: &str = "[встроенная Симбол.";
+#[must_use]
+pub fn is_copied_key(k: &str) -> bool {
+    yps_interpreter::symbols::is_symbol_key(k) || !is_internal_key(k)
+}
 
 #[must_use]
-pub fn is_symbol_key(k: &str) -> bool {
-    k.starts_with(WELL_KNOWN_SYMBOL_KEY_PREFIX)
+pub fn prop_key(key: &Value) -> String {
+    match key {
+        Value::Host(yps_interpreter::value::Value::Symbol { id, .. }) => yps_interpreter::symbols::symbol_key(*id),
+        other => other.to_ecma_string(),
+    }
 }
 
 pub type MethodDef = Rc<Closure>;
@@ -570,7 +580,7 @@ impl Value {
                 write!(f, "{{")?;
                 let mut first = true;
                 for (k, v) in snapshot.iter() {
-                    if is_internal_key(k) || is_symbol_key(k) {
+                    if is_internal_key(k) {
                         continue;
                     }
                     if !first {
