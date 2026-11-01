@@ -2813,3 +2813,70 @@ fn abort_rejects_pending_wait_with_the_signal_reason() {
         "идущий: стоп\nпоздний: стоп\n",
     );
 }
+
+#[test]
+fn timeout_signal_aborts_with_a_timeout_error() {
+    assert_same_as_interpreter(
+        r#"
+        гыы с = СигналОтмены.отВремени(1);
+        сказать(с.отменён);
+        с.обещание.ловить((е) => сказать(е.name, е.message, с.отменён));
+        "#,
+        "false\nОшибкаОтмены Тайм-аут true\n",
+    );
+}
+
+#[test]
+fn timeout_signal_validates_its_delay() {
+    let src = "СигналОтмены.отВремени(\"нет\");";
+    assert!(run_err(src).contains("ожидает миллисекунды числом"));
+    assert!(run_interp_err(src).contains("ожидает миллисекунды числом"));
+}
+
+#[test]
+fn signal_promise_is_cached_and_settled_for_an_aborted_signal() {
+    assert_same_as_interpreter(
+        r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        к.отменить("стоп");
+        гыы с = к.сигнал;
+        сказать(с.обещание === с.обещание);
+        с.обещание.ловить((е) => сказать("обещание:", е));
+        СловоПацана.отПодождать(с).ловить((е) => сказать("отПодождать:", е));
+        "#,
+        "true\nобещание: стоп\nотПодождать: стоп\n",
+    );
+}
+
+#[test]
+fn from_wait_rejects_a_non_signal() {
+    let src = "СловоПацана.отПодождать(42);";
+    assert!(run_err(src).contains("ожидает сигнал отмены"));
+    assert!(run_interp_err(src).contains("ожидает сигнал отмены"));
+}
+
+#[test]
+fn coroutine_awaiting_signal_promise_survives_cycle_collection() {
+    let src = r#"
+        гыы к = захуярить КонтроллёрОтмены();
+        ассо йопта ждать() {
+            гыы а = { имя: "жив" };
+            а.я = а;
+            хапнуть {
+                сидетьНахуй к.сигнал.обещание;
+            } гоп (е) {
+                сказать(а.я.имя, е);
+            }
+        }
+        йопта мусор() {
+            гыы а = {};
+            гыы б = {};
+            а.д = б;
+            б.д = а;
+        }
+        ждать();
+        го (гыы и = 0; и < 60000; и = и + 1) { мусор(); }
+        к.отменить("стоп");
+    "#;
+    assert_eq!(run(src), "жив стоп\n");
+}

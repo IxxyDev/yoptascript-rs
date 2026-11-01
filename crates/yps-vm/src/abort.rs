@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
+use yps_interpreter::stdlib::abort::{abort_state, make_abort_error};
 use yps_interpreter::value::{AbortState, Value as IValue};
 use yps_lexer::Span;
 
-use crate::bridge::{interp_to_vm, listen_for_abort};
+use crate::bridge::{interp_to_vm, listen_for_abort, map_err, with_interp};
 use crate::error::VmError;
+use crate::promise::make_pending_promise;
 use crate::value::{CapKind, Value};
-use crate::vm::Vm;
+use crate::vm::{Vm, report_async_error};
 
 pub(crate) type SignalState = Rc<RefCell<AbortState>>;
 
@@ -75,6 +78,22 @@ pub(crate) fn reject_wait_now(vm: &mut Vm, state: &SignalState, reject: Value) {
     );
 }
 
+pub(crate) fn signal_promise(vm: &mut Vm, state: &SignalState, span: Span) -> Value {
+    let key = Rc::as_ptr(state) as usize;
+    if let Some((_, promise)) = vm.signal_promises.get(&key) {
+        return promise.clone();
+    }
+    let (promise, _resolve, reject) = make_pending_promise();
+    if state.borrow().aborted {
+        reject_with_reason(vm, &reject, state, span);
+    } else {
+        let signal = Rc::clone(state);
+        listen_for_abort(state, move |vm, span| reject_with_reason(vm, &reject, &signal, span));
+    }
+    vm.signal_promises.insert(key, (Rc::clone(state), promise.clone()));
+    promise
+}
+
 pub(crate) fn subscribe(vm: &mut Vm, state: &SignalState, callback: &Value) -> Option<Value> {
     if !matches!(callback, Value::Function(_) | Value::Builtin(_)) {
         return None;
@@ -89,4 +108,35 @@ pub(crate) fn subscribe(vm: &mut Vm, state: &SignalState, callback: &Value) -> O
         Box::new(move |vm, span| vm.call_value(callback, None, &[], span).map(|_| ())),
     );
     Some(Value::Host(IValue::AbortUnsubscribe { state: Rc::clone(state), token: u64::MAX }))
+}
+
+pub(crate) fn timeout_signal(vm: &mut Vm, args: &[Value], span: Span) -> Result<Value, VmError> {
+    let ms = match args.first() {
+        Some(Value::Number(n)) if n.is_finite() && *n >= 0.0 => *n as u64,
+        other => {
+            return Err(VmError::new(
+                format!(
+                    "'СигналОтмены.отВремени' ожидает миллисекунды числом, получено '{}'",
+                    other.map_or("неопределено", Value::type_name)
+                ),
+                span,
+            ));
+        }
+    };
+    let state: SignalState = Rc::default();
+    let signal = Rc::clone(&state);
+    vm.macrotasks.schedule(
+        Duration::from_millis(ms),
+        Vec::new(),
+        Box::new(move |vm, sp| {
+            let aborted = with_interp(vm, |interp| {
+                abort_state(&signal, make_abort_error("Тайм-аут"), interp, sp).map_err(map_err)
+            });
+            if let Err(e) = aborted {
+                report_async_error("отВремени", &e);
+            }
+            Ok(())
+        }),
+    );
+    Ok(Value::Host(IValue::AbortSignal { state }))
 }

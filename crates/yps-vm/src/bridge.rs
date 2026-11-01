@@ -120,7 +120,7 @@ impl Drop for VmGuard {
     }
 }
 
-fn with_interp<R>(
+pub(crate) fn with_interp<R>(
     vm: &mut Vm,
     f: impl FnOnce(&mut yps_interpreter::Interpreter) -> Result<R, VmError>,
 ) -> Result<R, VmError> {
@@ -192,6 +192,9 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
     if let Some(res) = try_object_state_op(name, &args) {
         return res;
     }
+    if name == "СигналОтмены.отВремени" {
+        return crate::abort::timeout_signal(vm, &args, span);
+    }
     with_interp(vm, |interp| {
         let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
         let value = match yps_interpreter::stdlib::call_static_namespaced(interp, name, interp_args.clone(), span) {
@@ -249,6 +252,11 @@ pub fn call_host_method(
 }
 
 pub fn host_member_get(vm: &mut Vm, receiver: &IValue, prop: &str, span: Span) -> Result<Value, VmError> {
+    if prop == "обещание"
+        && let IValue::AbortSignal { state } = receiver
+    {
+        return Ok(crate::abort::signal_promise(vm, state, span));
+    }
     with_interp(vm, |interp| {
         let value = interp.host_member_get(receiver.clone(), prop, span).map_err(map_err)?;
         interp_to_vm(&value).map_err(|m| VmError::new(m, span))

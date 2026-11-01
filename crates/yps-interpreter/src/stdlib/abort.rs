@@ -13,7 +13,7 @@ pub fn make_controller() -> Value {
     Value::AbortController { state }
 }
 
-pub(crate) fn make_abort_error(message: &str) -> Value {
+pub fn make_abort_error(message: &str) -> Value {
     let mut map = indexmap::IndexMap::new();
     map.insert("name".to_string(), Value::String("ОшибкаОтмены".into()));
     map.insert("message".to_string(), Value::String(message.to_string().into()));
@@ -51,7 +51,7 @@ pub fn signal_any(interp: &mut Interpreter, sigs: Vec<Value>, span: Span) -> Res
     Ok(result_signal)
 }
 
-pub(crate) fn abort_state(
+pub fn abort_state(
     state: &Rc<RefCell<AbortState>>,
     reason: Value,
     interp: &mut Interpreter,

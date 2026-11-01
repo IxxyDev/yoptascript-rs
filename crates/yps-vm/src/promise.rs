@@ -336,6 +336,18 @@ pub(crate) fn call_promise_static(vm: &mut Vm, method: &str, args: Vec<Value>, s
             }
             Ok(run_aggregate(vm, AggregateKind::Race, arr, span))
         }
+        "отПодождать" => match args.first() {
+            Some(Value::Host(yps_interpreter::value::Value::AbortSignal { state })) => {
+                Ok(crate::abort::signal_promise(vm, state, span))
+            }
+            other => Err(VmError::new(
+                format!(
+                    "'СловоПацана.отПодождать' ожидает сигнал отмены, получено '{}'",
+                    other.map_or("неопределено", Value::type_name)
+                ),
+                span,
+            )),
+        },
         "сРешалками" => {
             let (promise, resolve, reject) = make_pending_promise();
             let mut map = ObjMap::new();

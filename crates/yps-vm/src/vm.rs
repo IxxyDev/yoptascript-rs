@@ -113,6 +113,7 @@ pub struct Vm {
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
     pub(crate) macrotasks: MacrotaskQueue,
     pub(crate) signal_listeners: Vec<Value>,
+    pub(crate) signal_promises: std::collections::HashMap<usize, (crate::abort::SignalState, Value)>,
     gc: Rc<crate::gc::GcRegistry>,
     gc_counter: usize,
     out: Box<dyn Write>,
@@ -152,6 +153,7 @@ impl Vm {
             microtasks: std::collections::VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
             signal_listeners: Vec::new(),
+            signal_promises: std::collections::HashMap::new(),
             gc: Rc::new(crate::gc::GcRegistry::default()),
             gc_counter: 0,
             out,
@@ -3212,6 +3214,9 @@ impl Vm {
         for listener in &self.signal_listeners {
             marker.push_value(listener);
         }
+        for (_, promise) in self.signal_promises.values() {
+            marker.push_value(promise);
+        }
         marker.run();
         marker.sweep(&self.gc)
     }
@@ -3425,7 +3430,7 @@ fn iter_result_pair(value: Value, done: bool) -> Value {
     Value::Object(Rc::new(RefCell::new(map)))
 }
 
-fn report_async_error(source: &str, err: &VmError) {
+pub(crate) fn report_async_error(source: &str, err: &VmError) {
     eprintln!("необработанное исключение в '{source}': {}", err.message);
 }
 
