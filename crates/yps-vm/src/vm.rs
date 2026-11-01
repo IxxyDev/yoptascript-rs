@@ -1463,6 +1463,10 @@ impl Vm {
     fn builtin_schedule_timeout(&mut self, args: &[Value], span: Span) -> Result<Value, VmError> {
         let cb = timer_callback(args.first().cloned(), "чутка", span)?;
         let ms = parse_delay_ms(args.get(1).cloned(), "чутка", span)?;
+        let signal = crate::abort::signal_from_options(args.get(2), "чутка", "третий", span)?;
+        if crate::abort::is_aborted(signal.as_ref()) {
+            return Ok(Value::Number(0.0));
+        }
         let id = self.macrotasks.schedule(
             std::time::Duration::from_millis(ms),
             vec![cb.clone()],
@@ -1473,6 +1477,9 @@ impl Vm {
                 Ok(())
             }),
         );
+        if let Some(state) = &signal {
+            crate::abort::cancel_timer_on_abort(state, id);
+        }
         Ok(Value::Number(id as f64))
     }
 
@@ -1493,8 +1500,15 @@ impl Vm {
     fn builtin_schedule_interval(&mut self, args: &[Value], span: Span) -> Result<Value, VmError> {
         let cb = timer_callback(args.first().cloned(), "интервал", span)?;
         let ms = parse_delay_ms(args.get(1).cloned(), "интервал", span)?;
+        let signal = crate::abort::signal_from_options(args.get(2), "интервал", "третий", span)?;
+        if crate::abort::is_aborted(signal.as_ref()) {
+            return Ok(Value::Number(0.0));
+        }
         let id = self.macrotasks.allocate_id();
         self.schedule_interval_tick(id, ms, cb);
+        if let Some(state) = &signal {
+            crate::abort::cancel_timer_on_abort(state, id);
+        }
         Ok(Value::Number(id as f64))
     }
 
@@ -1547,8 +1561,13 @@ impl Vm {
 
     fn builtin_wait_promise(&mut self, args: &[Value], span: Span) -> Result<Value, VmError> {
         let ms = parse_delay_ms(args.first().cloned(), "подождать", span)?;
-        let (promise, resolve_cap, _reject) = crate::promise::make_pending_promise();
-        self.macrotasks.schedule(
+        let signal = crate::abort::signal_from_options(args.get(1), "подождать", "второй", span)?;
+        let (promise, resolve_cap, reject_cap) = crate::promise::make_pending_promise();
+        if let Some(state) = signal.as_ref().filter(|state| state.borrow().aborted) {
+            crate::abort::reject_wait_now(self, state, reject_cap);
+            return Ok(promise);
+        }
+        let id = self.macrotasks.schedule(
             std::time::Duration::from_millis(ms),
             vec![promise.clone(), resolve_cap.clone()],
             Box::new(move |vm, sp| {
@@ -1558,6 +1577,9 @@ impl Vm {
                 Ok(())
             }),
         );
+        if let Some(state) = &signal {
+            crate::abort::reject_wait_on_abort(state, reject_cap, id);
+        }
         Ok(promise)
     }
 

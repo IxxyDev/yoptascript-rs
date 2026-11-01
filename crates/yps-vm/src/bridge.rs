@@ -6,6 +6,7 @@ use std::rc::Weak;
 use yps_interpreter::value::Value as IValue;
 use yps_lexer::Span;
 
+use crate::abort::SignalState;
 use crate::error::VmError;
 use crate::value::{ObjMap, Value};
 use crate::vm::Vm;
@@ -126,6 +127,29 @@ fn with_interp<R>(
     let _guard = VmGuard::enter(vm);
     let mut interp = yps_interpreter::Interpreter::new();
     f(&mut interp)
+}
+
+fn active_vm(span: Span) -> Result<*mut Vm, yps_interpreter::RuntimeError> {
+    let vm_ptr = ACTIVE_VM.with(Cell::get);
+    if vm_ptr.is_null() {
+        return Err(yps_interpreter::RuntimeError::new(
+            "вызов VM-замыкания вне активного контекста VM".to_string(),
+            span,
+        ));
+    }
+    Ok(vm_ptr)
+}
+
+pub(crate) fn listen_for_abort(state: &SignalState, mut on_abort: impl FnMut(&mut Vm, Span) + 'static) {
+    let marker = yps_interpreter::host_callback::register(Box::new(move |_, span| {
+        let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
+        on_abort(vm, span);
+        Ok(IValue::Undefined)
+    }));
+    let mut signal = state.borrow_mut();
+    let token = signal.next_token;
+    signal.next_token += 1;
+    signal.listeners.push((token, IValue::BuiltinFunction(marker)));
 }
 
 #[must_use]
@@ -371,14 +395,7 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
 fn wrap_vm_callback(callee: Value) -> IValue {
     let cell = RefCell::new(callee);
     let marker = yps_interpreter::host_callback::register(Box::new(move |iargs, span| {
-        let vm_ptr = ACTIVE_VM.with(Cell::get);
-        if vm_ptr.is_null() {
-            return Err(yps_interpreter::RuntimeError::new(
-                "вызов VM-замыкания вне активного контекста VM".to_string(),
-                span,
-            ));
-        }
-        let vm: &mut Vm = unsafe { &mut *vm_ptr };
+        let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
         let mut vm_args: Vec<Value> = Vec::with_capacity(iargs.len());
         for a in &iargs {
             match interp_to_vm_arg(a) {
