@@ -12,7 +12,7 @@ use crate::vm::Vm;
 const MAX_STRING_LEN: usize = 50_000_000;
 
 fn arr(values: Vec<Value>) -> Value {
-    Value::Array(Rc::new(RefCell::new(values)))
+    Value::array(values)
 }
 
 fn iter_of(values: Vec<Value>) -> Value {
@@ -569,7 +569,7 @@ pub(crate) fn call_string(
 
 pub(crate) fn call_array(
     vm: &mut Vm,
-    rc: Rc<RefCell<Vec<Value>>>,
+    rc: Rc<RefCell<crate::value::ArrayStore>>,
     method: &str,
     args: Vec<Value>,
     span: Span,
@@ -691,7 +691,7 @@ pub(crate) fn call_array(
         "sort" | "сортировать" => {
             let mut snapshot = rc.borrow().clone();
             sort_snapshot(vm, &mut snapshot, args, span)?;
-            *rc.borrow_mut() = snapshot;
+            rc.borrow_mut().0 = snapshot;
             Ok(Value::Array(rc))
         }
         "map" | "преобразовать" => {
@@ -963,7 +963,7 @@ pub(crate) fn call_array(
         "splice" | "вырезать" => {
             let snapshot = rc.borrow().clone();
             let (new_arr, removed) = splice_impl(snapshot, &args, span)?;
-            *rc.borrow_mut() = new_arr;
+            rc.borrow_mut().0 = new_arr;
             Ok(arr(removed))
         }
         "toSpliced" | "вырезанный" => {

@@ -46,7 +46,7 @@ const HOST_CONSTRUCTORS: &[&str] = &[
 pub(crate) const IDENTITY_CACHE_PRUNE_THRESHOLD: usize = 1024;
 
 enum CacheKeepalive {
-    Array(Weak<RefCell<Vec<Value>>>),
+    Array(Weak<RefCell<crate::value::ArrayStore>>),
     Object(Weak<RefCell<ObjMap>>),
 }
 
@@ -685,10 +685,10 @@ pub fn interp_to_vm(value: &IValue) -> Result<Value, String> {
 fn new_vm_value_for_store(store: &IValue) -> Result<Value, String> {
     match store {
         IValue::Array(items) => {
-            let rc = Rc::new(RefCell::new(Vec::new()));
+            let rc = Rc::new(RefCell::new(crate::value::ArrayStore::default()));
             store_identity(Rc::as_ptr(&rc) as usize, CacheKeepalive::Array(Rc::downgrade(&rc)), store.clone());
             let converted: Vec<Value> = items.borrow().0.iter().map(interp_to_vm).collect::<Result<_, _>>()?;
-            *rc.borrow_mut() = converted;
+            rc.borrow_mut().0 = converted;
             Ok(Value::Array(rc))
         }
         IValue::Object(obj) => {
@@ -718,7 +718,7 @@ mod tests {
     #[test]
     fn cached_identity_ignores_stale_dead_entry() {
         let ptr = 0x1234_usize;
-        let items = Rc::new(RefCell::new(Vec::<Value>::new()));
+        let items = Rc::new(RefCell::new(crate::value::ArrayStore::default()));
         let weak = Rc::downgrade(&items);
         drop(items);
         assert_eq!(weak.strong_count(), 0);

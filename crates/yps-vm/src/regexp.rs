@@ -57,10 +57,10 @@ pub fn build_match_object(md: &MatchData, s: &str, with_indices: bool) -> Value 
 
     if with_indices {
         let pair = |g: &GroupSlot| {
-            Value::Array(Rc::new(RefCell::new(vec![
+            Value::array(vec![
                 Value::Number(char_index_at(s, g.start) as f64),
                 Value::Number(char_index_at(s, g.end) as f64),
-            ])))
+            ])
         };
         let mut indices_obj = ObjMap::new();
         for (i, slot) in md.groups.iter().enumerate() {

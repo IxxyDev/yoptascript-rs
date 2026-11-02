@@ -231,6 +231,54 @@ impl ClassDef {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct ArrayStore(pub Vec<Value>);
+
+impl std::ops::Deref for ArrayStore {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Vec<Value> {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ArrayStore {
+    fn deref_mut(&mut self) -> &mut Vec<Value> {
+        &mut self.0
+    }
+}
+
+impl Drop for ArrayStore {
+    fn drop(&mut self) {
+        let mut stack = std::mem::take(&mut self.0);
+        drain_value_tree(&mut stack);
+    }
+}
+
+impl Drop for ObjMap {
+    fn drop(&mut self) {
+        let mut stack: Vec<Value> = std::mem::take(&mut self.entries).into_values().collect();
+        drain_value_tree(&mut stack);
+    }
+}
+
+fn drain_value_tree(stack: &mut Vec<Value>) {
+    while let Some(value) = stack.pop() {
+        match value {
+            Value::Array(rc) => {
+                if let Ok(cell) = Rc::try_unwrap(rc) {
+                    stack.append(&mut cell.borrow_mut().0);
+                }
+            }
+            Value::Object(rc) => {
+                if let Ok(cell) = Rc::try_unwrap(rc) {
+                    stack.extend(std::mem::take(&mut cell.borrow_mut().entries).into_values());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ObjMap {
     entries: IndexMap<String, Value>,
@@ -343,7 +391,7 @@ pub enum Value {
     Bool(bool),
     Null,
     Undefined,
-    Array(Rc<RefCell<Vec<Value>>>),
+    Array(Rc<RefCell<ArrayStore>>),
     Object(Rc<RefCell<ObjMap>>),
     Function(Rc<Closure>),
     Builtin(Rc<str>),
@@ -423,6 +471,11 @@ pub enum Delegate {
 }
 
 impl Value {
+    #[must_use]
+    pub fn array(items: Vec<Value>) -> Self {
+        Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
+    }
+
     pub fn string(s: impl Into<Rc<str>>) -> Self {
         Value::Str(s.into())
     }

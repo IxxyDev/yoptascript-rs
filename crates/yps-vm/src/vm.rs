@@ -3176,7 +3176,7 @@ impl Vm {
     }
 
     pub(crate) fn gc_array(&self, items: Vec<Value>) -> Value {
-        let rc = Rc::new(RefCell::new(items));
+        let rc = Rc::new(RefCell::new(crate::value::ArrayStore(items)));
         self.gc.track_array(&rc);
         Value::Array(rc)
     }
@@ -3537,7 +3537,7 @@ fn build_template_strings(strings: &crate::chunk::TemplateStrings) -> Value {
     map.insert("длина".to_string(), len.clone());
     map.insert("length".to_string(), len);
     let raw: Vec<Value> = strings.raw.iter().map(|r| Value::string(r.as_str())).collect();
-    let raw_arr = Value::Array(Rc::new(RefCell::new(raw)));
+    let raw_arr = Value::array(raw);
     map.insert("сырьё".to_string(), raw_arr.clone());
     map.insert("raw".to_string(), raw_arr);
     Value::Object(Rc::new(RefCell::new(map)))

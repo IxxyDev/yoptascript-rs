@@ -4,17 +4,18 @@ use std::rc::{Rc, Weak};
 
 use crate::chunk::{Constant, FnProto, InlineCache};
 use crate::value::{
-    AggregateState, ClassDef, Closure, Delegate, ForIter, GenState, ObjMap, PromiseState, UpvalueState, Value,
+    AggregateState, ArrayStore, ClassDef, Closure, Delegate, ForIter, GenState, ObjMap, PromiseState, UpvalueState,
+    Value,
 };
 
 type ObjCell = Rc<RefCell<ObjMap>>;
-type ArrCell = Rc<RefCell<Vec<Value>>>;
+type ArrCell = Rc<RefCell<ArrayStore>>;
 type UpCell = Rc<RefCell<UpvalueState>>;
 
 #[derive(Default)]
 pub(crate) struct GcRegistry {
     objects: RefCell<Vec<Weak<RefCell<ObjMap>>>>,
-    arrays: RefCell<Vec<Weak<RefCell<Vec<Value>>>>>,
+    arrays: RefCell<Vec<Weak<RefCell<ArrayStore>>>>,
     upvalues: RefCell<Vec<Weak<RefCell<UpvalueState>>>>,
 }
 

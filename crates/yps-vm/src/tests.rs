@@ -3331,3 +3331,29 @@ fn callback_kept_by_the_stdlib_survives_cycle_collection() {
     "#;
     assert_same_as_interpreter(src, "1\n");
 }
+
+#[test]
+fn deeply_nested_value_crosses_the_bridge() {
+    let src = r#"
+        гыы о = {};
+        го (гыы и = 0; и < 100000; и++) { о = { в: о }; }
+        сказать(Кент.ключи(о));
+    "#;
+    assert_eq!(run(src), "[в]\n");
+}
+
+#[test]
+fn dropping_deep_structures_does_not_overflow_the_stack() {
+    let src = r#"
+        гыы о = {};
+        гыы м = [];
+        го (гыы и = 0; и < 200000; и++) {
+            о = { в: о };
+            м = [м];
+        }
+        о = ноль;
+        м = ноль;
+        сказать("конец");
+    "#;
+    assert_eq!(run(src), "конец\n");
+}

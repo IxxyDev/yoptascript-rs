@@ -418,7 +418,7 @@ fn expect_array(v: Value, ctx: &str, span: Span) -> Result<Vec<Value>, VmError> 
 }
 
 fn array_value(items: Vec<Value>) -> Value {
-    Value::Array(Rc::new(RefCell::new(items)))
+    Value::array(items)
 }
 
 fn run_aggregate(vm: &mut Vm, kind: AggregateKind, items: Vec<Value>, span: Span) -> Value {
