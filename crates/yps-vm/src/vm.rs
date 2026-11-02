@@ -940,17 +940,26 @@ impl Vm {
                 Op::DeleteProp(idx) => {
                     let name = self.const_str(chunk, idx);
                     let obj = self.pop();
-                    if let Value::Object(map) = &obj
+                    let mut removed = true;
+                    if let Value::Host(iv) = &obj {
+                        let iv = iv.clone();
+                        removed = crate::bridge::host_delete(self, &iv, &Value::Str(Rc::clone(&name)), span)?;
+                    } else if let Value::Object(map) = &obj
                         && map.borrow().can_delete()
                     {
                         map.borrow_mut().remove(&name);
                     }
-                    self.stack.push(Value::Bool(true));
+                    self.stack.push(Value::Bool(removed));
                 }
                 Op::DeleteIndex => {
                     let index = self.pop();
                     let obj = self.pop();
+                    let mut removed = true;
                     match &obj {
+                        Value::Host(iv) => {
+                            let iv = iv.clone();
+                            removed = crate::bridge::host_delete(self, &iv, &index, span)?;
+                        }
                         Value::Object(map) => {
                             if map.borrow().can_delete() {
                                 map.borrow_mut().remove(&crate::value::prop_key(&index));
@@ -971,7 +980,7 @@ impl Vm {
                         }
                         _ => {}
                     }
-                    self.stack.push(Value::Bool(true));
+                    self.stack.push(Value::Bool(removed));
                 }
 
                 Op::RegisterDisposable => {
@@ -3235,6 +3244,7 @@ impl Vm {
         for root in self.running_task_roots.iter().flatten() {
             marker.push_value(root);
         }
+        crate::bridge::mark_callback_roots(&mut marker);
         for listener in &self.signal_listeners {
             marker.push_value(listener);
         }

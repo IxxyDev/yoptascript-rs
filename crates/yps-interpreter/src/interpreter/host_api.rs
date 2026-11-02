@@ -129,6 +129,16 @@ impl Interpreter {
         }
     }
 
+    pub fn host_delete(&mut self, obj: &Value, key: &Value, span: Span) -> Result<bool, RuntimeError> {
+        match obj.proxy_parts() {
+            Some((target, handler)) => {
+                let key = crate::interpreter::coercion::property_key(key);
+                self.proxy_delete(&target, &handler, &key, span)
+            }
+            None => Ok(true),
+        }
+    }
+
     pub fn host_for_in_keys(&mut self, obj: &Value, span: Span) -> Result<Vec<Value>, RuntimeError> {
         match obj {
             Value::Array(elements) => Ok(elements.borrow().0.clone()),
