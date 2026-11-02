@@ -3452,10 +3452,10 @@ impl Vm {
     }
 
     fn loose_eq(&mut self, a: &Value, b: &Value, span: Span) -> Result<bool, VmError> {
-        let (object, other, object_first) = match (a, b) {
-            (Value::Object(_), Value::Object(_)) => return Ok(abstract_eq(a, b)),
-            (Value::Object(_), other) => (a, other, true),
-            (other, Value::Object(_)) => (b, other, false),
+        let is_object = |v: &Value| matches!(v, Value::Object(_) | Value::Array(_));
+        let (object, other, object_first) = match (is_object(a), is_object(b)) {
+            (true, false) => (a, b, true),
+            (false, true) => (b, a, false),
             _ => return Ok(abstract_eq(a, b)),
         };
         if matches!(other, Value::Null | Value::Undefined) || !is_primitive(other) {
@@ -3748,7 +3748,13 @@ fn well_known_async_iterator_key() -> String {
 fn is_primitive(value: &Value) -> bool {
     matches!(
         value,
-        Value::Number(_) | Value::BigInt(_) | Value::Str(_) | Value::Bool(_) | Value::Null | Value::Undefined
+        Value::Number(_)
+            | Value::BigInt(_)
+            | Value::Str(_)
+            | Value::Bool(_)
+            | Value::Null
+            | Value::Undefined
+            | Value::Host(yps_interpreter::value::Value::Symbol { .. })
     )
 }
 

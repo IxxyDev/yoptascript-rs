@@ -46,7 +46,26 @@ pub(crate) enum SlotWrite {
     Fallback,
 }
 
+impl Drop for EnvFrame {
+    fn drop(&mut self) {
+        let mut frames: Vec<Rc<RefCell<EnvFrame>>> = self.parent.take().into_iter().collect();
+        let mut values = self.take_values();
+        crate::value::drain_values_and_frames(&mut values, &mut frames);
+    }
+}
+
 impl EnvFrame {
+    pub(crate) fn take_values(&mut self) -> Vec<Value> {
+        let mut values = std::mem::take(&mut self.slots);
+        values.extend(std::mem::take(&mut self.bindings).into_values());
+        values.extend(std::mem::take(&mut self.disposables).into_iter().map(|(value, _)| value));
+        values
+    }
+
+    pub(crate) fn take_parent(&mut self) -> Option<Rc<RefCell<EnvFrame>>> {
+        self.parent.take()
+    }
+
     fn empty(parent: Option<Rc<RefCell<EnvFrame>>>) -> Self {
         Self {
             layout: None,

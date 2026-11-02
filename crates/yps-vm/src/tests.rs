@@ -3737,3 +3737,49 @@ fn iterator_helpers_close_their_source() {
         "закрыт\n[1]\nфинал\n[1]\n[]\n",
     );
 }
+
+#[test]
+fn loose_equality_converts_arrays_and_symbols() {
+    assert_same_as_interpreter(
+        r#"
+        сказать([1] == 1, [1, 2] == "1,2", [] == "", [] == ноль);
+        гыы с = Симбол("s");
+        гыы у = {};
+        у[Симбол.вПримитив] = йопта() { отвечаю с; };
+        сказать(у == с);
+        "#,
+        "true true true false\ntrue\n",
+    );
+}
+
+#[test]
+fn cyclic_array_converts_to_a_string() {
+    assert_same_as_interpreter(
+        r#"
+        гыы а = [1];
+        а.push(а);
+        сказать("" + а, а == "x");
+        гыы б = [1, []];
+        б[1].push(б);
+        сказать("" + б);
+        "#,
+        "1, false\n1,\n",
+    );
+}
+
+#[test]
+fn deep_values_convert_and_drop_without_overflow() {
+    let src = r#"
+        гыы д = [];
+        го (гыы и = 0; и < 200000; и++) { д = [д]; }
+        сказать(д == "x", ("" + д).длина);
+        гыы ф = ноль;
+        го (гыы и = 0; и < 200000; и++) {
+            участковый п = ф;
+            ф = () => п;
+        }
+        ф = ноль;
+        сказать("конец");
+    "#;
+    assert_same_as_interpreter(src, "false 0\nконец\n");
+}

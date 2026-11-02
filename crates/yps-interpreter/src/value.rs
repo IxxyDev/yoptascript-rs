@@ -496,8 +496,28 @@ impl Drop for SetStore {
 }
 
 fn drain_value_tree(stack: &mut Vec<Value>) {
-    while let Some(value) = stack.pop() {
+    drain_values_and_frames(stack, &mut Vec::new());
+}
+
+pub(crate) fn drain_values_and_frames(stack: &mut Vec<Value>, frames: &mut Vec<Rc<RefCell<EnvFrame>>>) {
+    loop {
+        while let Some(frame) = frames.pop() {
+            if Rc::strong_count(&frame) == 1
+                && let Ok(mut inner) = frame.try_borrow_mut()
+            {
+                stack.extend(inner.take_values());
+                frames.extend(inner.take_parent());
+            }
+        }
+        let Some(value) = stack.pop() else {
+            return;
+        };
         match value {
+            Value::Function(rc) => {
+                if let Ok(data) = Rc::try_unwrap(rc) {
+                    frames.push(data.env);
+                }
+            }
             Value::Array(rc) => {
                 if Rc::strong_count(&rc) == 1
                     && let Ok(mut inner) = rc.try_borrow_mut()

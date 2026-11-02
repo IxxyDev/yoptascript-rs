@@ -296,9 +296,55 @@ impl Drop for ObjMap {
     }
 }
 
+fn array_to_string(value: &Value, seen: &mut std::collections::HashSet<usize>) -> String {
+    let Value::Array(elements) = value else {
+        return value.to_ecma_string();
+    };
+    let ptr = Rc::as_ptr(elements) as usize;
+    if !seen.insert(ptr) {
+        return String::new();
+    }
+    let joined = stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, || {
+        elements
+            .borrow()
+            .iter()
+            .map(|el| match el {
+                Value::Null | Value::Undefined => String::new(),
+                other => array_to_string(other, seen),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    });
+    seen.remove(&ptr);
+    joined
+}
+
+impl Drop for Closure {
+    fn drop(&mut self) {
+        let mut stack = Vec::new();
+        drain_upvalues(std::mem::take(&mut self.upvalues), &mut stack);
+        drain_value_tree(&mut stack);
+    }
+}
+
+fn drain_upvalues(upvalues: Vec<Upvalue>, stack: &mut Vec<Value>) {
+    for upvalue in upvalues {
+        if let Ok(cell) = Rc::try_unwrap(upvalue)
+            && let UpvalueState::Closed(value) | UpvalueState::Parked { value, .. } = cell.into_inner()
+        {
+            stack.push(value);
+        }
+    }
+}
+
 fn drain_value_tree(stack: &mut Vec<Value>) {
     while let Some(value) = stack.pop() {
         match value {
+            Value::Function(rc) => {
+                if let Ok(mut closure) = Rc::try_unwrap(rc) {
+                    drain_upvalues(std::mem::take(&mut closure.upvalues), stack);
+                }
+            }
             Value::Array(rc) => {
                 if let Ok(cell) = Rc::try_unwrap(rc) {
                     stack.append(&mut cell.borrow_mut().0);
@@ -622,17 +668,7 @@ impl Value {
             | Value::PromiseThenHandler { .. }
             | Value::PromiseFinallyHandler { .. }
             | Value::PromiseAggregateHandler { .. } => self.to_string(),
-            Value::Array(elements) => {
-                let snapshot = elements.borrow();
-                let parts: Vec<String> = snapshot
-                    .iter()
-                    .map(|el| match el {
-                        Value::Null | Value::Undefined => String::new(),
-                        other => other.to_ecma_string(),
-                    })
-                    .collect();
-                parts.join(",")
-            }
+            Value::Array(_) => array_to_string(self, &mut std::collections::HashSet::new()),
             Value::Function(_) | Value::Builtin(_) | Value::BoundMethod { .. } | Value::Class(_) => self.to_string(),
             Value::Host(iv) => iv.to_string(),
         }

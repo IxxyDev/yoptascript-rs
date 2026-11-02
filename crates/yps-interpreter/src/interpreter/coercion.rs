@@ -68,19 +68,32 @@ pub(crate) fn to_ecma_string(value: &Value) -> String {
         Value::Undefined => "undefined".to_string(),
         Value::BigInt(n) => n.to_string(),
         Value::Object(_) => "[object Object]".to_string(),
-        Value::Array(elements) => {
-            let snapshot = elements.borrow().clone();
-            let parts: Vec<String> = snapshot
-                .iter()
-                .map(|el| match el {
-                    Value::Null | Value::Undefined => String::new(),
-                    other => to_ecma_string(other),
-                })
-                .collect();
-            parts.join(",")
-        }
+        Value::Array(_) => array_to_string(value, &mut std::collections::HashSet::new()),
         _ => "[object Object]".to_string(),
     }
+}
+
+fn array_to_string(value: &Value, seen: &mut std::collections::HashSet<usize>) -> String {
+    let Value::Array(elements) = value else {
+        return to_ecma_string(value);
+    };
+    let ptr = std::rc::Rc::as_ptr(elements) as usize;
+    if !seen.insert(ptr) {
+        return String::new();
+    }
+    let joined = stacker::maybe_grow(256 * 1024, 8 * 1024 * 1024, || {
+        elements
+            .borrow()
+            .iter()
+            .map(|el| match el {
+                Value::Null | Value::Undefined => String::new(),
+                other => array_to_string(other, seen),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    });
+    seen.remove(&ptr);
+    joined
 }
 
 pub(crate) fn coerce_to_f64_opt(value: &Value) -> Option<f64> {
