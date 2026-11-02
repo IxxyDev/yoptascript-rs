@@ -336,6 +336,9 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
     if let Some(res) = try_object_state_op(name, &args) {
         return res;
     }
+    if let Some(res) = try_class_prototype_op(name, &args) {
+        return res;
+    }
     if name == "СигналОтмены.отВремени" {
         return crate::abort::timeout_signal(vm, &args, span);
     }
@@ -347,6 +350,23 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
         };
         interp_to_vm(&value).map_err(|m| VmError::new(m, span))
     })
+}
+
+fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, VmError>> {
+    match (name, args) {
+        ("Кент.создать", [Value::Class(_)]) => {
+            let mut map = ObjMap::new();
+            map.insert(crate::value::CLASS_TAG.to_string(), args[0].clone());
+            Some(Ok(Value::Object(Rc::new(RefCell::new(map)))))
+        }
+        ("Кент.прототип" | "Отражение.прототипОт", [Value::Object(map), ..]) => {
+            match map.borrow().get(crate::value::CLASS_TAG) {
+                Some(Value::Class(class)) => Some(Ok(class.prototype_object())),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn try_object_state_op(name: &str, args: &[Value]) -> Option<Result<Value, VmError>> {

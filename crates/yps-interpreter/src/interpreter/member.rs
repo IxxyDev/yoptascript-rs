@@ -10,6 +10,8 @@ use crate::value::{ClassDef, FunctionData, MethodDef, Value};
 
 use super::Interpreter;
 
+const MAX_PROTO_CHAIN: usize = 256;
+
 impl Interpreter {
     pub(crate) fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         match &obj {
@@ -161,7 +163,23 @@ impl Interpreter {
                 if let Some(proto) = proto {
                     match proto {
                         Value::Class(_) | Value::WeakClass(_) | Value::Null => return Ok(Value::Undefined),
-                        _ => return self.eval_member(proto, property, span),
+                        _ => {
+                            if let Some((MethodDef { params, body, env }, super_class)) =
+                                Self::inherited_getter(&proto, property, &self.env)
+                            {
+                                return self.call_method_with_this_super(
+                                    Rc::from(property),
+                                    &params,
+                                    &body,
+                                    &env,
+                                    vec![],
+                                    Some(obj),
+                                    super_class,
+                                    span,
+                                );
+                            }
+                            return self.eval_member(proto, property, span);
+                        }
                     }
                 }
                 Ok(Value::Undefined)
@@ -214,6 +232,86 @@ impl Interpreter {
             },
             _ => Err(RuntimeError::new(format!("Нельзя получить свойство у типа '{}'", obj.type_name()), span)),
         }
+    }
+
+    fn inherited_getter(
+        proto: &Value,
+        property: &str,
+        env: &crate::environment::Environment,
+    ) -> Option<(MethodDef, Option<Rc<crate::value::ClassDef>>)> {
+        let getter_key = symbols::getter_key(property);
+        let mut current = proto.clone();
+        for _ in 0..MAX_PROTO_CHAIN {
+            let Value::Object(map) = &current else {
+                return None;
+            };
+            if let Some(Value::Function(func)) = map.borrow().get(&getter_key) {
+                let getter =
+                    MethodDef { params: func.params.clone(), body: Rc::clone(&func.body), env: Rc::clone(&func.env) };
+                return Some((getter, None));
+            }
+            if map.borrow().contains_key(property) {
+                return None;
+            }
+            if let Some(cls) = Self::resolve_class_for_object(map, env)
+                && let Some(MethodDef { params, body, env }) = Self::find_getter_in_class(&cls, property)
+            {
+                let getter = MethodDef { params: params.clone(), body: Rc::clone(body), env: Rc::clone(env) };
+                return Some((getter, Self::find_getter_owner_parent(&cls, property)));
+            }
+            let next = map.borrow().get(symbols::PROTO).cloned();
+            current = next.unwrap_or(Value::Undefined);
+        }
+        None
+    }
+
+    pub(crate) fn class_along_chain(
+        map: &Rc<std::cell::RefCell<crate::value::ObjectStore>>,
+        env: &crate::environment::Environment,
+    ) -> Option<Rc<crate::value::ClassDef>> {
+        let mut current = Rc::clone(map);
+        for _ in 0..MAX_PROTO_CHAIN {
+            if let Some(cls) = Self::resolve_class_for_object(&current, env) {
+                return Some(cls);
+            }
+            let next = current.borrow().get(symbols::PROTO).cloned();
+            let Some(Value::Object(next)) = next else {
+                return None;
+            };
+            current = next;
+        }
+        None
+    }
+
+    pub(crate) fn object_has_property(
+        map: &Rc<std::cell::RefCell<crate::value::ObjectStore>>,
+        key: &str,
+        env: &crate::environment::Environment,
+    ) -> bool {
+        let getter_key = symbols::getter_key(key);
+        let setter_key = symbols::setter_key(key);
+        let mut current = Rc::clone(map);
+        for _ in 0..MAX_PROTO_CHAIN {
+            {
+                let guard = current.borrow();
+                if guard.contains_key(key) || guard.contains_key(&getter_key) || guard.contains_key(&setter_key) {
+                    return true;
+                }
+            }
+            if let Some(cls) = Self::resolve_class_for_object(&current, env)
+                && (Self::find_method_in_class(&cls, key).is_some()
+                    || Self::find_getter_in_class(&cls, key).is_some()
+                    || Self::find_setter_in_class(&cls, key).is_some())
+            {
+                return true;
+            }
+            let next = current.borrow().get(symbols::PROTO).cloned();
+            let Some(Value::Object(next)) = next else {
+                return false;
+            };
+            current = next;
+        }
+        false
     }
 
     pub(crate) fn resolve_class_for_object(

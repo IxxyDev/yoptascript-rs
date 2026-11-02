@@ -110,7 +110,7 @@ impl Interpreter {
             }
             Value::Object(map) => {
                 let key = crate::interpreter::coercion::property_key(key);
-                Ok(map.borrow().contains_key(&key))
+                Ok(Self::object_has_property(map, &key, &self.env))
             }
             Value::Array(arr) => {
                 let len = arr.borrow().len();
@@ -127,6 +127,14 @@ impl Interpreter {
                 span,
             )),
         }
+    }
+
+    pub(crate) fn object_has_own_or_inherited(
+        &self,
+        map: &Rc<std::cell::RefCell<crate::value::ObjectStore>>,
+        key: &str,
+    ) -> bool {
+        Self::object_has_property(map, key, &self.env)
     }
 
     pub fn host_delete(&mut self, obj: &Value, key: &Value, span: Span) -> Result<bool, RuntimeError> {

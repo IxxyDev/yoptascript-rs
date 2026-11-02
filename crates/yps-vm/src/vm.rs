@@ -20,6 +20,7 @@ const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 const GC_INSTR_INTERVAL: usize = 8192;
 pub(crate) const GC_TASK_INTERVAL: usize = 64;
 const GC_THRESHOLD: usize = 10000;
+const MAX_PROTO_CHAIN: usize = 256;
 const ERROR_NAME: &str = "Косяк";
 const DISPOSE_METHOD: &str = "расход";
 const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
@@ -446,7 +447,7 @@ impl Vm {
                     let key = self.pop();
                     let result = match container {
                         Value::Host(iv) => crate::bridge::host_in(self, &key, &iv, span)?,
-                        Value::Object(map) => map.borrow().contains_key(&crate::value::prop_key(&key)),
+                        Value::Object(map) => Self::object_has_property(&map, &crate::value::prop_key(&key)),
                         Value::Array(arr) => {
                             let len = arr.borrow().len();
                             match &key {
@@ -2292,6 +2293,7 @@ impl Vm {
             constructor,
             members,
             static_fields: RefCell::new(ObjMap::new()),
+            prototype: std::cell::OnceCell::new(),
         });
 
         let class_this = Value::Class(Rc::clone(&class_def));
@@ -2853,8 +2855,7 @@ impl Vm {
         let recv_idx = self.callee_slot(argc);
 
         let instance_method = if let Value::Object(map) = &self.stack[recv_idx] {
-            Self::resolve_class(map)
-                .filter(|_| map.borrow().get(name).is_none())
+            Self::method_class_along_chain(map, name)
                 .and_then(|cls| cls.find_method_with_owner(name).map(|(method, owner)| (cls, method, owner)))
         } else {
             None
@@ -3020,9 +3021,16 @@ impl Vm {
                         return Ok(Value::Function(method));
                     }
                 }
-                Ok(Value::Undefined)
+                let proto = map.borrow().get(crate::value::PROTO_KEY).cloned();
+                match proto {
+                    Some(proto @ Value::Object(_)) => self.get_inherited(proto, obj, name, span),
+                    _ => Ok(Value::Undefined),
+                }
             }
             Value::Class(cls) => {
+                if name == "прототип" || name == "prototype" {
+                    return Ok(cls.prototype_object());
+                }
                 if let Some(getter) = cls.find_static_getter(name) {
                     return self.call_closure_sync(getter, Some(obj.clone()), cls.parent.clone(), &[], span);
                 }
@@ -3040,6 +3048,81 @@ impl Vm {
             }
             _ => get_prop(obj, name, span),
         }
+    }
+
+    fn get_inherited(&mut self, proto: Value, receiver: &Value, name: &str, span: Span) -> Result<Value, VmError> {
+        let mut current = proto;
+        for _ in 0..MAX_PROTO_CHAIN {
+            let Value::Object(map) = &current else {
+                break;
+            };
+            let getter = map.borrow().get(&crate::value::getter_key(name)).cloned();
+            if let Some(Value::Function(getter)) = getter {
+                return self.call_closure_sync(getter, Some(receiver.clone()), None, &[], span);
+            }
+            if let Some(val) = map.borrow().get(name).cloned() {
+                return Ok(val);
+            }
+            if let Some(cls) = Self::resolve_class(map) {
+                if let Some((getter, owner)) = cls.find_getter(name) {
+                    return self.call_closure_sync(getter, Some(receiver.clone()), owner, &[], span);
+                }
+                if let Some(method) = cls.find_method(name) {
+                    return Ok(Value::Function(method));
+                }
+            }
+            let next = map.borrow().get(crate::value::PROTO_KEY).cloned();
+            current = next.unwrap_or(Value::Undefined);
+        }
+        Ok(Value::Undefined)
+    }
+
+    fn object_has_property(map: &Rc<RefCell<ObjMap>>, name: &str) -> bool {
+        let getter_key = crate::value::getter_key(name);
+        let setter_key = crate::value::setter_key(name);
+        let mut current = Rc::clone(map);
+        for _ in 0..MAX_PROTO_CHAIN {
+            {
+                let guard = current.borrow();
+                if guard.contains_key(name) || guard.contains_key(&getter_key) || guard.contains_key(&setter_key) {
+                    return true;
+                }
+            }
+            if let Some(cls) = Self::resolve_class(&current)
+                && (cls.find_method(name).is_some()
+                    || cls.find_getter(name).is_some()
+                    || cls.find_setter(name).is_some())
+            {
+                return true;
+            }
+            let next = current.borrow().get(crate::value::PROTO_KEY).cloned();
+            let Some(Value::Object(next)) = next else {
+                return false;
+            };
+            current = next;
+        }
+        false
+    }
+
+    fn method_class_along_chain(map: &Rc<RefCell<ObjMap>>, name: &str) -> Option<Rc<ClassDef>> {
+        if map.borrow().get(name).is_some() {
+            return None;
+        }
+        let mut current = Rc::clone(map);
+        for _ in 0..MAX_PROTO_CHAIN {
+            if let Some(cls) = Self::resolve_class(&current) {
+                return Some(cls);
+            }
+            let next = current.borrow().get(crate::value::PROTO_KEY).cloned();
+            let Some(Value::Object(next)) = next else {
+                return None;
+            };
+            if Self::resolve_class(&next).is_none() && next.borrow().get(name).is_some() {
+                return None;
+            }
+            current = next;
+        }
+        None
     }
 
     fn set_property(&mut self, obj: &Value, name: &str, value: Value, span: Span) -> Result<(), VmError> {
@@ -3143,10 +3226,18 @@ impl Vm {
     }
 
     fn instance_of(&self, value: &Value, target: &Rc<ClassDef>) -> bool {
-        if let Value::Object(map) = value
-            && let Some(cls) = Self::resolve_class(map)
-        {
-            return cls.is_subclass_of(target);
+        let mut current = value.clone();
+        for _ in 0..MAX_PROTO_CHAIN {
+            let Value::Object(map) = &current else {
+                return false;
+            };
+            if let Some(cls) = Self::resolve_class(map)
+                && cls.is_subclass_of(target)
+            {
+                return true;
+            }
+            let next = map.borrow().get(crate::value::PROTO_KEY).cloned();
+            current = next.unwrap_or(Value::Undefined);
         }
         false
     }

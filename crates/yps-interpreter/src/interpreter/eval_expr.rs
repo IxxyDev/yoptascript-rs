@@ -59,8 +59,8 @@ impl Interpreter {
             return self.call_function(func.clone(), arg_values, span);
         };
         let (params, body, env) = (&fdata.params, &fdata.body, &fdata.env);
-        let super_class = Self::resolve_class_for_object(map, &self.env)
-            .and_then(|cls| Self::find_method_owner_parent(&cls, property));
+        let super_class =
+            Self::class_along_chain(map, &self.env).and_then(|cls| Self::find_method_owner_parent(&cls, property));
         self.call_method_with_this_super(
             Rc::from(property),
             params,
@@ -685,7 +685,7 @@ impl Interpreter {
                 }
                 Value::Object(map) => {
                     let key = coercion::property_key(&left);
-                    Ok(Value::Boolean(map.borrow().contains_key(&key)))
+                    Ok(Value::Boolean(Self::object_has_property(&map, &key, &self.env)))
                 }
                 Value::Array(arr) => {
                     let len = arr.borrow().len();

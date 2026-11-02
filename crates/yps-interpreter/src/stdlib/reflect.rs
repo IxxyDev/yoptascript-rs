@@ -217,7 +217,7 @@ fn reflect_has(interp: &mut Interpreter, obj: Value, key: &str, span: Span) -> R
             let (t, h) = ((**target).clone(), (**handler).clone());
             Ok(Value::Boolean(interp.proxy_has(&t, &h, key, span)?))
         }
-        Value::Object(map) => Ok(Value::Boolean(map.borrow().contains_key(key))),
+        Value::Object(map) => Ok(Value::Boolean(interp.object_has_own_or_inherited(map, key))),
         Value::Array(arr) => {
             if key == "length" || key == "длина" {
                 return Ok(Value::Boolean(true));

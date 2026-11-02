@@ -106,9 +106,30 @@ pub struct ClassDef {
     pub constructor: Option<MethodDef>,
     pub members: ClassMembers,
     pub static_fields: RefCell<ObjMap>,
+    pub prototype: std::cell::OnceCell<Value>,
 }
 
 impl ClassDef {
+    pub fn prototype_object(self: &Rc<Self>) -> Value {
+        self.prototype
+            .get_or_init(|| {
+                let mut map = ObjMap::new();
+                map.insert(CLASS_TAG.to_string(), Value::Class(Rc::clone(self)));
+                let mut cur: Option<&Rc<ClassDef>> = Some(self);
+                while let Some(class) = cur {
+                    for (name, method) in &class.members.methods.entries {
+                        if !map.contains_key(name) {
+                            map.insert(name.clone(), Value::Function(Rc::clone(method)));
+                        }
+                    }
+                    cur = class.parent.as_ref();
+                }
+                map.insert("конструктор".to_string(), Value::Class(Rc::clone(self)));
+                Value::Object(Rc::new(RefCell::new(map)))
+            })
+            .clone()
+    }
+
     pub fn find_method(self: &Rc<Self>, name: &str) -> Option<MethodDef> {
         let mut cur: Option<&Rc<ClassDef>> = Some(self);
         while let Some(c) = cur {

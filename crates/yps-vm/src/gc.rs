@@ -201,6 +201,9 @@ impl Marker {
     }
 
     fn mark_class(&mut self, class: &Rc<ClassDef>) {
+        if let Some(prototype) = class.prototype.get() {
+            self.push_value(prototype);
+        }
         let members = &class.members;
         for def in class
             .constructor

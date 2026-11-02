@@ -86,7 +86,7 @@ impl Interpreter {
             return Ok(result.is_truthy());
         }
         Ok(match target {
-            Value::Object(map) => map.borrow().contains_key(key),
+            Value::Object(map) => Self::object_has_property(map, key, &self.env),
             Value::Array(arr) => {
                 key == "length" || key == "длина" || key.parse::<usize>().is_ok_and(|i| i < arr.borrow().len())
             }
