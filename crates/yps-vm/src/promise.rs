@@ -153,9 +153,20 @@ pub(crate) fn make_pending_promise() -> (Value, Value, Value) {
 impl Vm {
     pub(crate) fn drain_microtasks(&mut self, span: Span) -> Result<(), VmError> {
         while let Some(task) = self.microtasks.pop_front() {
-            (task.run)(self, span)?;
+            self.run_rooted(task.roots, |vm| (task.run)(vm, span))?;
         }
         Ok(())
+    }
+
+    fn run_rooted(
+        &mut self,
+        roots: Vec<Value>,
+        task: impl FnOnce(&mut Vm) -> Result<(), VmError>,
+    ) -> Result<(), VmError> {
+        self.running_task_roots.push(roots);
+        let result = task(self);
+        self.running_task_roots.pop();
+        result
     }
 
     pub(crate) fn enqueue_microtask(&mut self, roots: Vec<Value>, run: MicrotaskFn) {
@@ -173,7 +184,7 @@ impl Vm {
             let Some(task) = self.macrotasks.pop_next_blocking() else {
                 return Ok(());
             };
-            (task.task)(self, span)?;
+            self.run_rooted(task.roots, |vm| (task.task)(vm, span))?;
             since_gc += 1;
             if since_gc >= crate::vm::GC_TASK_INTERVAL {
                 since_gc = 0;
@@ -272,7 +283,7 @@ impl Vm {
                     let Some(task) = self.macrotasks.pop_next_blocking() else {
                         return Err(VmError::new("Обещание не разрешено: нет готовых задач", span));
                     };
-                    (task.task)(self, span)?;
+                    self.run_rooted(task.roots, |vm| (task.task)(vm, span))?;
                 }
             }
         }

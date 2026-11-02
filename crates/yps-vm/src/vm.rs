@@ -112,6 +112,7 @@ pub struct Vm {
     exports: ModuleExports,
     pub(crate) microtasks: std::collections::VecDeque<Microtask>,
     pub(crate) macrotasks: MacrotaskQueue,
+    pub(crate) running_task_roots: Vec<Vec<Value>>,
     pub(crate) signal_listeners: Vec<Value>,
     pub(crate) signal_promises: std::collections::HashMap<usize, (crate::abort::SignalState, Value)>,
     gc: Rc<crate::gc::GcRegistry>,
@@ -152,6 +153,7 @@ impl Vm {
             exports: std::collections::HashMap::new(),
             microtasks: std::collections::VecDeque::new(),
             macrotasks: MacrotaskQueue::new(),
+            running_task_roots: Vec::new(),
             signal_listeners: Vec::new(),
             signal_promises: std::collections::HashMap::new(),
             gc: Rc::new(crate::gc::GcRegistry::default()),
@@ -3221,6 +3223,9 @@ impl Vm {
             }
         }
         for root in self.macrotasks.roots() {
+            marker.push_value(root);
+        }
+        for root in self.running_task_roots.iter().flatten() {
             marker.push_value(root);
         }
         for listener in &self.signal_listeners {

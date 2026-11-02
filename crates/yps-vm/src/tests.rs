@@ -3070,3 +3070,42 @@ fn loose_equality_uses_user_coercion_hooks() {
         "true true false true false\ntrue false\ntrue\n",
     );
 }
+
+#[test]
+fn promise_chain_survives_cycle_collection_inside_a_reaction() {
+    let src = r#"
+        йопта ф() {
+            гыы л = { а: [1, 2, 3] };
+            л.сам = л;
+            СловоПацана.решить(1)
+                .потом(() => {
+                    го (гыы и = 0; и < 60000; и++) {
+                        гыы о = {};
+                        о.с = о;
+                    }
+                })
+                .потом(() => сказать("л", л.а));
+        }
+        ф();
+    "#;
+    assert_same_as_interpreter(src, "л [1, 2, 3]\n");
+}
+
+#[test]
+fn timer_keeps_its_captures_through_cycle_collection_in_the_callback() {
+    let src = r#"
+        йопта ф() {
+            гыы л = { а: 1 };
+            л.сам = л;
+            чутка(() => {
+                го (гыы и = 0; и < 60000; и++) {
+                    гыы о = {};
+                    о.с = о;
+                }
+                сказать(л.сам.а);
+            }, 0);
+        }
+        ф();
+    "#;
+    assert_same_as_interpreter(src, "1\n");
+}
