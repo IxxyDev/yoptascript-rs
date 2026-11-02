@@ -262,8 +262,22 @@ impl std::ops::Deref for ArrayStore {
     }
 }
 
+thread_local! {
+    static MUTATION_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+pub(crate) fn note_mutation() {
+    MUTATION_EPOCH.with(|e| e.set(e.get().wrapping_add(1)));
+}
+
+#[must_use]
+pub(crate) fn mutation_epoch() -> u64 {
+    MUTATION_EPOCH.with(std::cell::Cell::get)
+}
+
 impl std::ops::DerefMut for ArrayStore {
     fn deref_mut(&mut self) -> &mut Vec<Value> {
+        note_mutation();
         &mut self.0
     }
 }
@@ -325,6 +339,7 @@ impl ObjMap {
     }
 
     pub fn insert(&mut self, key: String, value: Value) {
+        note_mutation();
         if self.entries.insert(key, value).is_none() {
             self.generation = self.generation.wrapping_add(1);
         }
@@ -335,6 +350,7 @@ impl ObjMap {
     }
 
     pub fn remove(&mut self, key: &str) -> bool {
+        note_mutation();
         if self.entries.shift_remove(key).is_some() {
             self.generation = self.generation.wrapping_add(1);
             true
@@ -356,6 +372,7 @@ impl ObjMap {
     }
 
     pub(crate) fn overwrite_at(&mut self, index: usize, value: Value) {
+        note_mutation();
         if let Some((_, slot)) = self.entries.get_index_mut(index) {
             *slot = value;
         }
@@ -389,17 +406,20 @@ impl ObjMap {
     }
 
     pub fn seal(&mut self) {
+        note_mutation();
         self.sealed = true;
         self.extensible = false;
     }
 
     pub fn freeze(&mut self) {
+        note_mutation();
         self.frozen = true;
         self.sealed = true;
         self.extensible = false;
     }
 
     pub fn prevent_extensions(&mut self) {
+        note_mutation();
         self.extensible = false;
     }
 }

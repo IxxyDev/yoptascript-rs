@@ -8,6 +8,12 @@ use crate::value::Value;
 use super::Interpreter;
 
 impl Interpreter {
+    pub fn reset_for_host_call(&mut self) {
+        self.microtasks.clear();
+        self.macrotasks = super::event_loop::MacrotaskQueue::new();
+        self.call_stack.clear();
+    }
+
     pub fn host_member_get(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {
         self.eval_member(obj, property, span)
     }

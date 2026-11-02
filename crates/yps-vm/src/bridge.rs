@@ -86,6 +86,7 @@ thread_local! {
     static CROSSED: RefCell<HashMap<usize, Crossed>> = RefCell::new(HashMap::new());
     static CROSSED_LOG: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static ANCHORS: RefCell<HashMap<usize, (IValue, Value)>> = RefCell::new(HashMap::new());
+    static SYNCED_AT: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     static CROSSING_DEPTH: Cell<usize> = const { Cell::new(0) };
     static CALLBACK_BY_PTR: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     static VM_BY_CALLBACK: RefCell<HashMap<String, Value>> = RefCell::new(HashMap::new());
@@ -145,6 +146,7 @@ fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
         if cache.len() >= prune_at {
             cache.retain(|_, (k, _)| k.is_alive());
             VM_BY_STORE.with(|m| m.borrow_mut().retain(|_, k| k.is_alive()));
+            SYNCED_AT.with(|m| m.borrow_mut().retain(|ptr, _| cache.contains_key(ptr)));
             ANCHORS.with(|a| a.borrow_mut().retain(|_, (store, _)| store_holders(store) > ANCHORED_STORE_HOLDERS));
             let live = cache.len();
             let new_threshold = std::cmp::max(IDENTITY_CACHE_PRUNE_THRESHOLD, 2 * live);
@@ -188,9 +190,12 @@ pub(crate) fn with_interp<R>(
     let _guard = VmGuard::enter(vm);
     let mark = CROSSED_LOG.with(|l| l.borrow().len());
     CROSSING_DEPTH.with(|d| d.set(d.get() + 1));
-    let mut interp = yps_interpreter::Interpreter::new();
+    let mut interp = vm.spare_interpreters.pop().unwrap_or_default();
     let result = f(&mut interp);
-    drop(interp);
+    if result.is_ok() {
+        interp.reset_for_host_call();
+        vm.spare_interpreters.push(interp);
+    }
     let depth = CROSSING_DEPTH.with(|d| {
         d.set(d.get() - 1);
         d.get()
@@ -221,6 +226,49 @@ fn anchor_held_values() {
             });
         }
     }
+}
+
+fn with_reader<R>(
+    vm: &mut Vm,
+    receiver: &IValue,
+    span: Span,
+    f: impl FnOnce(&mut yps_interpreter::Interpreter) -> Result<R, VmError>,
+) -> Result<R, VmError> {
+    with_interp(vm, |interp| {
+        refresh_stale_receiver(receiver, span)?;
+        f(interp)
+    })
+}
+
+fn refresh_stale_receiver(receiver: &IValue, span: Span) -> Result<(), VmError> {
+    match receiver {
+        IValue::Proxy { target, handler } => {
+            refresh_stale_receiver(target, span)?;
+            refresh_stale_receiver(handler, span)
+        }
+        IValue::Array(_) | IValue::Object(_) => match vm_value_of_store(receiver) {
+            Some(vm_value) if !is_synced(&vm_value) => vm_to_interp(&vm_value, span).map(|_| ()),
+            _ => Ok(()),
+        },
+        _ => Ok(()),
+    }
+}
+
+fn vm_ptr(value: &Value) -> Option<usize> {
+    match value {
+        Value::Array(rc) => Some(Rc::as_ptr(rc) as usize),
+        Value::Object(rc) => Some(Rc::as_ptr(rc) as usize),
+        _ => None,
+    }
+}
+
+fn is_synced(value: &Value) -> bool {
+    let epoch = crate::value::mutation_epoch();
+    vm_ptr(value).is_some_and(|ptr| SYNCED_AT.with(|m| m.borrow().get(&ptr) == Some(&epoch)))
+}
+
+fn mark_synced(ptr: usize, epoch: u64) {
+    SYNCED_AT.with(|m| m.borrow_mut().insert(ptr, epoch));
 }
 
 fn with_receiver<R>(
@@ -315,6 +363,7 @@ fn write_back(entry: &mut Crossed) {
                     map.insert(key.clone(), converted);
                 }
             }
+            crate::value::note_mutation();
             if store.frozen != *frozen {
                 map.frozen = store.frozen;
             }
@@ -495,14 +544,14 @@ pub fn host_member_get(vm: &mut Vm, receiver: &IValue, prop: &str, span: Span) -
     {
         return Ok(crate::abort::signal_promise(vm, state, span));
     }
-    with_receiver(vm, receiver, span, |interp| {
+    with_reader(vm, receiver, span, |interp| {
         let value = interp.host_member_get(receiver.clone(), prop, span).map_err(map_err)?;
         interp_to_vm(&value).map_err(|m| VmError::new(m, span))
     })
 }
 
 pub fn host_index_get(vm: &mut Vm, receiver: &IValue, index: &Value, span: Span) -> Result<Value, VmError> {
-    with_receiver(vm, receiver, span, |interp| {
+    with_reader(vm, receiver, span, |interp| {
         let idx = vm_to_interp(index, span)?;
         let value = interp.host_index_get(receiver.clone(), idx, span).map_err(map_err)?;
         interp_to_vm(&value).map_err(|m| VmError::new(m, span))
@@ -525,7 +574,7 @@ pub fn host_member_set(vm: &mut Vm, receiver: &IValue, prop: &str, value: &Value
 }
 
 pub fn host_iterate(vm: &mut Vm, receiver: &IValue, span: Span) -> Result<Vec<Value>, VmError> {
-    with_receiver(vm, receiver, span, |interp| {
+    with_reader(vm, receiver, span, |interp| {
         let values = interp.host_iterate(receiver, span).map_err(map_err)?;
         values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
     })
@@ -558,14 +607,14 @@ pub fn host_call(vm: &mut Vm, callee: &IValue, args: &[Value], span: Span) -> Re
 }
 
 pub fn host_in(vm: &mut Vm, key: &Value, container: &IValue, span: Span) -> Result<bool, VmError> {
-    with_receiver(vm, container, span, |interp| {
+    with_reader(vm, container, span, |interp| {
         let key = vm_to_interp(key, span)?;
         interp.host_in(&key, container, span).map_err(map_err)
     })
 }
 
 pub fn host_for_in_keys(vm: &mut Vm, receiver: &IValue, span: Span) -> Result<Vec<Value>, VmError> {
-    with_receiver(vm, receiver, span, |interp| {
+    with_reader(vm, receiver, span, |interp| {
         let values = interp.host_for_in_keys(receiver, span).map_err(map_err)?;
         values.iter().map(|v| interp_to_vm(v).map_err(|m| VmError::new(m, span))).collect()
     })
@@ -634,6 +683,13 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             if !seen.insert(ptr) {
                 return Ok(store);
             }
+            let epoch = crate::value::mutation_epoch();
+            if is_synced(value) {
+                if let IValue::Array(rc) = &store {
+                    record_crossing(value.clone(), store.clone(), Snapshot::Array(rc.borrow().0.clone()));
+                }
+                return Ok(store);
+            }
             let converted: Vec<IValue> =
                 items.borrow().iter().map(|v| convert_to_interp(v, span, seen)).collect::<Result<_, _>>()?;
             if let IValue::Array(rc) = &store
@@ -642,6 +698,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
                 guard.0.clone_from(&converted);
             }
             record_crossing(value.clone(), store.clone(), Snapshot::Array(converted));
+            mark_synced(ptr, epoch);
             Ok(store)
         }),
         Value::Object(map) => stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || {
@@ -655,6 +712,23 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
                 }
             };
             if !seen.insert(ptr) {
+                return Ok(store);
+            }
+            let epoch = crate::value::mutation_epoch();
+            if is_synced(value) {
+                if let IValue::Object(rc) = &store {
+                    let current = rc.borrow();
+                    record_crossing(
+                        value.clone(),
+                        store.clone(),
+                        Snapshot::Object {
+                            map: current.map.clone(),
+                            frozen: current.frozen,
+                            sealed: current.sealed,
+                            extensible: current.extensible,
+                        },
+                    );
+                }
                 return Ok(store);
             }
             let mut out = indexmap::IndexMap::new();
@@ -676,6 +750,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
                 guard.extensible = extensible;
             }
             record_crossing(value.clone(), store.clone(), Snapshot::Object { map: out, frozen, sealed, extensible });
+            mark_synced(ptr, epoch);
             Ok(store)
         }),
         Value::Generator(generator) => Ok(generator_to_interp(generator)),
