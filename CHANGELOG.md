@@ -14,26 +14,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Abort signals under `--vm`** — `сигнал.обещание`,
   `СигналОтмены.отВремени`, `СловоПацана.отПодождать` and the `сигнал`
   option of `чутка`, `интервал` and `подождать` now work on the VM.
+- **Prototypes under `--vm`** — objects inherit along the chain set by
+  `Кент.создать` and `Кент.назначитьПрототип`, classes have `.prototype`, and
+  `шкура` follows the chain.
+- **`Итератор.от` takes the iteration protocol** — on both backends it now
+  accepts an object with `следующий` or `Симбол.итератор`, and a generator
+  under `--vm`.
+
+### Changed
+
+- **VM cycle collection** — the threshold grows with the heap, so programs
+  holding many live objects no longer run a full collection every few thousand
+  instructions.
 
 ### Fixed
 
+- **Values crossing into the stdlib (`--vm`)** — they were deep-copied, so
+  `Кент.назначить` did not reach its target, a `Посредник` had its own copy of
+  its target, values read from a `Карта` were new objects, and a cyclic value
+  killed the process with a stack overflow. Each value now keeps one identity.
+- **Deep structures (`--vm`)** — releasing a deeply nested array or object no
+  longer overflows the native stack.
 - **Closures over suspended locals (`--vm`)** — a closure called while the
   generator or `ассо` function owning its variable was suspended read an
   unrelated value and lost its writes; so did a closure over a caller's local
-  called from inside a generator.
+  called from inside a generator. A generator ended by `вернуть` inside
+  `хапнуть`/`тюряжка` no longer loses them either.
 - **Abort listeners (`--vm`)** — `подписатьсяНаОтмену` no longer fails on its
-  return value, a listener added to an aborted signal now runs, and the cycle
-  collector no longer clears listeners and coroutines waiting on a signal. A
-  listener stops at its `кидай` instead of resuming after it, and may be any
-  callable, including an `ассо` function.
-- **Generator return through `тюряжка` (`--vm`)** — a closure over a local of a
-  generator ended by `вернуть` while inside `хапнуть`/`тюряжка` no longer reads
-  `undefined`.
+  return value, a listener added to an aborted signal now runs, and a listener
+  stops at its `кидай` instead of resuming after it.
+- **Cycle collection (`--vm`)** — it no longer clears what a running promise
+  reaction, an abort listener or a stdlib-held callback still needs.
+- **Symbols as keys** — the VM keyed properties by a symbol's printed form, so
+  equally described symbols collided; `Симбол.итератор` and the like were not
+  symbols there. The interpreter ignored symbols in `чоунастут` and `ёбнуть` and
+  dropped symbol keys in object spread and `Кент.назначить`.
+- **Inheritance** — `чоунастут` now follows the prototype chain on both
+  backends. In the interpreter a getter on a prototype receives the original
+  object as `тырыпыры`, and a method reached through `Кент.создать(К.prototype)`
+  can use `яга`.
+- **Function identity (interpreter)** — `ф === ф` was `false` for every function.
+- **Generators** — a runtime error now finishes a generator in the interpreter
+  (the next call used to resume its body), and the VM rejects re-entering a
+  running generator.
+- **Loose equality (`--vm`)** — `==` between an object and a primitive now calls
+  `вПримитив`, `вЧисло` or `вСтроку`.
 
 ### Testing
 
-- The interpreter-vs-VM parity suite now runs every program in `examples/`,
-  except the three listed in `EXAMPLES_WITHOUT_PARITY` with their reasons.
+- The interpreter-vs-VM parity suite now runs every program in `examples/` and
+  `conformance/cases/`, checks exit codes and output of failing programs, and
+  lists the two programs that cannot match with the reason for each.
+- Every conformance case has a Node mirror, so none is unchecked against Node.
 
 ## [1.17.6] - 2026-10-29
 
