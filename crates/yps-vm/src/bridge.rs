@@ -596,6 +596,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             record_crossing(value.clone(), store.clone(), Snapshot::Object { map: out, frozen, sealed, extensible });
             Ok(store)
         }),
+        Value::Generator(generator) => Ok(generator_to_interp(generator)),
         Value::Function(_)
         | Value::Builtin(_)
         | Value::Class(_)
@@ -608,6 +609,33 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             span,
         )),
     }
+}
+
+fn to_runtime_error(e: &VmError, span: Span) -> yps_interpreter::RuntimeError {
+    match &e.thrown {
+        Some(t) => {
+            let it = vm_to_interp(t, span).unwrap_or(IValue::String(e.message.clone().into()));
+            yps_interpreter::RuntimeError::thrown(it, e.span)
+        }
+        None => yps_interpreter::RuntimeError::new(e.message.clone(), e.span),
+    }
+}
+
+fn generator_to_interp(generator: &Rc<RefCell<crate::value::GenState>>) -> IValue {
+    let held = Rc::clone(generator);
+    let marker = yps_interpreter::host_callback::register(Box::new(move |iargs, span| {
+        let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
+        let sent = match iargs.first() {
+            Some(arg) => interp_to_vm(arg).map_err(|m| yps_interpreter::RuntimeError::new(m, span))?,
+            None => Value::Undefined,
+        };
+        let step = vm.gen_next(&held, sent, span).map_err(|e| to_runtime_error(&e, span))?;
+        vm_to_interp(&step, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))
+    }));
+    VM_BY_CALLBACK.with(|m| m.borrow_mut().insert(marker.clone(), Value::Generator(Rc::clone(generator))));
+    let mut protocol = indexmap::IndexMap::new();
+    protocol.insert("следующий".to_string(), IValue::BuiltinFunction(marker));
+    IValue::object(protocol)
 }
 
 fn wrap_vm_callback(callee: Value) -> IValue {
@@ -637,13 +665,7 @@ fn wrap_vm_callback(callee: Value) -> IValue {
         }
         match result {
             Ok(result) => vm_to_interp(&result, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span)),
-            Err(e) => match &e.thrown {
-                Some(t) => {
-                    let it = vm_to_interp(t, span).unwrap_or(IValue::String(e.message.clone().into()));
-                    Err(yps_interpreter::RuntimeError::thrown(it, e.span))
-                }
-                None => Err(yps_interpreter::RuntimeError::new(e.message, e.span)),
-            },
+            Err(e) => Err(to_runtime_error(&e, span)),
         }
     }));
     if let Some(ptr) = identity {

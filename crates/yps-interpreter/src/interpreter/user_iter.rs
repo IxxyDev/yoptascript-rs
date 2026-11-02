@@ -6,7 +6,7 @@ use crate::value::{IteratorState, Value};
 use super::Interpreter;
 
 impl Interpreter {
-    pub(super) fn call_value_with_this(
+    pub(crate) fn call_value_with_this(
         &mut self,
         func: Value,
         this: Option<Value>,
@@ -26,7 +26,7 @@ impl Interpreter {
         }
     }
 
-    pub(super) fn get_user_iterator(&mut self, val: &Value, span: Span) -> Result<Option<Value>, RuntimeError> {
+    pub(crate) fn get_user_iterator(&mut self, val: &Value, span: Span) -> Result<Option<Value>, RuntimeError> {
         let Value::Object(map) = val else {
             return Ok(None);
         };

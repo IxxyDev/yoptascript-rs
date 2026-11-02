@@ -53,7 +53,7 @@ pub fn build_object() -> Value {
 }
 
 pub fn call_static(
-    _interp: &mut Interpreter,
+    interp: &mut Interpreter,
     method: &str,
     args: Vec<Value>,
     span: Span,
@@ -65,6 +65,7 @@ pub fn call_static(
             if let Value::Iterator(rc) = value {
                 return Ok(Value::Iterator(rc));
             }
+            let value = interp.get_user_iterator(&value, span)?.unwrap_or(value);
             let state = state_from_value(value, span, "Итератор.от")?;
             Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
@@ -515,6 +516,12 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
                 }
             }
         }
+        IteratorState::Protocol { iterator } => {
+            let method = interp.host_member_get(iterator.clone(), "следующий", span)?;
+            let step = interp.call_value_with_this(method, Some(iterator.clone()), span)?;
+            let done = interp.host_member_get(step.clone(), "готово", span)?;
+            if done.is_truthy() { Ok(None) } else { interp.host_member_get(step, "значение", span).map(Some) }
+        }
         IteratorState::Generator(gen_state) => {
             if gen_state.is_async {
                 return Err(RuntimeError::new(
@@ -549,6 +556,9 @@ pub fn state_from_value(value: Value, span: Span, ctx: &str) -> Result<IteratorS
             index: 0,
         }),
         Value::Iterator(rc) => Ok(rc.borrow().clone()),
+        Value::Object(ref map) if map.borrow().contains_key("следующий") => {
+            Ok(IteratorState::Protocol { iterator: value })
+        }
         other => Err(RuntimeError::new(
             format!("'{ctx}' ожидает итерируемое значение, получено '{}'", other.type_name()),
             span,

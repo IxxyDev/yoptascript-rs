@@ -277,6 +277,7 @@ impl Marker {
                 }
             }
             IteratorState::Generator(gen_state) => self.mark_gen_state(gen_state),
+            IteratorState::Protocol { iterator } => self.push_value(iterator),
         }
     }
 

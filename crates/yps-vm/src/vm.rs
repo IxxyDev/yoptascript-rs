@@ -1726,7 +1726,12 @@ impl Vm {
         }
     }
 
-    fn gen_next(&mut self, genrc: &Rc<RefCell<GenState>>, sent: Value, span: Span) -> Result<Value, VmError> {
+    pub(crate) fn gen_next(
+        &mut self,
+        genrc: &Rc<RefCell<GenState>>,
+        sent: Value,
+        span: Span,
+    ) -> Result<Value, VmError> {
         if genrc.borrow().completed {
             return Ok(self.gen_iter_result(Value::Undefined, true));
         }

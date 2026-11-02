@@ -41,6 +41,7 @@ pub enum IteratorState {
     Take { inner: Box<IteratorState>, remaining: usize },
     Drop { inner: Box<IteratorState>, count: usize, dropped: bool },
     Concat { iters: VecDeque<IteratorState> },
+    Protocol { iterator: Value },
     RegexMatches { re: Rc<crate::stdlib::regexp::YopRegex>, input: String, byte_pos: usize },
     Generator(Box<GenState>),
     Done,
