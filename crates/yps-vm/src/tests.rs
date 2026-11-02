@@ -3109,3 +3109,40 @@ fn timer_keeps_its_captures_through_cycle_collection_in_the_callback() {
     "#;
     assert_same_as_interpreter(src, "1\n");
 }
+
+#[test]
+fn entering_a_running_generator_is_an_error() {
+    let src = r#"
+        гыы и = ноль;
+        пиздюли г() {
+            поебалу 1;
+            и.следующий();
+            поебалу 2;
+        }
+        и = г();
+        сказать(и.следующий().значение);
+        хапнуть {
+            и.следующий();
+        } гоп (е) {
+            сказать(е.message);
+        }
+        сказать(и.следующий());
+    "#;
+    assert_same_as_interpreter(src, "1\nИтератор уже выполняется\n{значение: undefined, готово: true}\n");
+}
+
+#[test]
+fn generator_is_finished_after_a_runtime_error() {
+    let src = r#"
+        пиздюли г() {
+            поебалу 1;
+            неведомая();
+            поебалу 2;
+        }
+        гыы и = г();
+        сказать(и.следующий().значение);
+        хапнуть { и.следующий(); } гоп (е) { сказать("поймал"); }
+        сказать(и.следующий());
+    "#;
+    assert_same_as_interpreter(src, "1\nпоймал\n{значение: undefined, готово: true}\n");
+}

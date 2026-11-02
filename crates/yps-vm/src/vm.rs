@@ -1349,6 +1349,7 @@ impl Vm {
             closure,
             owner,
             started: false,
+            running: false,
             completed: false,
             stack: Vec::new(),
             frames: Vec::new(),
@@ -1613,6 +1614,7 @@ impl Vm {
             closure,
             owner,
             started: false,
+            running: false,
             completed: false,
             stack: Vec::new(),
             frames: Vec::new(),
@@ -1748,6 +1750,9 @@ impl Vm {
         input: GenInput,
         span: Span,
     ) -> Result<GenOutcome, VmError> {
+        if genrc.borrow().running {
+            return Err(VmError::new("Итератор уже выполняется", span));
+        }
         let mut input = input;
         loop {
             match self.step_coroutine(genrc, input, span)? {
@@ -1822,7 +1827,9 @@ impl Vm {
 
         self.region_floor = 0;
         self.coroutine_depth += 1;
+        genrc.borrow_mut().running = true;
         let outcome = self.run_generator(&mut pending, span);
+        genrc.borrow_mut().running = false;
         self.coroutine_depth -= 1;
 
         self.park_open_upvalues();

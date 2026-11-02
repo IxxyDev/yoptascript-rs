@@ -115,7 +115,8 @@ pub(crate) fn step_generator(
     interp.call_stack = saved_stack;
     g.env = std::mem::replace(&mut interp.env, saved_env);
 
-    match result? {
+    let step = result.inspect_err(|_| g.completed = true)?;
+    match step {
         GenStep::Yielded(v) => Ok(StepOutcome::Yielded(v)),
         GenStep::Awaited(v) => Ok(StepOutcome::Awaited(v)),
         GenStep::Done(v) => {

@@ -406,6 +406,7 @@ pub struct GenState {
     pub closure: Rc<Closure>,
     pub owner: Option<Rc<ClassDef>>,
     pub started: bool,
+    pub running: bool,
     pub completed: bool,
     pub stack: Vec<Value>,
     pub frames: Vec<crate::vm::CallFrame>,
