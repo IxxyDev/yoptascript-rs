@@ -49,6 +49,7 @@ mod user_iter;
 use event_loop::MacrotaskQueue;
 
 pub(crate) use gc::GcRoot;
+pub(crate) use proxy::creates_prototype_cycle;
 pub(super) use types::{AccessSegment, ControlFlow, LoopOp};
 
 pub struct Interpreter {

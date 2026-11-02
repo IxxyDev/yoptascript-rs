@@ -110,19 +110,35 @@ pub struct ClassDef {
 }
 
 impl ClassDef {
+    pub fn visible_member(self: &Rc<Self>, name: &str) -> Option<Value> {
+        let mut cur: Option<&Rc<ClassDef>> = Some(self);
+        while let Some(class) = cur {
+            match class.prototype.get() {
+                Some(Value::Object(proto)) => {
+                    if let Some(value) = proto.borrow().get(name) {
+                        return Some(value.clone());
+                    }
+                }
+                _ => {
+                    if let Some(method) = class.members.methods.lookup(name) {
+                        return Some(Value::Function(Rc::clone(method)));
+                    }
+                }
+            }
+            cur = class.parent.as_ref();
+        }
+        None
+    }
+
     pub fn prototype_object(self: &Rc<Self>) -> Value {
         self.prototype
             .get_or_init(|| {
                 let mut map = ObjMap::new();
                 map.insert(CLASS_TAG.to_string(), Value::Class(Rc::clone(self)));
-                let mut cur: Option<&Rc<ClassDef>> = Some(self);
-                while let Some(class) = cur {
-                    for (name, method) in &class.members.methods.entries {
-                        if !map.contains_key(name) {
-                            map.insert(name.clone(), Value::Function(Rc::clone(method)));
-                        }
+                for (name, method) in &self.members.methods.entries {
+                    if !map.contains_key(name) {
+                        map.insert(name.clone(), Value::Function(Rc::clone(method)));
                     }
-                    cur = class.parent.as_ref();
                 }
                 map.insert("конструктор".to_string(), Value::Class(Rc::clone(self)));
                 Value::Object(Rc::new(RefCell::new(map)))

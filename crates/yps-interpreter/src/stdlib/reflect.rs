@@ -241,10 +241,8 @@ fn reflect_get_prototype_of(interp: &mut Interpreter, obj: Value, span: Span) ->
             interp.proxy_get_prototype_of(&t, &h, span)
         }
         Value::Object(map) => {
-            if let Some(proto) = map.borrow().get(symbols::PROTO) {
-                return Ok(proto.clone());
-            }
-            Ok(Value::Null)
+            let proto = map.borrow().get(symbols::PROTO).cloned();
+            Ok(Interpreter::visible_prototype(&obj, proto))
         }
         Value::Null | Value::Undefined => Err(RuntimeError::new(
             format!("'Отражение.прототипОт' ожидает объект, получено '{}'", obj.type_name()),
@@ -266,6 +264,9 @@ fn reflect_set_prototype_of(
             Ok(Value::Boolean(interp.proxy_set_prototype_of(&t, &h, proto, span)?))
         }
         (Value::Object(map), Value::Object(_) | Value::Class(_) | Value::Null) => {
+            if crate::interpreter::creates_prototype_cycle(&obj, &proto) {
+                return Ok(Value::Boolean(false));
+            }
             let current = map.borrow().get(symbols::PROTO).cloned().unwrap_or(Value::Null);
             let unchanged = same_value(&current, &proto);
             let allowed = {

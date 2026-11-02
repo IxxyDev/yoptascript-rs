@@ -252,15 +252,7 @@ pub fn call_static(
             match &args[0] {
                 Value::Object(map) => {
                     let proto = map.borrow().get(symbols::PROTO).cloned();
-                    match proto {
-                        Some(Value::Class(cls)) => Ok(Interpreter::class_prototype_object(&cls)),
-                        Some(Value::WeakClass(w)) => match w.upgrade() {
-                            Some(cls) => Ok(Interpreter::class_prototype_object(&cls)),
-                            None => Ok(Value::Null),
-                        },
-                        Some(other) => Ok(other),
-                        None => Ok(Value::Null),
-                    }
+                    Ok(Interpreter::visible_prototype(&args[0], proto))
                 }
                 _ => Ok(Value::Null),
             }
@@ -281,6 +273,9 @@ pub fn call_static(
                 _ => {
                     return Err(RuntimeError::new("Кент.назначитьПрототип ожидает (объект, объект|класс|ноль)", span));
                 }
+            }
+            if crate::interpreter::creates_prototype_cycle(&target, &proto) {
+                return Err(RuntimeError::new("Кент.назначитьПрототип: цикл в цепочке прототипов", span));
             }
             let target_rc = match &target {
                 Value::Object(m) => m.clone(),

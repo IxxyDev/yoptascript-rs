@@ -148,15 +148,10 @@ impl Interpreter {
                             span,
                         );
                     }
-                    if let Some(MethodDef { params, body, env }) = Self::find_method_in_class(cls, property) {
-                        return Ok(Value::Function(Rc::new(FunctionData {
-                            name: Rc::from(property),
-                            params: params.clone(),
-                            body: Rc::clone(body),
-                            env: Rc::clone(env),
-                            is_generator: false,
-                            is_async: false,
-                        })));
+                    if !symbols::is_internal_key(property)
+                        && let Some(member) = Self::prototype_member(cls, property)
+                    {
+                        return Ok(member);
                     }
                 }
                 let proto = map.borrow().get(symbols::PROTO).cloned();
@@ -178,7 +173,9 @@ impl Interpreter {
                                     span,
                                 );
                             }
-                            return self.eval_member(proto, property, span);
+                            return stacker::maybe_grow(super::STACK_RED_ZONE, super::STACK_GROW_SIZE, || {
+                                self.eval_member(proto, property, span)
+                            });
                         }
                     }
                 }
@@ -342,26 +339,56 @@ impl Interpreter {
         cls.prototype_cache
             .get_or_init(|| {
                 let mut map = IndexMap::new();
-                let mut current: Option<&ClassDef> = Some(cls);
-                while let Some(c) = current {
-                    for (name, MethodDef { params, body, env }) in &c.methods {
-                        map.entry(name.clone()).or_insert_with(|| {
-                            Value::Function(Rc::new(FunctionData {
-                                name: Rc::from(name.as_str()),
-                                params: params.clone(),
-                                body: Rc::clone(body),
-                                env: Rc::clone(env),
-                                is_generator: false,
-                                is_async: false,
-                            }))
-                        });
-                    }
-                    current = c.parent.as_deref();
+                for (name, MethodDef { params, body, env }) in &cls.methods {
+                    map.insert(
+                        name.clone(),
+                        Value::Function(Rc::new(FunctionData {
+                            name: Rc::from(name.as_str()),
+                            params: params.clone(),
+                            body: Rc::clone(body),
+                            env: Rc::clone(env),
+                            is_generator: false,
+                            is_async: false,
+                        })),
+                    );
                 }
                 map.insert("конструктор".to_string(), Value::WeakClass(Rc::downgrade(cls)));
                 map.insert(symbols::PROTO.to_string(), Value::WeakClass(Rc::downgrade(cls)));
                 Value::object(map)
             })
             .clone()
+    }
+
+    pub(crate) fn visible_prototype(object: &Value, proto: Option<Value>) -> Value {
+        let cls = match proto {
+            Some(Value::Class(cls)) => cls,
+            Some(Value::WeakClass(w)) => match w.upgrade() {
+                Some(cls) => cls,
+                None => return Value::Null,
+            },
+            Some(other) => return other,
+            None => return Value::Null,
+        };
+        if cls.prototype_cache.get() == Some(object) {
+            return match &cls.parent {
+                Some(parent) => Self::class_prototype_object(parent),
+                None => Value::Null,
+            };
+        }
+        Self::class_prototype_object(&cls)
+    }
+
+    fn prototype_member(cls: &Rc<ClassDef>, property: &str) -> Option<Value> {
+        let mut current = Some(cls);
+        while let Some(class) = current {
+            let Value::Object(proto) = Self::class_prototype_object(class) else {
+                return None;
+            };
+            if let Some(value) = proto.borrow().get(property) {
+                return Some(value.clone());
+            }
+            current = class.parent.as_ref();
+        }
+        None
     }
 }

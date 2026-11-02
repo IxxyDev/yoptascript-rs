@@ -305,15 +305,36 @@ fn default_own_keys(target: &Value) -> Vec<Value> {
 
 fn default_prototype_of(target: &Value) -> Value {
     match target {
-        Value::Object(map) => map.borrow().get(crate::symbols::PROTO).cloned().unwrap_or(Value::Null),
+        Value::Object(map) => {
+            let proto = map.borrow().get(crate::symbols::PROTO).cloned();
+            Interpreter::visible_prototype(target, proto)
+        }
         _ => Value::Null,
     }
+}
+
+pub(crate) fn creates_prototype_cycle(target: &Value, proto: &Value) -> bool {
+    let mut current = proto.clone();
+    for _ in 0..super::member::MAX_PROTO_CHAIN {
+        if current == *target {
+            return true;
+        }
+        let Value::Object(map) = &current else {
+            return false;
+        };
+        let next = map.borrow().get(crate::symbols::PROTO).cloned();
+        current = next.unwrap_or(Value::Null);
+    }
+    true
 }
 
 fn default_set_prototype_of(target: &Value, proto: Value) -> bool {
     let Value::Object(map) = target else {
         return false;
     };
+    if creates_prototype_cycle(target, &proto) {
+        return false;
+    }
     let current = map.borrow().get(crate::symbols::PROTO).cloned().unwrap_or(Value::Null);
     let unchanged = crate::value::same_value(&current, &proto);
     let allowed = {

@@ -115,6 +115,7 @@ pub struct Vm {
     pub(crate) macrotasks: MacrotaskQueue,
     pub(crate) running_task_roots: Vec<Vec<Value>>,
     pub(crate) spare_interpreters: Vec<yps_interpreter::Interpreter>,
+    pub(crate) class_prototypes_used: bool,
     pub(crate) signal_listeners: Vec<Value>,
     pub(crate) signal_promises: std::collections::HashMap<usize, (crate::abort::SignalState, Value)>,
     gc: Rc<crate::gc::GcRegistry>,
@@ -158,6 +159,7 @@ impl Vm {
             macrotasks: MacrotaskQueue::new(),
             running_task_roots: Vec::new(),
             spare_interpreters: Vec::new(),
+            class_prototypes_used: false,
             signal_listeners: Vec::new(),
             signal_promises: std::collections::HashMap::new(),
             gc: Rc::new(crate::gc::GcRegistry::default()),
@@ -2898,6 +2900,9 @@ impl Vm {
         slot: &RefCell<crate::chunk::InlineCache>,
         span: Span,
     ) -> Result<bool, VmError> {
+        if self.class_prototypes_used {
+            return Ok(false);
+        }
         let recv_idx = self.callee_slot(argc);
         let Value::Object(map) = &self.stack[recv_idx] else {
             return Ok(false);
@@ -2938,7 +2943,7 @@ impl Vm {
         let recv_idx = self.callee_slot(argc);
 
         let instance_method = if let Value::Object(map) = &self.stack[recv_idx] {
-            Self::method_class_along_chain(map, name)
+            self.method_class_along_chain(map, name)
                 .and_then(|cls| cls.find_method_with_owner(name).map(|(method, owner)| (cls, method, owner)))
         } else {
             None
@@ -3100,8 +3105,8 @@ impl Vm {
                     if name == "конструктор" || name == "constructor" {
                         return Ok(Value::Class(cls));
                     }
-                    if let Some(method) = cls.find_method(name) {
-                        return Ok(Value::Function(method));
+                    if let Some(member) = cls.visible_member(name) {
+                        return Ok(member);
                     }
                 }
                 let proto = map.borrow().get(crate::value::PROTO_KEY).cloned();
@@ -3112,6 +3117,7 @@ impl Vm {
             }
             Value::Class(cls) => {
                 if name == "прототип" || name == "prototype" {
+                    self.class_prototypes_used = true;
                     return Ok(cls.prototype_object());
                 }
                 if let Some(getter) = cls.find_static_getter(name) {
@@ -3150,8 +3156,8 @@ impl Vm {
                 if let Some((getter, owner)) = cls.find_getter(name) {
                     return self.call_closure_sync(getter, Some(receiver.clone()), owner, &[], span);
                 }
-                if let Some(method) = cls.find_method(name) {
-                    return Ok(Value::Function(method));
+                if let Some(member) = cls.visible_member(name) {
+                    return Ok(member);
                 }
             }
             let next = map.borrow().get(crate::value::PROTO_KEY).cloned();
@@ -3214,22 +3220,31 @@ impl Vm {
         false
     }
 
-    fn method_class_along_chain(map: &Rc<RefCell<ObjMap>>, name: &str) -> Option<Rc<ClassDef>> {
-        if map.borrow().get(name).is_some() {
-            return None;
-        }
+    fn method_class_along_chain(&self, map: &Rc<RefCell<ObjMap>>, name: &str) -> Option<Rc<ClassDef>> {
         let mut current = Rc::clone(map);
         for _ in 0..MAX_PROTO_CHAIN {
-            if let Some(cls) = Self::resolve_class(&current) {
-                return Some(cls);
+            let class = Self::resolve_class(&current);
+            let own = current.borrow().get(name).cloned();
+            match (class, own) {
+                (Some(cls), Some(Value::Function(own))) => {
+                    let declared = cls.find_method(name);
+                    return declared.filter(|method| Rc::ptr_eq(method, &own)).map(|_| cls);
+                }
+                (_, Some(_)) => return None,
+                (Some(cls), None) => {
+                    let unchanged = !self.class_prototypes_used
+                        || matches!(
+                            (cls.visible_member(name), cls.find_method(name)),
+                            (Some(Value::Function(visible)), Some(method)) if Rc::ptr_eq(&visible, &method)
+                        );
+                    return unchanged.then_some(cls);
+                }
+                (None, None) => {}
             }
             let next = current.borrow().get(crate::value::PROTO_KEY).cloned();
             let Some(Value::Object(next)) = next else {
                 return None;
             };
-            if Self::resolve_class(&next).is_none() && next.borrow().get(name).is_some() {
-                return None;
-            }
             current = next;
         }
         None

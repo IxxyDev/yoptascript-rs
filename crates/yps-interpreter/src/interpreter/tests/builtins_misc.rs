@@ -400,7 +400,7 @@ fn reflect_get_prototype_of_object_without_proto() {
 }
 
 #[test]
-fn reflect_get_prototype_of_instance_returns_class() {
+fn reflect_get_prototype_of_instance_returns_class_prototype() {
     let interp = run_code(
         r#"
         клёво Точка {
@@ -410,7 +410,7 @@ fn reflect_get_prototype_of_instance_returns_class() {
         }
         гыы т = захуярить Точка(5);
         гыы прото = Отражение.прототипОт(т);
-        гыы совпадает = прото == Точка;
+        гыы совпадает = прото === Точка.prototype;
         "#,
     );
     assert_eq!(interp.get("совпадает"), Some(Value::Boolean(true)));

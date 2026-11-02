@@ -9,7 +9,7 @@ use yps_lexer::Span;
 
 use crate::abort::SignalState;
 use crate::error::VmError;
-use crate::value::{ObjMap, Value};
+use crate::value::{ClassDef, ObjMap, Value};
 use crate::vm::Vm;
 
 pub const NAMESPACES: &[&str] = &["Матан", "Кент", "Жсон", "Хуйня", "Помойка", "Отражение", "Строка"];
@@ -460,6 +460,7 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
         return res;
     }
     if let Some(res) = try_class_prototype_op(name, &args) {
+        vm.class_prototypes_used = true;
         return res;
     }
     if name == "СигналОтмены.отВремени" {
@@ -483,10 +484,16 @@ fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, Vm
             Some(Ok(Value::Object(Rc::new(RefCell::new(map)))))
         }
         ("Кент.прототип" | "Отражение.прототипОт", [Value::Object(map), ..]) => {
-            match map.borrow().get(crate::value::CLASS_TAG) {
-                Some(Value::Class(class)) => Some(Ok(class.prototype_object())),
-                _ => None,
+            let class = match map.borrow().get(crate::value::CLASS_TAG) {
+                Some(Value::Class(class)) => Rc::clone(class),
+                _ => return None,
+            };
+            let is_own_prototype =
+                matches!(class.prototype.get(), Some(Value::Object(proto)) if Rc::ptr_eq(proto, map));
+            if !is_own_prototype {
+                return Some(Ok(class.prototype_object()));
             }
+            Some(Ok(class.parent.as_ref().map_or(Value::Null, ClassDef::prototype_object)))
         }
         _ => None,
     }

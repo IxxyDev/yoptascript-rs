@@ -3382,17 +3382,6 @@ fn objects_inherit_along_the_prototype_chain() {
 }
 
 #[test]
-fn prototype_cycle_of_ordinary_objects_does_not_hang() {
-    let src = r#"
-        гыы а = {};
-        гыы б = Кент.создать(а);
-        Кент.назначитьПрототип(а, б);
-        сказать(а.нет);
-    "#;
-    assert_eq!(run(src), "undefined\n");
-}
-
-#[test]
 fn class_prototype_object_behaves_like_the_class() {
     assert_same_as_interpreter(
         r#"
@@ -3849,5 +3838,102 @@ fn any_expression_can_be_the_base_of_an_assignment() {
         сказать(о.вложен.а, счёт);
         "#,
         "5 6 1\n2 3\n",
+    );
+}
+
+#[test]
+fn prototype_cycles_are_rejected() {
+    assert_same_as_interpreter(
+        r#"
+        гыы а = {};
+        гыы б = Кент.создать(а);
+        хапнуть {
+            Кент.назначитьПрототип(а, б);
+            сказать("принято");
+        } гоп (е) {
+            сказать("отвергнут");
+        }
+        сказать(Отражение.назначитьПрототип(а, б), а.нет, "нет" чоунастут а);
+        сказать(Отражение.назначитьПрототип(а, а), Кент.прототип(а));
+        "#,
+        "отвергнут\nfalse undefined false\nfalse null\n",
+    );
+}
+
+#[test]
+fn long_prototype_chains_work() {
+    assert_same_as_interpreter(
+        r#"
+        гыы о = { х: 1 };
+        го (гыы и = 0; и < 1000; и++) { о = Кент.создать(о); }
+        сказать(о.х, "х" чоунастут о);
+        "#,
+        "1 true\n",
+    );
+}
+
+#[test]
+fn class_prototype_chain_ends_at_null() {
+    assert_same_as_interpreter(
+        r#"
+        клёво Р { р() {} }
+        клёво К батя Р { м() {} }
+        сказать(Кент.прототип(К.prototype) === Р.prototype);
+        сказать(Кент.прототип(Р.prototype));
+        сказать(Отражение.прототипОт(К.prototype) === Р.prototype);
+        гыы п = захуярить К();
+        гыы н = 0;
+        потрещим (п) { п = Кент.прототип(п); н = н + 1; }
+        сказать(н);
+        "#,
+        "true\nnull\ntrue\n3\n",
+    );
+}
+
+#[test]
+fn instance_prototype_shadows_its_class_method() {
+    assert_same_as_interpreter(
+        r#"
+        клёво К { м() { отвечаю "класс"; } }
+        гыы э = захуярить К();
+        э.м = йопта() { отвечаю "своё"; };
+        гыы о = Кент.создать(э);
+        сказать(о.м());
+        "#,
+        "своё\n",
+    );
+}
+
+#[test]
+fn writes_to_a_class_prototype_reach_instances() {
+    assert_same_as_interpreter(
+        r#"
+        клёво Р { м() { отвечаю "родитель"; } к() { отвечаю "к"; } }
+        клёво К батя Р { }
+        гыы э = захуярить К();
+        сказать(э.м());
+        Р.prototype.м = йопта() { отвечаю "патч"; };
+        Р.prototype.н = йопта() { отвечаю "новый"; };
+        сказать(э.м(), э.н(), э.к(), захуярить К().м());
+        К.prototype.м = йопта() { отвечаю "свой " + тырыпыры.х; };
+        э.х = 1;
+        сказать(э.м(), захуярить Р().м());
+        сказать(К.prototype.к === Р.prototype.к);
+        "#,
+        "родитель\nпатч новый к патч\nсвой 1 патч\ntrue\n",
+    );
+}
+
+#[test]
+fn class_methods_keep_their_identity() {
+    assert_same_as_interpreter(
+        r#"
+        клёво К { м() { отвечаю 1; } }
+        гыы э = захуярить К();
+        сказать(э.м === э.м, э.м === К.prototype.м, э.м === захуярить К().м);
+        ёбнуть К.prototype.м;
+        сказать(тип(э.м));
+        "#,
+        "true true true\nнеопределено\n",
     );
 }
