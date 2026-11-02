@@ -15,6 +15,19 @@ thread_local! {
     static NEXT_ID: RefCell<u64> = const { RefCell::new(0) };
 }
 
+thread_local! {
+    static CALL_THIS: RefCell<Option<Value>> = const { RefCell::new(None) };
+}
+
+pub fn set_call_this(this: Option<Value>) {
+    CALL_THIS.with(|t| *t.borrow_mut() = this);
+}
+
+#[must_use]
+pub fn take_call_this() -> Option<Value> {
+    CALL_THIS.with(|t| t.borrow_mut().take())
+}
+
 #[must_use]
 pub fn register(callback: HostCallbackFn) -> String {
     let id = NEXT_ID.with(|n| {

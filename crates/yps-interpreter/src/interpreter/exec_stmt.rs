@@ -500,6 +500,12 @@ impl Interpreter {
         if is_await && let Some(aiter) = self.get_async_iterator(&val, span)? {
             return self.exec_for_await_loop(&aiter, variable, body, span, label);
         }
+        let val = match self.get_user_iterator(&val, span)? {
+            Some(iterator) => {
+                Value::Iterator(Rc::new(std::cell::RefCell::new(crate::value::IteratorState::Protocol { iterator })))
+            }
+            None => val,
+        };
         if let Value::Iterator(rc) = val {
             return self.in_scope(span.start, |interp| {
                 loop {
@@ -556,38 +562,6 @@ impl Interpreter {
             }
             Value::TypedArray(ta) => crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind),
             Value::Object(_) => {
-                if let Some(iterator_obj) = self.get_user_iterator(&val, span)? {
-                    let next_method_name = "следующий";
-                    return self.in_scope(span.start, |interp| {
-                        loop {
-                            let next_fn = interp.eval_member(iterator_obj.clone(), next_method_name, span)?;
-                            let result = interp.call_value_with_this(next_fn, Some(iterator_obj.clone()), span)?;
-                            let done = match &result {
-                                Value::Object(r) => r.borrow().get(crate::symbols::ITER_DONE).cloned(),
-                                _ => None,
-                            };
-                            if matches!(done, Some(Value::Boolean(true))) {
-                                break;
-                            }
-                            let item = match &result {
-                                Value::Object(r) => {
-                                    r.borrow().get(crate::symbols::ITER_VALUE).cloned().unwrap_or(Value::Undefined)
-                                }
-                                _ => Value::Undefined,
-                            };
-                            let item = if is_await { interp.do_await(item, span)? } else { item };
-                            interp.destructure_pattern(variable, item, false, span)?;
-                            if let Some(cf) = interp.exec_stmt(body)? {
-                                match cf.for_loop(label.as_deref()) {
-                                    LoopOp::Break => break,
-                                    LoopOp::Continue => continue,
-                                    LoopOp::Exit(cf) => return Ok(Some(cf)),
-                                }
-                            }
-                        }
-                        Ok(None)
-                    });
-                }
                 return Err(RuntimeError::new(
                     "Нельзя итерировать по типу 'объект' (нет Symbol.iterator)".to_string(),
                     span,

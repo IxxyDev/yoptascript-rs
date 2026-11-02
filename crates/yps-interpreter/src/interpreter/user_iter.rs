@@ -12,29 +12,39 @@ impl Interpreter {
         this: Option<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        self.call_with_this(func, this, vec![], span)
+    }
+
+    pub(crate) fn call_with_this(
+        &mut self,
+        func: Value,
+        this: Option<Value>,
+        args: Vec<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
         match func {
-            Value::Function(fdata) => self.call_method_with_this(
-                fdata.name.clone(),
-                &fdata.params,
-                &fdata.body,
-                &fdata.env,
-                vec![],
-                this,
-                span,
-            ),
-            other => self.call_function(other, vec![], span),
+            Value::Function(fdata) => {
+                self.call_method_with_this(fdata.name.clone(), &fdata.params, &fdata.body, &fdata.env, args, this, span)
+            }
+            Value::BuiltinFunction(ref name) if crate::host_callback::is_host_callback(name) => {
+                crate::host_callback::set_call_this(this);
+                let result = self.call_function(func, args, span);
+                crate::host_callback::set_call_this(None);
+                result
+            }
+            other => self.call_function(other, args, span),
         }
     }
 
     pub(crate) fn get_user_iterator(&mut self, val: &Value, span: Span) -> Result<Option<Value>, RuntimeError> {
-        let Value::Object(map) = val else {
+        if !matches!(val, Value::Object(_)) {
             return Ok(None);
-        };
+        }
         let iter_key = crate::symbols::symbol_key(crate::stdlib::symbol::ITERATOR_ID);
-        let iter_method = map.borrow().get(&iter_key).cloned();
-        let Some(method) = iter_method else {
+        let method = self.eval_member(val.clone(), &iter_key, span)?;
+        if !method.is_callable() {
             return Ok(None);
-        };
+        }
         let iterator_obj = self.call_value_with_this(method, Some(val.clone()), span)?;
         Ok(Some(iterator_obj))
     }

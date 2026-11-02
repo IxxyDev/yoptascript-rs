@@ -106,7 +106,7 @@ pub fn call_static(
                     ));
                 }
             };
-            interp.call_function(func, call_args, span)
+            interp.call_with_this(func, Some(args[1].clone()), call_args, span)
         }
         "построить" => {
             require_args(&args, 2, span, "Отражение.построить")?;

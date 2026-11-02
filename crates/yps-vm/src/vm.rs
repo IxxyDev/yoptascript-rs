@@ -632,7 +632,15 @@ impl Vm {
                             }
                             crate::value::ForIter::Generator(genrc)
                         }
-                        other => crate::value::ForIter::Values { values: self.iterate_values(&other, span)?, index: 0 },
+                        Value::Host(iterator @ yps_interpreter::value::Value::Iterator(_)) => {
+                            crate::value::ForIter::Host { iterator, done: false }
+                        }
+                        other => match self.user_iterator(&other, span)? {
+                            Some(iterator) => crate::value::ForIter::User { iterator, is_async: false, done: false },
+                            None => {
+                                crate::value::ForIter::Values { values: self.iterate_values(&other, span)?, index: 0 }
+                            }
+                        },
                     };
                     self.stack.push(Value::ForIter(Rc::new(RefCell::new(handle))));
                 }
@@ -640,11 +648,15 @@ impl Vm {
                     let src = self.pop();
                     let handle = match src {
                         Value::Generator(genrc) => crate::value::ForIter::Generator(genrc),
-                        other => match self.async_iterator_values(&other, span)? {
-                            Some(values) => crate::value::ForIter::Values { values, index: 0 },
-                            None => {
-                                crate::value::ForIter::Values { values: self.iterate_values(&other, span)?, index: 0 }
-                            }
+                        other => match self.async_user_iterator(&other, span)? {
+                            Some(iterator) => crate::value::ForIter::User { iterator, is_async: true, done: false },
+                            None => match self.user_iterator(&other, span)? {
+                                Some(iterator) => crate::value::ForIter::User { iterator, is_async: true, done: false },
+                                None => crate::value::ForIter::Values {
+                                    values: self.iterate_values(&other, span)?,
+                                    index: 0,
+                                },
+                            },
                         },
                     };
                     self.stack.push(Value::ForIter(Rc::new(RefCell::new(handle))));
@@ -663,15 +675,7 @@ impl Vm {
                 Op::ForIterClose => {
                     let handle = self.pop();
                     if let Value::ForIter(rc) = handle {
-                        let genrc = match &*rc.borrow() {
-                            crate::value::ForIter::Generator(genrc) => Some(Rc::clone(genrc)),
-                            crate::value::ForIter::Values { .. } => None,
-                        };
-                        if let Some(genrc) = genrc
-                            && !genrc.borrow().completed
-                        {
-                            self.gen_return(&genrc, Value::Undefined, span)?;
-                        }
+                        self.close_for_iter(&rc, span)?;
                     }
                 }
                 Op::ArrayLen => {
@@ -1641,7 +1645,89 @@ impl Vm {
         Value::Generator(Rc::new(RefCell::new(genrc)))
     }
 
+    fn close_for_iter(&mut self, rc: &Rc<RefCell<crate::value::ForIter>>, span: Span) -> Result<(), VmError> {
+        let handle =
+            std::mem::replace(&mut *rc.borrow_mut(), crate::value::ForIter::Values { values: Vec::new(), index: 0 });
+        match handle {
+            crate::value::ForIter::Values { .. } => {}
+            crate::value::ForIter::Generator(genrc) => {
+                if !genrc.borrow().completed {
+                    self.gen_return(&genrc, Value::Undefined, span)?;
+                }
+            }
+            crate::value::ForIter::User { iterator, is_async, done } => {
+                if !done {
+                    let method = self.get_property(&iterator, "вернуть", span)?;
+                    if !matches!(method, Value::Undefined | Value::Null) {
+                        let result = self.call_value(method, Some(iterator), &[], span)?;
+                        if is_async {
+                            self.do_await(result, span)?;
+                        }
+                    }
+                }
+            }
+            crate::value::ForIter::Host { iterator, done } => {
+                if !done {
+                    crate::bridge::call_host_method(self, &iterator, "вернуть", Vec::new(), span)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn step_result(&mut self, result: &Value, span: Span) -> Result<Option<Value>, VmError> {
+        if !matches!(result, Value::Object(_)) {
+            return Err(VmError::new(
+                format!("Результат 'следующий' должен быть объектом, получено '{}'", result.type_name()),
+                span,
+            ));
+        }
+        if self.get_property(result, "готово", span)?.is_truthy() {
+            return Ok(None);
+        }
+        self.get_property(result, "значение", span).map(Some)
+    }
+
     fn for_iter_next(&mut self, rc: &Rc<RefCell<crate::value::ForIter>>, span: Span) -> Result<Option<Value>, VmError> {
+        let user = match &*rc.borrow() {
+            crate::value::ForIter::User { iterator, is_async, done } => Some((iterator.clone(), *is_async, *done)),
+            _ => None,
+        };
+        if let Some((iterator, is_async, done)) = user {
+            if done {
+                return Ok(None);
+            }
+            let next_fn = self.get_property(&iterator, "следующий", span)?;
+            let result = self.call_value(next_fn, Some(iterator), &[], span);
+            let result = match (result, is_async) {
+                (Ok(result), true) => self.do_await(result, span),
+                (result, _) => result,
+            };
+            let step = result.and_then(|result| self.step_result(&result, span));
+            if !matches!(step, Ok(Some(_)))
+                && let crate::value::ForIter::User { done, .. } = &mut *rc.borrow_mut()
+            {
+                *done = true;
+            }
+            return step;
+        }
+        let host = match &*rc.borrow() {
+            crate::value::ForIter::Host { iterator, done } => Some((iterator.clone(), *done)),
+            _ => None,
+        };
+        if let Some((iterator, done)) = host {
+            if done {
+                return Ok(None);
+            }
+            let step = crate::bridge::call_host_method(self, &iterator, "следующий", Vec::new(), span)
+                .and_then(|result| self.step_result(&result, span));
+            if !matches!(step, Ok(Some(_)))
+                && let crate::value::ForIter::Host { done, .. } = &mut *rc.borrow_mut()
+            {
+                *done = true;
+            }
+            return step;
+        }
         let genrc = match &mut *rc.borrow_mut() {
             crate::value::ForIter::Values { values, index } => {
                 if *index < values.len() {
@@ -1652,6 +1738,7 @@ impl Vm {
                 return Ok(None);
             }
             crate::value::ForIter::Generator(genrc) => Rc::clone(genrc),
+            _ => return Ok(None),
         };
         if genrc.borrow().completed {
             return Ok(None);
@@ -1743,7 +1830,12 @@ impl Vm {
         }
     }
 
-    fn gen_return(&mut self, genrc: &Rc<RefCell<GenState>>, value: Value, span: Span) -> Result<Value, VmError> {
+    pub(crate) fn gen_return(
+        &mut self,
+        genrc: &Rc<RefCell<GenState>>,
+        value: Value,
+        span: Span,
+    ) -> Result<Value, VmError> {
         if genrc.borrow().completed {
             return Ok(self.gen_iter_result(value, true));
         }
@@ -2047,61 +2139,34 @@ impl Vm {
         for_of_values(src, span)
     }
 
-    fn user_iterator_values(&mut self, src: &Value, span: Span) -> Result<Option<Vec<Value>>, VmError> {
-        let Value::Object(map) = src else {
+    fn user_iterator(&mut self, src: &Value, span: Span) -> Result<Option<Value>, VmError> {
+        if !matches!(src, Value::Object(_)) {
             return Ok(None);
-        };
-        let method = map.borrow().get(&well_known_iterator_key()).cloned();
-        let Some(method) = method else {
-            return Ok(None);
-        };
-        let iterator = self.call_value(method, Some(src.clone()), &[], span)?;
-        let mut values = Vec::new();
-        loop {
-            let next_fn = self.get_property(&iterator, "следующий", span)?;
-            let result = self.call_value(next_fn, Some(iterator.clone()), &[], span)?;
-            let (done, value) = match &result {
-                Value::Object(r) => {
-                    let r = r.borrow();
-                    (r.get("готово").cloned(), r.get("значение").cloned())
-                }
-                _ => (None, None),
-            };
-            if matches!(done, Some(Value::Bool(true))) {
-                break;
-            }
-            values.push(value.unwrap_or(Value::Undefined));
         }
-        Ok(Some(values))
+        let method = self.get_property(src, &well_known_iterator_key(), span)?;
+        if matches!(method, Value::Undefined | Value::Null) {
+            return Ok(None);
+        }
+        self.call_value(method, Some(src.clone()), &[], span).map(Some)
     }
 
-    fn async_iterator_values(&mut self, src: &Value, span: Span) -> Result<Option<Vec<Value>>, VmError> {
-        let Value::Object(map) = src else {
+    fn async_user_iterator(&mut self, src: &Value, span: Span) -> Result<Option<Value>, VmError> {
+        if !matches!(src, Value::Object(_)) {
             return Ok(None);
-        };
-        let method = map.borrow().get(&well_known_async_iterator_key()).cloned();
-        let Some(method) = method else {
-            return Ok(None);
-        };
-        let iterator = self.call_value(method, Some(src.clone()), &[], span)?;
-        let mut values = Vec::new();
-        loop {
-            let next_fn = self.get_property(&iterator, "следующий", span)?;
-            let result = self.call_value(next_fn, Some(iterator.clone()), &[], span)?;
-            let result = self.do_await(result, span)?;
-            let (done, value) = match &result {
-                Value::Object(r) => {
-                    let r = r.borrow();
-                    (r.get("готово").cloned(), r.get("значение").cloned())
-                }
-                _ => (Some(Value::Bool(true)), None),
-            };
-            if matches!(done, Some(Value::Bool(true))) {
-                break;
-            }
-            values.push(value.unwrap_or(Value::Undefined));
         }
-        Ok(Some(values))
+        let method = self.get_property(src, &well_known_async_iterator_key(), span)?;
+        if matches!(method, Value::Undefined | Value::Null) {
+            return Ok(None);
+        }
+        self.call_value(method, Some(src.clone()), &[], span).map(Some)
+    }
+
+    fn user_iterator_values(&mut self, src: &Value, span: Span) -> Result<Option<Vec<Value>>, VmError> {
+        let Some(iterator) = self.user_iterator(src, span)? else {
+            return Ok(None);
+        };
+        let rc = Rc::new(RefCell::new(crate::value::ForIter::User { iterator, is_async: false, done: false }));
+        self.drain_for_iter(&rc, span).map(Some)
     }
 
     fn begin_delegate(&mut self, genrc: &Rc<RefCell<GenState>>, iterable: Value, span: Span) -> Result<(), VmError> {

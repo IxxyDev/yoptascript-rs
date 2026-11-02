@@ -778,7 +778,9 @@ fn to_runtime_error(e: &VmError, span: Span) -> yps_interpreter::RuntimeError {
     }
 }
 
-fn generator_to_interp(generator: &Rc<RefCell<crate::value::GenState>>) -> IValue {
+type GeneratorStep = fn(&mut Vm, &Rc<RefCell<crate::value::GenState>>, Value, Span) -> Result<Value, VmError>;
+
+fn generator_method(generator: &Rc<RefCell<crate::value::GenState>>, step: GeneratorStep) -> IValue {
     let held = Rc::clone(generator);
     let marker = yps_interpreter::host_callback::register(Box::new(move |iargs, span| {
         let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
@@ -786,12 +788,17 @@ fn generator_to_interp(generator: &Rc<RefCell<crate::value::GenState>>) -> IValu
             Some(arg) => interp_to_vm(arg).map_err(|m| yps_interpreter::RuntimeError::new(m, span))?,
             None => Value::Undefined,
         };
-        let step = vm.gen_next(&held, sent, span).map_err(|e| to_runtime_error(&e, span))?;
-        vm_to_interp(&step, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))
+        let result = step(vm, &held, sent, span).map_err(|e| to_runtime_error(&e, span))?;
+        vm_to_interp(&result, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))
     }));
     VM_BY_CALLBACK.with(|m| m.borrow_mut().insert(marker.clone(), Value::Generator(Rc::clone(generator))));
+    IValue::BuiltinFunction(marker)
+}
+
+fn generator_to_interp(generator: &Rc<RefCell<crate::value::GenState>>) -> IValue {
     let mut protocol = indexmap::IndexMap::new();
-    protocol.insert("следующий".to_string(), IValue::BuiltinFunction(marker));
+    protocol.insert("следующий".to_string(), generator_method(generator, Vm::gen_next));
+    protocol.insert("вернуть".to_string(), generator_method(generator, Vm::gen_return));
     IValue::object(protocol)
 }
 
@@ -816,7 +823,11 @@ fn wrap_vm_callback(callee: Value) -> IValue {
                 Err(m) => return Err(yps_interpreter::RuntimeError::new(m, span)),
             }
         }
-        let result = vm.call_value(callee.clone(), None, &vm_args, span);
+        let this = match yps_interpreter::host_callback::take_call_this() {
+            Some(this) => Some(interp_to_vm(&this).map_err(|m| yps_interpreter::RuntimeError::new(m, span))?),
+            None => None,
+        };
+        let result = vm.call_value(callee.clone(), this, &vm_args, span);
         for arg in vm_args.iter().filter(|a| matches!(a, Value::Array(_) | Value::Object(_))) {
             vm_to_interp(arg, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))?;
         }

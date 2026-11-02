@@ -489,6 +489,8 @@ pub struct AggregateState {
 pub enum ForIter {
     Values { values: Vec<Value>, index: usize },
     Generator(Rc<RefCell<GenState>>),
+    User { iterator: Value, is_async: bool, done: bool },
+    Host { iterator: yps_interpreter::value::Value, done: bool },
 }
 
 pub struct GenState {

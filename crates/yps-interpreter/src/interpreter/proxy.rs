@@ -16,7 +16,12 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::GET) {
-            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into()), proxy], span);
+            return self.call_with_this(
+                trap,
+                Some(handler.clone()),
+                vec![target.clone(), Value::String(key.to_string().into()), proxy],
+                span,
+            );
         }
         if let Value::Array(arr) = target
             && let Ok(idx) = key.parse::<usize>()
@@ -36,8 +41,9 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::SET) {
-            let result = self.call_function(
+            let result = self.call_with_this(
                 trap,
+                Some(handler.clone()),
                 vec![target.clone(), Value::String(key.to_string().into()), value, proxy],
                 span,
             )?;
@@ -82,7 +88,12 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::HAS) {
-            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span)?;
+            let result = self.call_with_this(
+                trap,
+                Some(handler.clone()),
+                vec![target.clone(), Value::String(key.to_string().into())],
+                span,
+            )?;
             return Ok(result.is_truthy());
         }
         Ok(match target {
@@ -102,7 +113,12 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::DELETE) {
-            let result = self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span)?;
+            let result = self.call_with_this(
+                trap,
+                Some(handler.clone()),
+                vec![target.clone(), Value::String(key.to_string().into())],
+                span,
+            )?;
             return Ok(result.is_truthy());
         }
         if let Value::Object(map) = target
@@ -121,7 +137,12 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::APPLY) {
-            return self.call_function(trap, vec![target.clone(), Value::Undefined, Value::array(args)], span);
+            return self.call_with_this(
+                trap,
+                Some(handler.clone()),
+                vec![target.clone(), Value::Undefined, Value::array(args)],
+                span,
+            );
         }
         self.call_function(target.clone(), args, span)
     }
@@ -134,7 +155,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::CONSTRUCT) {
-            return self.call_function(trap, vec![target.clone(), Value::array(args)], span);
+            return self.call_with_this(trap, Some(handler.clone()), vec![target.clone(), Value::array(args)], span);
         }
         self.construct_instance(target.clone(), args, span)
     }
@@ -146,7 +167,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Vec<Value>, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::OWN_KEYS) {
-            let result = self.call_function(trap, vec![target.clone()], span)?;
+            let result = self.call_with_this(trap, Some(handler.clone()), vec![target.clone()], span)?;
             return match result {
                 Value::Array(arr) => Ok(arr.borrow().0.iter().map(|k| Value::String(k.to_string().into())).collect()),
                 other => Err(RuntimeError::new(
@@ -168,7 +189,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::GET_PROTOTYPE_OF) {
-            return self.call_function(trap, vec![target.clone()], span);
+            return self.call_with_this(trap, Some(handler.clone()), vec![target.clone()], span);
         }
         Ok(default_prototype_of(target))
     }
@@ -181,7 +202,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::SET_PROTOTYPE_OF) {
-            let result = self.call_function(trap, vec![target.clone(), proto], span)?;
+            let result = self.call_with_this(trap, Some(handler.clone()), vec![target.clone(), proto], span)?;
             return Ok(result.is_truthy());
         }
         Ok(default_set_prototype_of(target, proto))
@@ -196,8 +217,9 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::DEFINE_PROPERTY) {
-            let result = self.call_function(
+            let result = self.call_with_this(
                 trap,
+                Some(handler.clone()),
                 vec![target.clone(), Value::String(key.to_string().into()), descriptor],
                 span,
             )?;
@@ -218,7 +240,12 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::GET_OWN_PROPERTY_DESCRIPTOR) {
-            return self.call_function(trap, vec![target.clone(), Value::String(key.to_string().into())], span);
+            return self.call_with_this(
+                trap,
+                Some(handler.clone()),
+                vec![target.clone(), Value::String(key.to_string().into())],
+                span,
+            );
         }
         if let Value::Object(map) = target {
             return Ok(crate::stdlib::object::describe_property_impl(&map.borrow(), key).unwrap_or(Value::Undefined));
@@ -233,7 +260,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::IS_EXTENSIBLE) {
-            let result = self.call_function(trap, vec![target.clone()], span)?;
+            let result = self.call_with_this(trap, Some(handler.clone()), vec![target.clone()], span)?;
             return Ok(result.is_truthy());
         }
         Ok(match target {
@@ -249,7 +276,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         if let Some(trap) = proxy::trap(handler, proxy::PREVENT_EXTENSIONS) {
-            let result = self.call_function(trap, vec![target.clone()], span)?;
+            let result = self.call_with_this(trap, Some(handler.clone()), vec![target.clone()], span)?;
             return Ok(result.is_truthy());
         }
         if let Value::Object(map) = target {

@@ -278,6 +278,8 @@ impl Marker {
                 }
             }
             ForIter::Generator(rc) => self.work.push(Work::Gen(Rc::clone(rc))),
+            ForIter::User { iterator, .. } => self.push_value(iterator),
+            ForIter::Host { .. } => {}
         }
     }
 

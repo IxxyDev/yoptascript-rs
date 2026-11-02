@@ -66,6 +66,11 @@ pub fn call_static(
                 return Ok(Value::Iterator(rc));
             }
             let value = interp.get_user_iterator(&value, span)?.unwrap_or(value);
+            if matches!(value, Value::Object(_))
+                && interp.host_member_get(value.clone(), "следующий", span)?.is_callable()
+            {
+                return Ok(Value::Iterator(Rc::new(RefCell::new(IteratorState::Protocol { iterator: value }))));
+            }
             let state = state_from_value(value, span, "Итератор.от")?;
             Ok(Value::Iterator(Rc::new(RefCell::new(state))))
         }
@@ -149,7 +154,11 @@ pub fn call(
                     }
                 }
                 IteratorState::Done => Ok((make_result(arg, true), None)),
-                _ => Err(RuntimeError::new("Метод 'вернуть' доступен только для генераторов", span)),
+                state => {
+                    close(interp, state, span)?;
+                    *state = IteratorState::Done;
+                    Ok((make_result(arg, true), None))
+                }
             }
         }
         "кинуть" | "throw" => {
@@ -385,6 +394,13 @@ pub fn close(interp: &mut Interpreter, state: &mut IteratorState, span: Span) ->
         | IteratorState::Filter { inner, .. }
         | IteratorState::Take { inner, .. }
         | IteratorState::Drop { inner, .. } => close(interp, inner, span),
+        IteratorState::Protocol { iterator } => {
+            let method = interp.host_member_get(iterator.clone(), "вернуть", span)?;
+            if method.is_callable() {
+                interp.call_value_with_this(method, Some(iterator.clone()), span)?;
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -449,6 +465,7 @@ pub fn next(interp: &mut Interpreter, state: &mut IteratorState, span: Span) -> 
         },
         IteratorState::Take { inner, remaining } => {
             if *remaining == 0 {
+                close(interp, inner, span)?;
                 *state = IteratorState::Done;
                 return Ok(None);
             }
