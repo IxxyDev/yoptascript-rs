@@ -1,10 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const EXAMPLES_WITHOUT_PARITY: &[(&str, &str)] = &[
+const PROGRAMS_WITHOUT_PARITY: &[(&str, &str)] = &[
     ("io_demo.yopta", "печатает измеренное время, вывод не воспроизводится"),
-    ("stack_trace.yopta", "завершается ошибкой, а стек есть только у интерпретатора"),
     ("weak.yopta", "вывод зависит от момента сборки мусора, он не гарантирован"),
+];
+
+const PROGRAMS_THAT_FAIL: &[(&str, &str)] = &[
+    ("stack_trace.yopta", "показывает отчёт о необработанном исключении"),
+    ("negative_throw.yopta", "проверяет выход с необработанным исключением"),
 ];
 
 struct BackendRun {
@@ -20,6 +24,7 @@ fn run_backend(file: &Path, vm: bool) -> BackendRun {
         cmd.arg("--vm");
     }
     cmd.arg(file);
+    cmd.env("TZ", "UTC");
     cmd.stdin(std::process::Stdio::null());
     let out = cmd.output().expect("не удалось запустить yps-cli");
     BackendRun {
@@ -29,25 +34,32 @@ fn run_backend(file: &Path, vm: bool) -> BackendRun {
     }
 }
 
+fn is_listed(file: &Path, list: &[(&str, &str)]) -> bool {
+    list.iter().any(|(name, _)| file.file_name().is_some_and(|f| f == *name))
+}
+
 fn assert_conformant(file: &Path) {
     let interp = run_backend(file, false);
     let vm = run_backend(file, true);
-    assert_eq!(interp.code, Some(0), "интерпретатор завершился с ошибкой на {}: {}", file.display(), interp.stderr);
-    assert_eq!(vm.code, Some(0), "VM завершилась с ошибкой на {}: {}", file.display(), vm.stderr);
     assert_eq!(interp.stdout, vm.stdout, "stdout бэкендов расходится для {}", file.display());
-    assert_eq!(interp.stderr, vm.stderr, "stderr бэкендов расходится для {}", file.display());
+    assert_eq!(interp.code, vm.code, "коды выхода расходятся для {}: {}", file.display(), vm.stderr);
+    if is_listed(file, PROGRAMS_THAT_FAIL) {
+        assert_eq!(interp.code, Some(1), "программа должна завершиться ошибкой: {}", file.display());
+    } else {
+        assert_eq!(interp.code, Some(0), "программа завершилась с ошибкой: {}: {}", file.display(), interp.stderr);
+        assert_eq!(interp.stderr, vm.stderr, "stderr бэкендов расходится для {}", file.display());
+    }
 }
 
 fn collect_programs() -> Vec<PathBuf> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest.parent().and_then(Path::parent).expect("корень воркспейса");
-
-    let mut programs: Vec<PathBuf> = yopta_files_in(&workspace_root.join("examples"))
-        .into_iter()
-        .filter(|p| !EXAMPLES_WITHOUT_PARITY.iter().any(|(name, _)| p.file_name().is_some_and(|f| f == *name)))
-        .collect();
-    programs.extend(yopta_files_in(&manifest.join("tests").join("vm_conformance")));
-    programs
+    let tests = manifest.join("tests");
+    [workspace_root.join("examples"), tests.join("vm_conformance"), tests.join("conformance").join("cases")]
+        .iter()
+        .flat_map(|dir| yopta_files_in(dir))
+        .filter(|program| !is_listed(program, PROGRAMS_WITHOUT_PARITY))
+        .collect()
 }
 
 fn yopta_files_in(dir: &Path) -> Vec<PathBuf> {
@@ -64,7 +76,7 @@ fn yopta_files_in(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn vm_matches_interpreter_on_conformance_suite() {
     let programs = collect_programs();
-    assert!(programs.len() >= 5, "ожидалось минимум 5 программ, найдено {}", programs.len());
+    assert!(programs.len() >= 200, "ожидалось минимум 200 программ, найдено {}", programs.len());
     for program in programs {
         assert_conformant(&program);
     }
