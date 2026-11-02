@@ -117,6 +117,7 @@ pub struct Vm {
     pub(crate) signal_promises: std::collections::HashMap<usize, (crate::abort::SignalState, Value)>,
     gc: Rc<crate::gc::GcRegistry>,
     gc_counter: usize,
+    gc_threshold: usize,
     out: Box<dyn Write>,
     step_budget: Option<u64>,
 }
@@ -158,6 +159,7 @@ impl Vm {
             signal_promises: std::collections::HashMap::new(),
             gc: Rc::new(crate::gc::GcRegistry::default()),
             gc_counter: 0,
+            gc_threshold: GC_THRESHOLD,
             out,
             step_budget: None,
         }
@@ -3192,8 +3194,9 @@ impl Vm {
     }
 
     pub(crate) fn maybe_collect_garbage(&mut self) {
-        if self.live_objects() > GC_THRESHOLD {
+        if self.gc.tracked_count() > self.gc_threshold {
             self.collect_cycles();
+            self.gc_threshold = GC_THRESHOLD.max(2 * self.gc.tracked_count());
         }
     }
 

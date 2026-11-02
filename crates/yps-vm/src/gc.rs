@@ -32,6 +32,10 @@ impl GcRegistry {
         self.upvalues.borrow_mut().push(Rc::downgrade(rc));
     }
 
+    pub(crate) fn tracked_count(&self) -> usize {
+        self.objects.borrow().len() + self.arrays.borrow().len() + self.upvalues.borrow().len()
+    }
+
     pub(crate) fn live_count(&self) -> usize {
         prune(&self.objects) + prune(&self.arrays) + prune(&self.upvalues)
     }
