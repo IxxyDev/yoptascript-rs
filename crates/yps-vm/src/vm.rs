@@ -20,7 +20,7 @@ const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 const GC_INSTR_INTERVAL: usize = 8192;
 pub(crate) const GC_TASK_INTERVAL: usize = 64;
 const GC_THRESHOLD: usize = 10000;
-const MAX_PROTO_CHAIN: usize = 256;
+const MAX_PROTO_CHAIN: usize = 1_000_000;
 const ERROR_NAME: &str = "Косяк";
 const DISPOSE_METHOD: &str = "расход";
 const ASYNC_DISPOSE_METHOD: &str = "асинхРасход";
@@ -894,6 +894,13 @@ impl Vm {
                     let result = if let Value::Host(iv) = &obj {
                         let iv = iv.clone();
                         crate::bridge::host_index_get(self, &iv, &index, span)?
+                    } else if let Value::Object(map) = &obj {
+                        let key = crate::value::prop_key(&index);
+                        let own = map.borrow().get(&key).cloned();
+                        match own {
+                            Some(value) => value,
+                            None => self.get_property(&obj, &key, span)?,
+                        }
                     } else {
                         get_index(&obj, &index, span)?
                     };
@@ -906,6 +913,10 @@ impl Vm {
                     if let Value::Host(iv) = &obj {
                         let iv = iv.clone();
                         crate::bridge::host_index_set(self, &iv, &index, &value, span)?;
+                    } else if matches!(obj, Value::Object(_)) {
+                        let key = crate::value::prop_key(&index);
+                        self.set_property(&obj, &key, value, span)?;
+                        return Ok(Step::Continue);
                     } else {
                         set_index(&obj, &index, value.clone(), span)?;
                     }
@@ -3149,6 +3160,33 @@ impl Vm {
         Ok(Value::Undefined)
     }
 
+    fn inherited_write(&self, proto: Value, name: &str) -> InheritedWrite {
+        let setter_key = crate::value::setter_key(name);
+        let mut current = proto;
+        for _ in 0..MAX_PROTO_CHAIN {
+            let Value::Object(map) = &current else {
+                break;
+            };
+            let next = {
+                let guard = map.borrow();
+                if let Some(Value::Function(setter)) = guard.get(&setter_key) {
+                    return InheritedWrite::Setter(Rc::clone(setter), None);
+                }
+                if guard.contains_key(name) {
+                    return if guard.frozen { InheritedWrite::Blocked } else { InheritedWrite::Allowed };
+                }
+                guard.get(crate::value::PROTO_KEY).cloned()
+            };
+            if let Some(cls) = Self::resolve_class(map)
+                && let Some((setter, owner)) = cls.find_setter(name)
+            {
+                return InheritedWrite::Setter(setter, owner);
+            }
+            current = next.unwrap_or(Value::Undefined);
+        }
+        InheritedWrite::Allowed
+    }
+
     fn object_has_property(map: &Rc<RefCell<ObjMap>>, name: &str) -> bool {
         let getter_key = crate::value::getter_key(name);
         let setter_key = crate::value::setter_key(name);
@@ -3212,6 +3250,28 @@ impl Vm {
                     self.call_closure_sync(setter, Some(obj.clone()), sp, std::slice::from_ref(&value), span)?;
                     self.stack.push(value);
                     return Ok(());
+                }
+                let inherited = map.borrow().get(crate::value::PROTO_KEY).cloned();
+                let own_data = map.borrow().contains_key(name);
+                if !own_data && let Some(proto) = inherited {
+                    match self.inherited_write(proto, name) {
+                        InheritedWrite::Setter(setter, owner) => {
+                            self.call_closure_sync(
+                                setter,
+                                Some(obj.clone()),
+                                owner,
+                                std::slice::from_ref(&value),
+                                span,
+                            )?;
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        InheritedWrite::Blocked => {
+                            self.stack.push(value);
+                            return Ok(());
+                        }
+                        InheritedWrite::Allowed => {}
+                    }
                 }
                 if !map.borrow().can_write_key(name) {
                     self.stack.push(value);
@@ -3642,6 +3702,12 @@ fn iter_result_pair(value: Value, done: bool) -> Value {
     map.insert("значение".to_string(), value);
     map.insert("готово".to_string(), Value::Bool(done));
     Value::Object(Rc::new(RefCell::new(map)))
+}
+
+enum InheritedWrite {
+    Setter(Rc<Closure>, Option<Rc<ClassDef>>),
+    Blocked,
+    Allowed,
 }
 
 pub(crate) fn report_async_error(source: &str, err: &VmError) {

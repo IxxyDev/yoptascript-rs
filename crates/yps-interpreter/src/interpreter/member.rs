@@ -10,7 +10,7 @@ use crate::value::{ClassDef, FunctionData, MethodDef, Value};
 
 use super::Interpreter;
 
-const MAX_PROTO_CHAIN: usize = 256;
+pub(super) const MAX_PROTO_CHAIN: usize = 1_000_000;
 
 impl Interpreter {
     pub(crate) fn eval_member(&mut self, obj: Value, property: &str, span: Span) -> Result<Value, RuntimeError> {

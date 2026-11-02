@@ -69,31 +69,35 @@ impl Interpreter {
                 Ok(value)
             }
             Expr::Member { object, property, .. } => {
-                if let Some(result) = self.try_call_setter(object, &property.name, value.clone(), span)? {
+                let obj_val = self.eval_expr(object)?;
+                if let Some(result) = self.try_call_setter(&obj_val, &property.name, value.clone(), span)? {
                     return Ok(result);
                 }
-                if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex") {
-                    let obj_val = self.eval_expr(object)?;
-                    if let Value::RegExp(re) = &obj_val {
-                        let last_index = &re.last_index;
-                        let n = match &value {
-                            Value::Number(n) => *n,
-                            other => {
-                                return Err(RuntimeError::new(
-                                    format!("lastIndex требует число, получено '{}'", other.type_name()),
-                                    span,
-                                ));
-                            }
-                        };
-                        let idx = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
-                        *last_index.borrow_mut() = idx;
-                        return Ok(value);
-                    }
+                if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex")
+                    && let Value::RegExp(re) = &obj_val
+                {
+                    let last_index = &re.last_index;
+                    let n = match &value {
+                        Value::Number(n) => *n,
+                        other => {
+                            return Err(RuntimeError::new(
+                                format!("lastIndex требует число, получено '{}'", other.type_name()),
+                                span,
+                            ));
+                        }
+                    };
+                    let idx = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
+                    *last_index.borrow_mut() = idx;
+                    return Ok(value);
                 }
                 if property.name.starts_with('#') {
                     self.check_private_access_for_set(object, &property.name, span)?;
                 }
-                self.assign_via_path(target, value, span)
+                if self.inherited_data_is_frozen(&obj_val, &property.name) {
+                    return Ok(value);
+                }
+                Self::set_at_path(obj_val, &[AccessSegment::Member(property.name.clone())], value.clone(), span)?;
+                Ok(value)
             }
             Expr::Index { object, index, .. } => {
                 let obj = self.eval_expr(object)?;
@@ -102,7 +106,18 @@ impl Interpreter {
                     self.proxy_set(&ptarget, &handler, &key, value.clone(), obj, span)?;
                     return Ok(value);
                 }
-                self.assign_via_path(target, value, span)
+                let idx = self.eval_expr(index)?;
+                if matches!(obj, Value::Object(_)) && !matches!(idx, Value::Number(_)) {
+                    let key = super::coercion::property_key(&idx);
+                    if let Some(result) = self.try_call_setter(&obj, &key, value.clone(), span)? {
+                        return Ok(result);
+                    }
+                    if self.inherited_data_is_frozen(&obj, &key) {
+                        return Ok(value);
+                    }
+                }
+                Self::set_at_path(obj, &[AccessSegment::Index(idx)], value.clone(), span)?;
+                Ok(value)
             }
             Expr::Literal(Literal::Array { elements, .. }) => {
                 self.destructure_assign_array(elements, value.clone(), span)?;
@@ -201,44 +216,77 @@ impl Interpreter {
         Ok(())
     }
 
+    fn inherited_data_is_frozen(&self, obj: &Value, property: &str) -> bool {
+        let Value::Object(map) = obj else {
+            return false;
+        };
+        if map.borrow().contains_key(property) {
+            return false;
+        }
+        let mut next = map.borrow().get(symbols::PROTO).cloned();
+        for _ in 0..super::member::MAX_PROTO_CHAIN {
+            let Some(Value::Object(proto)) = next else {
+                return false;
+            };
+            let guard = proto.borrow();
+            if guard.contains_key(property) {
+                return guard.frozen;
+            }
+            next = guard.get(symbols::PROTO).cloned();
+        }
+        false
+    }
+
+    fn inherited_setter(
+        &self,
+        map: &Rc<std::cell::RefCell<crate::value::ObjectStore>>,
+        property: &str,
+    ) -> Option<MethodDef> {
+        let setter_key = symbols::setter_key(property);
+        let mut current = Rc::clone(map);
+        for _ in 0..super::member::MAX_PROTO_CHAIN {
+            {
+                let guard = current.borrow();
+                if let Some(Value::Function(func)) = guard.get(&setter_key) {
+                    return Some(MethodDef {
+                        params: func.params.clone(),
+                        body: Rc::clone(&func.body),
+                        env: Rc::clone(&func.env),
+                    });
+                }
+                if guard.contains_key(property) {
+                    return None;
+                }
+            }
+            if let Some(cls) = Self::resolve_class_for_object(&current, &self.env)
+                && let Some(setter) = Self::find_setter_in_class(&cls, property)
+            {
+                return Some(setter.clone());
+            }
+            let next = current.borrow().get(symbols::PROTO).cloned();
+            let Some(Value::Object(next)) = next else {
+                return None;
+            };
+            current = next;
+        }
+        None
+    }
+
     fn try_call_setter(
         &mut self,
-        object_expr: &Expr,
+        obj: &Value,
         property: &str,
         value: Value,
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
-        let obj = self.eval_expr(object_expr)?;
+        let obj = obj.clone();
         if let Some((target, handler)) = obj.proxy_parts() {
             self.proxy_set(&target, &handler, property, value.clone(), obj, span)?;
             return Ok(Some(value));
         }
         match &obj {
             Value::Object(map) => {
-                let setter_key = symbols::setter_key(property);
-                let setter = match map.borrow().get(&setter_key) {
-                    Some(Value::Function(func)) => {
-                        Some((func.params.clone(), Rc::clone(&func.body), Rc::clone(&func.env)))
-                    }
-                    _ => None,
-                };
-                if let Some((params, body, env)) = setter {
-                    self.call_setter_returning_this(
-                        Rc::from(property),
-                        &params,
-                        &body,
-                        &env,
-                        value.clone(),
-                        obj,
-                        span,
-                    )?;
-                    return Ok(Some(value));
-                }
-                let class_setter = Self::resolve_class_for_object(map, &self.env).and_then(|cls| {
-                    Self::find_setter_in_class(&cls, property)
-                        .map(|m| (m.params.clone(), Rc::clone(&m.body), Rc::clone(&m.env)))
-                });
-                if let Some((params, body, env)) = class_setter {
+                if let Some(MethodDef { params, body, env }) = self.inherited_setter(map, property) {
                     self.call_setter_returning_this(
                         Rc::from(property),
                         &params,
@@ -330,38 +378,6 @@ impl Interpreter {
             ));
         }
         Ok(())
-    }
-
-    fn assign_via_path(&mut self, target: &Expr, value: Value, span: Span) -> Result<Value, RuntimeError> {
-        let mut path = Vec::new();
-        let root_name = self.collect_access_path(target, &mut path, span)?;
-        path.reverse();
-        let (_, root) = self.env.lookup(&root_name);
-        let root = root.ok_or_else(|| RuntimeError::new(format!("Переменная '{root_name}' не определена"), span))?;
-        Self::set_at_path(root, &path, value.clone(), span)?;
-        Ok(value)
-    }
-
-    pub(super) fn collect_access_path(
-        &mut self,
-        expr: &Expr,
-        path: &mut Vec<AccessSegment>,
-        span: Span,
-    ) -> Result<String, RuntimeError> {
-        match expr {
-            Expr::Identifier(ident) => Ok(ident.name.clone()),
-            Expr::This { .. } => Ok(symbols::THIS.to_string()),
-            Expr::Index { object, index, .. } => {
-                let idx_val = self.eval_expr(index)?;
-                path.push(AccessSegment::Index(idx_val));
-                self.collect_access_path(object, path, span)
-            }
-            Expr::Member { object, property, .. } => {
-                path.push(AccessSegment::Member(property.name.clone()));
-                self.collect_access_path(object, path, span)
-            }
-            _ => Err(RuntimeError::new("Левая сторона присваивания должна быть переменной", span)),
-        }
     }
 
     pub(super) fn resolve_index_place(
@@ -502,9 +518,10 @@ impl Interpreter {
                 format!("Нельзя индексировать '{}' с помощью '{}'", val.type_name(), idx.type_name()),
                 span,
             )),
-            (AccessSegment::Member(_), val) => {
-                Err(RuntimeError::new(format!("Нельзя установить свойство у типа '{}'", val.type_name()), span))
-            }
+            (AccessSegment::Member(name), val) => Err(RuntimeError::new(
+                format!("Нельзя установить свойство '{name}' у типа '{}'", val.type_name()),
+                span,
+            )),
         }
     }
 

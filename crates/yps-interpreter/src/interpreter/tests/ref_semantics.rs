@@ -305,7 +305,7 @@ fn set_at_path_missing_intermediate_errors() {
         о.нет.глубже = 1;
         "#,
     );
-    assert!(err.message.contains("нет"), "получено: {}", err.message);
+    assert!(err.message.contains("'глубже' у типа 'неопределено'"), "получено: {}", err.message);
 }
 
 #[test]

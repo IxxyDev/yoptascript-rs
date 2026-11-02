@@ -267,14 +267,23 @@ impl Interpreter {
                 Ok(arr.borrow().get(i).cloned().unwrap_or(Value::Undefined))
             }
             (Value::Object(map), Value::String(key)) => {
-                Ok(map.borrow().get(key.as_ref()).cloned().unwrap_or(Value::Undefined))
+                if let Some(value) = map.borrow().get(key.as_ref()) {
+                    return Ok(value.clone());
+                }
+                if key.starts_with('#') {
+                    return Ok(Value::Undefined);
+                }
+                self.eval_member(obj.clone(), key, span)
             }
             (Value::Object(map), Value::Number(n)) => {
                 Ok(map.borrow().get(&(*n as usize).to_string()).cloned().unwrap_or(Value::Undefined))
             }
             (Value::Object(map), Value::Symbol { id, .. }) => {
                 let key = crate::symbols::symbol_key(*id);
-                Ok(map.borrow().get(&key).cloned().unwrap_or(Value::Undefined))
+                if let Some(value) = map.borrow().get(&key) {
+                    return Ok(value.clone());
+                }
+                self.eval_member(obj.clone(), &key, span)
             }
             (Value::String(s), Value::Number(n)) => {
                 if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
