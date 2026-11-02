@@ -83,13 +83,17 @@ thread_local! {
         RefCell::new(std::collections::HashMap::new());
     static IDENTITY_CACHE_PRUNE_AT: Cell<usize> = const { Cell::new(IDENTITY_CACHE_PRUNE_THRESHOLD) };
     static VM_BY_STORE: RefCell<HashMap<usize, CacheKeepalive>> = RefCell::new(HashMap::new());
-    static CROSSED: RefCell<Vec<Crossed>> = const { RefCell::new(Vec::new()) };
+    static CROSSED: RefCell<HashMap<usize, Crossed>> = RefCell::new(HashMap::new());
+    static CROSSED_LOG: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static ANCHORS: RefCell<HashMap<usize, (IValue, Value)>> = RefCell::new(HashMap::new());
     static CROSSING_DEPTH: Cell<usize> = const { Cell::new(0) };
     static CALLBACK_BY_PTR: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     static VM_BY_CALLBACK: RefCell<HashMap<String, Value>> = RefCell::new(HashMap::new());
 }
 
 const STACK_RED_ZONE: usize = 256 * 1024;
+const ANCHORED_STORE_HOLDERS: usize = 2;
+const PAIRED_STORE_HOLDERS: usize = 2;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
 fn cached_identity(ptr: usize) -> Option<IValue> {
@@ -104,6 +108,14 @@ fn cached_identity(ptr: usize) -> Option<IValue> {
             None => None,
         }
     })
+}
+
+fn store_holders(store: &IValue) -> usize {
+    match store {
+        IValue::Array(rc) => Rc::strong_count(rc),
+        IValue::Object(rc) => Rc::strong_count(rc),
+        _ => 0,
+    }
 }
 
 fn store_ptr(store: &IValue) -> Option<usize> {
@@ -133,6 +145,7 @@ fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
         if cache.len() >= prune_at {
             cache.retain(|_, (k, _)| k.is_alive());
             VM_BY_STORE.with(|m| m.borrow_mut().retain(|_, k| k.is_alive()));
+            ANCHORS.with(|a| a.borrow_mut().retain(|_, (store, _)| store_holders(store) > ANCHORED_STORE_HOLDERS));
             let live = cache.len();
             let new_threshold = std::cmp::max(IDENTITY_CACHE_PRUNE_THRESHOLD, 2 * live);
             IDENTITY_CACHE_PRUNE_AT.with(|t| t.set(new_threshold));
@@ -173,16 +186,41 @@ pub(crate) fn with_interp<R>(
     f: impl FnOnce(&mut yps_interpreter::Interpreter) -> Result<R, VmError>,
 ) -> Result<R, VmError> {
     let _guard = VmGuard::enter(vm);
-    let mark = CROSSED.with(|c| c.borrow().len());
+    let mark = CROSSED_LOG.with(|l| l.borrow().len());
     CROSSING_DEPTH.with(|d| d.set(d.get() + 1));
     let mut interp = yps_interpreter::Interpreter::new();
     let result = f(&mut interp);
-    CROSSING_DEPTH.with(|d| d.set(d.get() - 1));
-    let crossed = CROSSED.with(|c| c.borrow_mut().split_off(mark));
-    for entry in &crossed {
-        write_back(entry);
+    drop(interp);
+    let depth = CROSSING_DEPTH.with(|d| {
+        d.set(d.get() - 1);
+        d.get()
+    });
+    let touched = CROSSED_LOG.with(|l| l.borrow_mut().split_off(mark));
+    for ptr in touched {
+        let Some(mut entry) = CROSSED.with(|c| c.borrow_mut().remove(&ptr)) else {
+            continue;
+        };
+        write_back(&mut entry);
+        CROSSED.with(|c| c.borrow_mut().insert(ptr, entry));
+    }
+    if depth == 0 {
+        anchor_held_values();
     }
     result
+}
+
+fn anchor_held_values() {
+    let crossed = CROSSED.with(|c| std::mem::take(&mut *c.borrow_mut()));
+    let pairs: Vec<(IValue, Value)> = crossed.into_values().map(|entry| (entry.store, entry.vm_value)).collect();
+    for (store, vm_value) in pairs {
+        if store_holders(&store) > PAIRED_STORE_HOLDERS
+            && let Some(ptr) = store_ptr(&store)
+        {
+            ANCHORS.with(|a| {
+                a.borrow_mut().entry(ptr).or_insert((store, vm_value));
+            });
+        }
+    }
 }
 
 fn with_receiver<R>(
@@ -198,29 +236,47 @@ fn with_receiver<R>(
 }
 
 fn refresh_receiver(receiver: &IValue, span: Span) -> Result<(), VmError> {
-    match receiver {
+    refresh_host_value(receiver, span, &mut HashSet::new())
+}
+
+fn refresh_host_value(value: &IValue, span: Span, seen: &mut HashSet<usize>) -> Result<(), VmError> {
+    match value {
         IValue::Proxy { target, handler } => {
-            refresh_receiver(target, span)?;
-            refresh_receiver(handler, span)
+            refresh_host_value(target, span, seen)?;
+            refresh_host_value(handler, span, seen)
         }
-        IValue::Array(_) | IValue::Object(_) => match vm_value_of_store(receiver) {
-            Some(vm_value) => vm_to_interp(&vm_value, span).map(|_| ()),
+        IValue::Array(_) | IValue::Object(_) => match vm_value_of_store(value) {
+            Some(vm_value) => convert_to_interp(&vm_value, span, seen).map(|_| ()),
             None => Ok(()),
         },
         _ => Ok(()),
     }
 }
 
-fn write_back(entry: &Crossed) {
-    match (&entry.vm_value, &entry.store, &entry.snapshot) {
+fn same_value(a: &IValue, b: &IValue) -> bool {
+    match (a, b) {
+        (IValue::Number(x), IValue::Number(y)) => x.to_bits() == y.to_bits(),
+        _ => a == b,
+    }
+}
+
+fn write_back(entry: &mut Crossed) {
+    match (&entry.vm_value, &entry.store, &mut entry.snapshot) {
         (Value::Array(items), IValue::Array(store), Snapshot::Array(before)) => {
             let Ok(store) = store.try_borrow() else {
                 return;
             };
+            let unchanged =
+                store.0.len() == before.len() && store.0.iter().zip(before.iter()).all(|(a, b)| same_value(a, b));
+            if unchanged {
+                return;
+            }
             let mut items = items.borrow_mut();
-            items.truncate(store.0.len());
+            if store.0.len() != before.len() {
+                items.truncate(store.0.len());
+            }
             for (i, new) in store.0.iter().enumerate() {
-                if before.get(i) == Some(new) && i < items.len() {
+                if before.get(i).is_some_and(|old| same_value(old, new)) && i < items.len() {
                     continue;
                 }
                 let Ok(converted) = interp_to_vm(new) else {
@@ -231,11 +287,20 @@ fn write_back(entry: &Crossed) {
                     None => items.push(converted),
                 }
             }
+            before.clone_from(&store.0);
         }
         (Value::Object(map), IValue::Object(store), Snapshot::Object { map: before, frozen, sealed, extensible }) => {
             let Ok(store) = store.try_borrow() else {
                 return;
             };
+            let unchanged = store.frozen == *frozen
+                && store.sealed == *sealed
+                && store.extensible == *extensible
+                && store.map.len() == before.len()
+                && store.map.iter().all(|(k, v)| before.get(k).is_some_and(|old| same_value(old, v)));
+            if unchanged {
+                return;
+            }
             let mut map = map.borrow_mut();
             for key in before.keys() {
                 if !store.map.contains_key(key) {
@@ -243,7 +308,7 @@ fn write_back(entry: &Crossed) {
                 }
             }
             for (key, new) in &store.map {
-                if before.get(key) == Some(new) {
+                if before.get(key).is_some_and(|old| same_value(old, new)) {
                     continue;
                 }
                 if let Ok(converted) = interp_to_vm(new) {
@@ -259,14 +324,23 @@ fn write_back(entry: &Crossed) {
             if store.extensible != *extensible {
                 map.extensible = store.extensible;
             }
+            before.clone_from(&store.map);
+            *frozen = store.frozen;
+            *sealed = store.sealed;
+            *extensible = store.extensible;
         }
         _ => {}
     }
 }
 
-pub(crate) fn mark_callback_roots(marker: &mut crate::gc::Marker) {
+pub(crate) fn mark_bridge_roots(marker: &mut crate::gc::Marker) {
     VM_BY_CALLBACK.with(|m| {
         for value in m.borrow().values() {
+            marker.push_value(value);
+        }
+    });
+    ANCHORS.with(|a| {
+        for (_, value) in a.borrow().values() {
             marker.push_value(value);
         }
     });
@@ -517,9 +591,14 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
 }
 
 fn record_crossing(vm_value: Value, store: IValue, snapshot: Snapshot) {
-    if CROSSING_DEPTH.with(Cell::get) > 0 {
-        CROSSED.with(|c| c.borrow_mut().push(Crossed { vm_value, store, snapshot }));
+    if CROSSING_DEPTH.with(Cell::get) == 0 {
+        return;
     }
+    let Some(ptr) = store_ptr(&store) else {
+        return;
+    };
+    CROSSED.with(|c| c.borrow_mut().insert(ptr, Crossed { vm_value, store, snapshot }));
+    CROSSED_LOG.with(|l| l.borrow_mut().push(ptr));
 }
 
 fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Result<IValue, VmError> {
@@ -530,7 +609,10 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
         Value::Bool(b) => Ok(IValue::Boolean(*b)),
         Value::Null => Ok(IValue::Null),
         Value::Undefined => Ok(IValue::Undefined),
-        Value::Host(iv) => Ok(iv.clone()),
+        Value::Host(iv) => {
+            refresh_host_value(iv, span, seen)?;
+            Ok(iv.clone())
+        }
         Value::RegExp { pattern, flags, compiled, last_index } => {
             Ok(IValue::RegExp(Rc::new(yps_interpreter::value::RegExpData {
                 pattern: pattern.to_string(),
@@ -731,7 +813,9 @@ fn new_vm_value_for_store(store: &IValue) -> Result<Value, String> {
             store_identity(Rc::as_ptr(&rc) as usize, CacheKeepalive::Array(Rc::downgrade(&rc)), store.clone());
             let converted: Vec<Value> = items.borrow().0.iter().map(interp_to_vm).collect::<Result<_, _>>()?;
             rc.borrow_mut().0 = converted;
-            Ok(Value::Array(rc))
+            let vm_value = Value::Array(rc);
+            record_crossing(vm_value.clone(), store.clone(), Snapshot::Array(items.borrow().0.clone()));
+            Ok(vm_value)
         }
         IValue::Object(obj) => {
             let rc = Rc::new(RefCell::new(ObjMap::new()));
@@ -747,7 +831,18 @@ fn new_vm_value_for_store(store: &IValue) -> Result<Value, String> {
                 map.sealed = source.sealed;
                 map.extensible = source.extensible;
             }
-            Ok(Value::Object(rc))
+            let vm_value = Value::Object(rc);
+            record_crossing(
+                vm_value.clone(),
+                store.clone(),
+                Snapshot::Object {
+                    map: source.map.clone(),
+                    frozen: source.frozen,
+                    sealed: source.sealed,
+                    extensible: source.extensible,
+                },
+            );
+            Ok(vm_value)
         }
         other => interp_to_vm(other),
     }

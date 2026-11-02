@@ -3343,7 +3343,7 @@ impl Vm {
         for root in self.running_task_roots.iter().flatten() {
             marker.push_value(root);
         }
-        crate::bridge::mark_callback_roots(&mut marker);
+        crate::bridge::mark_bridge_roots(&mut marker);
         for listener in &self.signal_listeners {
             marker.push_value(listener);
         }
