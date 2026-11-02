@@ -1294,6 +1294,8 @@ impl PartialEq for Value {
             (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
             (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
+            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+            (Value::BuiltinFunction(a), Value::BuiltinFunction(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::WeakClass(a), Value::WeakClass(b)) => Weak::ptr_eq(a, b),
             (Value::Symbol { id: a, .. }, Value::Symbol { id: b, .. }) => a == b,

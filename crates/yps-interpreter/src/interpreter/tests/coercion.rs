@@ -461,3 +461,21 @@ fn symbol_keys_do_not_leak_into_object_display() {
     assert!(!s.contains("sym"), "внутренний символьный ключ протёк в Display: {s}");
     assert_eq!(s, "{а: 1}".into());
 }
+
+#[test]
+fn a_function_is_strictly_equal_to_itself() {
+    let i = run_code(
+        r#"
+        йопта ф() {}
+        ясенХуй г = () => 1;
+        гыы тот = ф === ф;
+        гыы стрелка = г === г;
+        гыы разные = ф === г;
+        гыы встроенная = сказать === сказать;
+        "#,
+    );
+    assert_eq!(i.get("тот"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("стрелка"), Some(Value::Boolean(true)));
+    assert_eq!(i.get("разные"), Some(Value::Boolean(false)));
+    assert_eq!(i.get("встроенная"), Some(Value::Boolean(true)));
+}
