@@ -685,12 +685,6 @@ impl Vm {
                     self.pop();
                     self.stack.push(top);
                 }
-                Op::ForIterCloseFrame => {
-                    let top = self.stack.len().saturating_sub(1);
-                    for rc in self.for_iters_in(base, top) {
-                        self.close_for_iter(&rc, span)?;
-                    }
-                }
                 Op::ArrayLen => {
                     let len = match self.peek(0) {
                         Value::Array(a) => a.borrow().len(),

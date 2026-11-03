@@ -181,7 +181,6 @@ pub enum Op {
     AsyncForIterInit,
     ForIterNext(usize),
     ForIterClose,
-    ForIterCloseFrame,
     ArrayLen,
 
     Call(u16),

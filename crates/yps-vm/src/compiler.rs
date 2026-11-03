@@ -63,7 +63,7 @@ impl CallableKind {
 }
 
 struct FnState {
-    for_of_depth: usize,
+    for_of_handles: Vec<Slot>,
     kind: FnKind,
     name: String,
     arity: usize,
@@ -86,6 +86,7 @@ struct TryCtx {
     handler_count: usize,
     finally: Option<Block>,
     loops_len: usize,
+    for_of_len: usize,
 }
 
 impl FnState {
@@ -93,7 +94,7 @@ impl FnState {
         let locals =
             vec![Local { name: String::new(), depth: 0, is_const: false, is_captured: false, initialized: true }];
         FnState {
-            for_of_depth: 0,
+            for_of_handles: Vec::new(),
             kind,
             name,
             arity: 0,
@@ -433,10 +434,7 @@ impl Compiler {
                         self.emit(Op::Undefined, *span);
                     }
                 }
-                if self.cur().for_of_depth > 0 {
-                    self.emit(Op::ForIterCloseFrame, *span);
-                }
-                self.emit_try_exits_all(*span)?;
+                self.emit_return_exits(*span)?;
                 self.emit(Op::Return, *span);
                 Ok(())
             }
@@ -484,7 +482,8 @@ impl Compiler {
         let has_catch = catch_block.is_some();
         let handler_count = usize::from(has_finally) + usize::from(has_catch);
         let loops_len = self.cur().loops.len();
-        self.cur().try_ctxs.push(TryCtx { handler_count, finally: finally_block.cloned(), loops_len });
+        let for_of_len = self.cur().for_of_handles.len();
+        self.cur().try_ctxs.push(TryCtx { handler_count, finally: finally_block.cloned(), loops_len, for_of_len });
 
         let outer_push = if has_finally { Some(self.emit(Op::PushHandler(0, true), span)) } else { None };
         let inner_push = if has_catch { Some(self.emit(Op::PushHandler(0, false), span)) } else { None };
@@ -693,13 +692,12 @@ impl Compiler {
         self.compile_expr(iterable)?;
         if is_await {
             self.emit(Op::Await, span);
-            self.cur().for_of_depth += 1;
             self.emit(Op::AsyncForIterInit, span);
         } else {
-            self.cur().for_of_depth += 1;
             self.emit(Op::ForIterInit, span);
         }
         let handle = self.push_temp(span);
+        self.cur().for_of_handles.push(handle);
 
         if let Pattern::Identifier(id) = variable {
             self.emit(Op::Undefined, span);
@@ -733,7 +731,7 @@ impl Compiler {
 
             self.emit(Op::GetLocal(handle), span);
             self.emit(Op::ForIterClose, span);
-            self.cur().for_of_depth -= 1;
+            self.cur().for_of_handles.pop();
             self.end_scope(span);
             return Ok(());
         }
@@ -761,7 +759,7 @@ impl Compiler {
 
         self.emit(Op::GetLocal(handle), span);
         self.emit(Op::ForIterClose, span);
-        self.cur().for_of_depth -= 1;
+        self.cur().for_of_handles.pop();
         self.end_scope(span);
         Ok(())
     }
@@ -1425,9 +1423,25 @@ impl Compiler {
         self.emit_try_exits(&crossed, span)
     }
 
-    fn emit_try_exits_all(&mut self, span: Span) -> Result<(), CompileError> {
-        let all: Vec<usize> = (0..self.cur().try_ctxs.len()).rev().collect();
-        self.emit_try_exits(&all, span)
+    fn emit_for_of_closes(&mut self, keep: usize, span: Span) {
+        while self.cur().for_of_handles.len() > keep {
+            if let Some(handle) = self.cur().for_of_handles.pop() {
+                self.emit(Op::GetLocal(handle), span);
+                self.emit(Op::ForIterClose, span);
+            }
+        }
+    }
+
+    fn emit_return_exits(&mut self, span: Span) -> Result<(), CompileError> {
+        let handles = self.cur().for_of_handles.clone();
+        for i in (0..self.cur().try_ctxs.len()).rev() {
+            let keep = self.cur().try_ctxs[i].for_of_len;
+            self.emit_for_of_closes(keep, span);
+            self.emit_try_exits(&[i], span)?;
+        }
+        self.emit_for_of_closes(0, span);
+        self.cur().for_of_handles = handles;
+        Ok(())
     }
 
     fn emit_try_exits(&mut self, indices: &[usize], span: Span) -> Result<(), CompileError> {
