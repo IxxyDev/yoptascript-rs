@@ -88,6 +88,9 @@ thread_local! {
     static ANCHORS: RefCell<HashMap<usize, (IValue, Value)>> = RefCell::new(HashMap::new());
     static SYNCED_AT: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     static RECORDING: Cell<bool> = const { Cell::new(true) };
+    static GENERATOR_STORES: RefCell<HashMap<usize, IValue>> = RefCell::new(HashMap::new());
+    static OPAQUE_STORES: RefCell<Vec<IValue>> = const { RefCell::new(Vec::new()) };
+    static GENERATOR_BY_STORE: RefCell<HashMap<usize, Value>> = RefCell::new(HashMap::new());
     static CROSSING_DEPTH: Cell<usize> = const { Cell::new(0) };
     static CALLBACK_BY_PTR: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     static VM_BY_CALLBACK: RefCell<HashMap<String, Value>> = RefCell::new(HashMap::new());
@@ -438,6 +441,11 @@ pub(crate) fn mark_bridge_roots(marker: &mut crate::gc::Marker) {
     });
     ANCHORS.with(|a| {
         for (_, value) in a.borrow().values() {
+            marker.push_value(value);
+        }
+    });
+    GENERATOR_BY_STORE.with(|m| {
+        for value in m.borrow().values() {
             marker.push_value(value);
         }
     });
@@ -900,10 +908,14 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
         | Value::PromiseThenHandler { .. }
         | Value::PromiseFinallyHandler { .. }
         | Value::PromiseAggregateHandler { .. } => Ok(wrap_vm_callback(value.clone())),
-        other => Err(VmError::new(
-            format!("значение типа '{}' пока нельзя передать в stdlib интерпретатора", other.type_name()),
-            span,
-        )),
+        other => {
+            let store = IValue::object(indexmap::IndexMap::new());
+            if let Some(ptr) = store_ptr(&store) {
+                GENERATOR_BY_STORE.with(|m| m.borrow_mut().insert(ptr, other.clone()));
+                OPAQUE_STORES.with(|m| m.borrow_mut().push(store.clone()));
+            }
+            Ok(store)
+        }
     }
 }
 
@@ -930,15 +942,23 @@ fn generator_method(generator: &Rc<RefCell<crate::value::GenState>>, step: Gener
         let result = step(vm, &held, sent, span).map_err(|e| to_runtime_error(&e, span))?;
         vm_to_interp(&result, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))
     }));
-    VM_BY_CALLBACK.with(|m| m.borrow_mut().insert(marker.clone(), Value::Generator(Rc::clone(generator))));
     IValue::BuiltinFunction(marker)
 }
 
 fn generator_to_interp(generator: &Rc<RefCell<crate::value::GenState>>) -> IValue {
+    let key = Rc::as_ptr(generator) as usize;
+    if let Some(store) = GENERATOR_STORES.with(|m| m.borrow().get(&key).cloned()) {
+        return store;
+    }
     let mut protocol = indexmap::IndexMap::new();
     protocol.insert("следующий".to_string(), generator_method(generator, Vm::gen_next));
     protocol.insert("вернуть".to_string(), generator_method(generator, Vm::gen_return));
-    IValue::object(protocol)
+    let store = IValue::object(protocol);
+    GENERATOR_STORES.with(|m| m.borrow_mut().insert(key, store.clone()));
+    if let Some(ptr) = store_ptr(&store) {
+        GENERATOR_BY_STORE.with(|m| m.borrow_mut().insert(ptr, Value::Generator(Rc::clone(generator))));
+    }
+    store
 }
 
 fn wrap_vm_callback(callee: Value) -> IValue {
@@ -1002,6 +1022,10 @@ pub fn interp_to_vm(value: &IValue) -> Result<Value, String> {
         IValue::Array(_) | IValue::Object(_) => stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_SIZE, || {
             if let Some(known) = vm_value_of_store(value) {
                 return Ok(known);
+            }
+            let generator = store_ptr(value).and_then(|ptr| GENERATOR_BY_STORE.with(|m| m.borrow().get(&ptr).cloned()));
+            if let Some(generator) = generator {
+                return Ok(generator);
             }
             let filled = new_vm_value_for_store(value);
             if filled.is_err()
