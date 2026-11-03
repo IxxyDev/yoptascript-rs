@@ -1556,7 +1556,11 @@ impl Compiler {
             }
             Expr::This { span } => {
                 if matches!(self.resolve(THIS_LOCAL), VarLoc::Global(_)) {
-                    return Err(CompileError::new("'тырыпыры' (this) используется вне контекста объекта", *span));
+                    if self.cur().kind == FnKind::Script {
+                        return Err(CompileError::new("'тырыпыры' (this) используется вне контекста объекта", *span));
+                    }
+                    self.emit(Op::Undefined, *span);
+                    return Ok(());
                 }
                 self.compile_var_get(THIS_LOCAL, *span)
             }

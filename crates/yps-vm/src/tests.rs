@@ -4208,3 +4208,15 @@ fn writes_after_a_read_only_call_inside_a_callback_are_kept() {
         "3 2\n",
     );
 }
+
+#[test]
+fn top_level_arrow_using_this_does_not_stop_compilation() {
+    assert_same_as_interpreter(
+        r#"
+        сказать("старт");
+        гыы о = { х: 1, с: () => тырыпыры };
+        сказать(о.х);
+        "#,
+        "старт\n1\n",
+    );
+}
