@@ -3010,7 +3010,12 @@ impl Vm {
             let iv = iv.clone();
             let args: Vec<Value> = self.pop_args(argc);
             self.pop();
-            let result = crate::bridge::call_host_method(self, &iv, name, args, span)?;
+            let result = if matches!(iv, yps_interpreter::value::Value::Proxy { .. }) {
+                let method = crate::bridge::host_member_get(self, &iv, name, span)?;
+                self.call_value(method, Some(receiver), &args, span)?
+            } else {
+                crate::bridge::call_host_method(self, &iv, name, args, span)?
+            };
             self.stack.push(result);
             return Ok(());
         }
@@ -3416,7 +3421,7 @@ impl Vm {
     }
 
     pub(crate) fn gc_array(&self, items: Vec<Value>) -> Value {
-        let rc = Rc::new(RefCell::new(crate::value::ArrayStore(items)));
+        let rc = Rc::new(RefCell::new(crate::value::ArrayStore(items, false)));
         self.gc.track_array(&rc);
         Value::Array(rc)
     }

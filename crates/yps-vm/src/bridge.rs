@@ -87,6 +87,7 @@ thread_local! {
     static CROSSED_LOG: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static ANCHORS: RefCell<HashMap<usize, (IValue, Value)>> = RefCell::new(HashMap::new());
     static SYNCED_AT: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+    static RECORDING: Cell<bool> = const { Cell::new(true) };
     static CROSSING_DEPTH: Cell<usize> = const { Cell::new(0) };
     static CALLBACK_BY_PTR: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     static VM_BY_CALLBACK: RefCell<HashMap<String, Value>> = RefCell::new(HashMap::new());
@@ -467,7 +468,7 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
         return crate::abort::timeout_signal(vm, &args, span);
     }
     with_interp(vm, |interp| {
-        let interp_args: Vec<IValue> = args.iter().map(|a| vm_to_interp(a, span)).collect::<Result<_, _>>()?;
+        let interp_args = convert_args(name, &args, span)?;
         let value = match yps_interpreter::stdlib::call_static_namespaced(interp, name, interp_args.clone(), span) {
             Some(res) => res.map_err(map_err)?,
             None => yps_interpreter::builtins::call_builtin(name, interp_args, span).map_err(map_err)?,
@@ -646,8 +647,51 @@ pub fn vm_to_interp(value: &Value, span: Span) -> Result<IValue, VmError> {
     convert_to_interp(value, span, &mut HashSet::new())
 }
 
+fn is_recording() -> bool {
+    CROSSING_DEPTH.with(Cell::get) > 0 && RECORDING.with(Cell::get)
+}
+
+fn is_read_only_call(name: &str) -> bool {
+    let Some((namespace, method)) = name.split_once('.') else {
+        return false;
+    };
+    match namespace {
+        "Матан" | "Хуйня" | "Строка" | "Жсон" => true,
+        "Кент" => matches!(
+            method,
+            "ключи"
+                | "значения"
+                | "записи"
+                | "имеетСвоё"
+                | "есть"
+                | "описатьСвойство"
+                | "описатьСвойства"
+                | "прототип"
+        ),
+        "Отражение" => {
+            matches!(
+                method,
+                "получить"
+                    | "есть"
+                    | "собственныеКлючи"
+                    | "описатьСвойство"
+                    | "прототипОт"
+                    | "расширяем"
+            )
+        }
+        _ => false,
+    }
+}
+
+fn convert_args(name: &str, args: &[Value], span: Span) -> Result<Vec<IValue>, VmError> {
+    let previous = RECORDING.with(|r| r.replace(!is_read_only_call(name)));
+    let converted = args.iter().map(|a| vm_to_interp(a, span)).collect();
+    RECORDING.with(|r| r.set(previous));
+    converted
+}
+
 fn record_crossing(vm_value: Value, store: IValue, snapshot: Snapshot) {
-    if CROSSING_DEPTH.with(Cell::get) == 0 {
+    if !is_recording() {
         return;
     }
     let Some(ptr) = store_ptr(&store) else {
@@ -692,7 +736,9 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             }
             let epoch = crate::value::mutation_epoch();
             if is_synced(value) {
-                if let IValue::Array(rc) = &store {
+                if is_recording()
+                    && let IValue::Array(rc) = &store
+                {
                     record_crossing(value.clone(), store.clone(), Snapshot::Array(rc.borrow().0.clone()));
                 }
                 return Ok(store);
@@ -704,6 +750,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             {
                 guard.0.clone_from(&converted);
             }
+            items.borrow_mut().1 = true;
             record_crossing(value.clone(), store.clone(), Snapshot::Array(converted));
             mark_synced(ptr, epoch);
             Ok(store)
@@ -723,7 +770,9 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
             }
             let epoch = crate::value::mutation_epoch();
             if is_synced(value) {
-                if let IValue::Object(rc) = &store {
+                if is_recording()
+                    && let IValue::Object(rc) = &store
+                {
                     let current = rc.borrow();
                     record_crossing(
                         value.clone(),
@@ -746,6 +795,18 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
                         out.insert(k.clone(), convert_to_interp(v, span, seen)?);
                     }
                 }
+                if let Some(Value::Class(class)) = source.get(crate::value::CLASS_TAG) {
+                    let own_prototype =
+                        matches!(class.prototype.get(), Some(Value::Object(proto)) if Rc::ptr_eq(proto, map));
+                    let inherited = if own_prototype {
+                        class.parent.as_ref().map(ClassDef::prototype_object)
+                    } else {
+                        Some(class.prototype_object())
+                    };
+                    if let Some(inherited) = inherited {
+                        out.insert(crate::value::PROTO_KEY.to_string(), convert_to_interp(&inherited, span, seen)?);
+                    }
+                }
                 (source.frozen, source.sealed, source.extensible)
             };
             if let IValue::Object(rc) = &store
@@ -756,6 +817,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
                 guard.sealed = sealed;
                 guard.extensible = extensible;
             }
+            map.borrow_mut().crossed = true;
             record_crossing(value.clone(), store.clone(), Snapshot::Object { map: out, frozen, sealed, extensible });
             mark_synced(ptr, epoch);
             Ok(store)
@@ -764,6 +826,7 @@ fn convert_to_interp(value: &Value, span: Span, seen: &mut HashSet<usize>) -> Re
         Value::Function(_)
         | Value::Builtin(_)
         | Value::Class(_)
+        | Value::BoundMethod { .. }
         | Value::PromiseCapability { .. }
         | Value::PromiseThenHandler { .. }
         | Value::PromiseFinallyHandler { .. }
@@ -905,7 +968,11 @@ fn new_vm_value_for_store(store: &IValue) -> Result<Value, String> {
             let rc = Rc::new(RefCell::new(crate::value::ArrayStore::default()));
             store_identity(Rc::as_ptr(&rc) as usize, CacheKeepalive::Array(Rc::downgrade(&rc)), store.clone());
             let converted: Vec<Value> = items.borrow().0.iter().map(interp_to_vm).collect::<Result<_, _>>()?;
-            rc.borrow_mut().0 = converted;
+            {
+                let mut array = rc.borrow_mut();
+                array.0 = converted;
+                array.1 = true;
+            }
             let vm_value = Value::Array(rc);
             record_crossing(vm_value.clone(), store.clone(), Snapshot::Array(items.borrow().0.clone()));
             Ok(vm_value)
@@ -923,6 +990,7 @@ fn new_vm_value_for_store(store: &IValue) -> Result<Value, String> {
                 map.frozen = source.frozen;
                 map.sealed = source.sealed;
                 map.extensible = source.extensible;
+                map.crossed = true;
             }
             let vm_value = Value::Object(rc);
             record_crossing(

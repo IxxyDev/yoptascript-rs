@@ -269,7 +269,7 @@ impl ClassDef {
 }
 
 #[derive(Debug, Default)]
-pub struct ArrayStore(pub Vec<Value>);
+pub struct ArrayStore(pub Vec<Value>, pub bool);
 
 impl std::ops::Deref for ArrayStore {
     type Target = Vec<Value>;
@@ -293,7 +293,9 @@ pub(crate) fn mutation_epoch() -> u64 {
 
 impl std::ops::DerefMut for ArrayStore {
     fn deref_mut(&mut self) -> &mut Vec<Value> {
-        note_mutation();
+        if self.1 {
+            note_mutation();
+        }
         &mut self.0
     }
 }
@@ -380,6 +382,7 @@ fn drain_value_tree(stack: &mut Vec<Value>) {
 pub struct ObjMap {
     entries: IndexMap<String, Value>,
     generation: u32,
+    pub(crate) crossed: bool,
     pub frozen: bool,
     pub sealed: bool,
     pub extensible: bool,
@@ -387,7 +390,14 @@ pub struct ObjMap {
 
 impl Default for ObjMap {
     fn default() -> Self {
-        ObjMap { entries: IndexMap::new(), generation: 0, frozen: false, sealed: false, extensible: true }
+        ObjMap {
+            entries: IndexMap::new(),
+            generation: 0,
+            crossed: false,
+            frozen: false,
+            sealed: false,
+            extensible: true,
+        }
     }
 }
 
@@ -401,7 +411,9 @@ impl ObjMap {
     }
 
     pub fn insert(&mut self, key: String, value: Value) {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         if self.entries.insert(key, value).is_none() {
             self.generation = self.generation.wrapping_add(1);
         }
@@ -412,7 +424,9 @@ impl ObjMap {
     }
 
     pub fn remove(&mut self, key: &str) -> bool {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         if self.entries.shift_remove(key).is_some() {
             self.generation = self.generation.wrapping_add(1);
             true
@@ -434,7 +448,9 @@ impl ObjMap {
     }
 
     pub(crate) fn overwrite_at(&mut self, index: usize, value: Value) {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         if let Some((_, slot)) = self.entries.get_index_mut(index) {
             *slot = value;
         }
@@ -468,20 +484,26 @@ impl ObjMap {
     }
 
     pub fn seal(&mut self) {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         self.sealed = true;
         self.extensible = false;
     }
 
     pub fn freeze(&mut self) {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         self.frozen = true;
         self.sealed = true;
         self.extensible = false;
     }
 
     pub fn prevent_extensions(&mut self) {
-        note_mutation();
+        if self.crossed {
+            note_mutation();
+        }
         self.extensible = false;
     }
 }
@@ -578,7 +600,7 @@ pub enum Delegate {
 impl Value {
     #[must_use]
     pub fn array(items: Vec<Value>) -> Self {
-        Value::Array(Rc::new(RefCell::new(ArrayStore(items))))
+        Value::Array(Rc::new(RefCell::new(ArrayStore(items, false))))
     }
 
     pub fn string(s: impl Into<Rc<str>>) -> Self {
