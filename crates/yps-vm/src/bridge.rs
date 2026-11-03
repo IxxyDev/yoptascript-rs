@@ -484,6 +484,28 @@ fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, Vm
             map.insert(crate::value::CLASS_TAG.to_string(), args[0].clone());
             Some(Ok(Value::Object(Rc::new(RefCell::new(map)))))
         }
+        ("Кент.назначитьПрототип" | "Отражение.назначитьПрототип", [Value::Object(map), proto, ..]) =>
+        {
+            let tagged = map.borrow().get(crate::value::CLASS_TAG).is_some();
+            if !tagged && !matches!(proto, Value::Class(_)) {
+                return None;
+            }
+            let succeeded = name == "Отражение.назначитьПрототип";
+            let answer = || if succeeded { Value::Bool(true) } else { args[0].clone() };
+            let mut target = map.borrow_mut();
+            if target.frozen || !target.extensible {
+                return None;
+            }
+            target.remove(crate::value::CLASS_TAG);
+            target.remove(crate::value::PROTO_KEY);
+            match proto {
+                Value::Class(_) => target.insert(crate::value::CLASS_TAG.to_string(), proto.clone()),
+                Value::Object(_) => target.insert(crate::value::PROTO_KEY.to_string(), proto.clone()),
+                Value::Null => {}
+                _ => return None,
+            }
+            Some(Ok(answer()))
+        }
         ("Кент.прототип" | "Отражение.прототипОт", [Value::Object(map), ..]) => {
             let class = match map.borrow().get(crate::value::CLASS_TAG) {
                 Some(Value::Class(class)) => Rc::clone(class),
