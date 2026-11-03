@@ -532,6 +532,21 @@ pub fn call_bridged(vm: &mut Vm, name: &str, args: Vec<Value>, span: Span) -> Re
     })
 }
 
+fn prototype_chain_reaches(proto: &Value, target: &Rc<RefCell<crate::value::ObjMap>>) -> bool {
+    let mut current = proto.clone();
+    for _ in 0..crate::vm::MAX_PROTO_CHAIN {
+        let Value::Object(map) = &current else {
+            return false;
+        };
+        if Rc::ptr_eq(map, target) {
+            return true;
+        }
+        let next = map.borrow().get(crate::value::PROTO_KEY).cloned();
+        current = next.unwrap_or(Value::Null);
+    }
+    true
+}
+
 fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, VmError>> {
     match (name, args) {
         ("Кент.создать", [Value::Class(_)]) => {
@@ -545,6 +560,10 @@ fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, Vm
             if !tagged && !matches!(proto, Value::Class(_)) {
                 return None;
             }
+            if !matches!(proto, Value::Class(_) | Value::Object(_) | Value::Null) || prototype_chain_reaches(proto, map)
+            {
+                return None;
+            }
             let succeeded = name == "Отражение.назначитьПрототип";
             let answer = || if succeeded { Value::Bool(true) } else { args[0].clone() };
             let mut target = map.borrow_mut();
@@ -556,8 +575,7 @@ fn try_class_prototype_op(name: &str, args: &[Value]) -> Option<Result<Value, Vm
             match proto {
                 Value::Class(_) => target.insert(crate::value::CLASS_TAG.to_string(), proto.clone()),
                 Value::Object(_) => target.insert(crate::value::PROTO_KEY.to_string(), proto.clone()),
-                Value::Null => {}
-                _ => return None,
+                _ => {}
             }
             Some(Ok(answer()))
         }
