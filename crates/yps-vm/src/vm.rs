@@ -680,6 +680,11 @@ impl Vm {
                         self.close_for_iter(&rc, span)?;
                     }
                 }
+                Op::Nip => {
+                    let top = self.pop();
+                    self.pop();
+                    self.stack.push(top);
+                }
                 Op::ArrayLen => {
                     let len = match self.peek(0) {
                         Value::Array(a) => a.borrow().len(),

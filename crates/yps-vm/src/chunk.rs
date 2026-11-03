@@ -118,6 +118,7 @@ pub enum Op {
     Pop,
     Dup,
     Dup2,
+    Nip,
     Pick(u32),
 
     Neg,

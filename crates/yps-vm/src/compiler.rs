@@ -2099,18 +2099,54 @@ impl Compiler {
         }
     }
 
-    fn compile_logical_assign(&mut self, op: BinaryOp, lhs: &Expr, rhs: &Expr, span: Span) -> Result<(), CompileError> {
-        self.compile_expr(lhs)?;
-        let short_circuit = match op {
+    fn emit_logical_jump(&mut self, op: BinaryOp, span: Span) -> usize {
+        match op {
             BinaryOp::AndAssign => self.emit(Op::JumpIfFalsePeek(0), span),
             BinaryOp::OrAssign => self.emit(Op::JumpIfTruePeek(0), span),
             BinaryOp::NullishAssign => self.emit(Op::JumpIfNotNullishPeek(0), span),
             _ => unreachable!("compile_logical_assign получил не-логический оператор"),
+        }
+    }
+
+    fn compile_logical_assign(&mut self, op: BinaryOp, lhs: &Expr, rhs: &Expr, span: Span) -> Result<(), CompileError> {
+        let (write, leftovers) = match lhs {
+            Expr::Grouping { expr, .. } => return self.compile_logical_assign(op, expr, rhs, span),
+            Expr::Member { object, property, .. } => {
+                self.compile_expr(object)?;
+                self.emit(Op::Dup, span);
+                let idx = self.str_const(&property.name);
+                self.emit(Op::GetProp(idx), span);
+                (Some(Op::SetProp(idx)), 1)
+            }
+            Expr::Index { object, index, .. } => {
+                self.compile_expr(object)?;
+                self.compile_expr(index)?;
+                self.emit(Op::Dup2, span);
+                self.emit(Op::GetIndex, span);
+                (Some(Op::SetIndex), 2)
+            }
+            _ => {
+                self.compile_expr(lhs)?;
+                (None, 0)
+            }
         };
+        let short_circuit = self.emit_logical_jump(op, span);
         self.emit(Op::Pop, span);
-        self.compile_assign(lhs, rhs, span)?;
+        match write {
+            Some(write) => {
+                self.compile_expr(rhs)?;
+                self.emit(write, span);
+            }
+            None => self.compile_assign(lhs, rhs, span)?,
+        }
+        let done = self.emit(Op::Jump(0), span);
+        let short = self.here();
+        self.cur().chunk.patch_jump(short_circuit, short);
+        for _ in 0..leftovers {
+            self.emit(Op::Nip, span);
+        }
         let end = self.here();
-        self.cur().chunk.patch_jump(short_circuit, end);
+        self.cur().chunk.patch_jump(done, end);
         Ok(())
     }
 

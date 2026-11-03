@@ -4084,6 +4084,21 @@ fn json_follows_the_key_list_order() {
 }
 
 #[test]
+fn compound_assignment_evaluates_its_base_once() {
+    assert_same_as_interpreter(
+        r#"
+        гыы о = { х: 1, у: ноль };
+        гыы счёт = 0;
+        йопта дай() { счёт = счёт + 1; отвечаю о; }
+        дай().х += 1;
+        дай().у ??= 5;
+        сказать(о.х, о.у, счёт);
+        "#,
+        "2 5 2\n",
+    );
+}
+
+#[test]
 fn cyclic_values_are_released_after_crossing_the_bridge() {
     let src = r#"
         го (гыы и = 0; и < 5000; и++) {

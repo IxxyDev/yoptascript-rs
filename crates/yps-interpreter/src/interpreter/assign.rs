@@ -32,6 +32,13 @@ impl Interpreter {
             self.store_index_place(obj, key, result.clone(), span)?;
             return Ok(result);
         }
+        if let Expr::Member { object, property, .. } = lhs {
+            let obj = self.eval_expr(object)?;
+            let old = self.eval_member(obj.clone(), &property.name, span)?;
+            let right = self.eval_expr(rhs)?;
+            let result = self.eval_binary(compound_arith_op(op), old, right, span)?;
+            return self.assign_member(obj, object, property, result, span);
+        }
         let old = self.eval_expr(lhs)?;
         let right = self.eval_expr(rhs)?;
         let result = self.eval_binary(compound_arith_op(op), old, right, span)?;
@@ -54,6 +61,15 @@ impl Interpreter {
             self.store_index_place(obj, key, right.clone(), span)?;
             return Ok(right);
         }
+        if let Expr::Member { object, property, .. } = lhs {
+            let obj = self.eval_expr(object)?;
+            let old = self.eval_member(obj.clone(), &property.name, span)?;
+            if !should_write(&old) {
+                return Ok(old);
+            }
+            let right = self.eval_expr(rhs)?;
+            return self.assign_member(obj, object, property, right, span);
+        }
         let left = self.eval_expr(lhs)?;
         if !should_write(&left) {
             return Ok(left);
@@ -70,34 +86,7 @@ impl Interpreter {
             }
             Expr::Member { object, property, .. } => {
                 let obj_val = self.eval_expr(object)?;
-                if let Some(result) = self.try_call_setter(&obj_val, &property.name, value.clone(), span)? {
-                    return Ok(result);
-                }
-                if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex")
-                    && let Value::RegExp(re) = &obj_val
-                {
-                    let last_index = &re.last_index;
-                    let n = match &value {
-                        Value::Number(n) => *n,
-                        other => {
-                            return Err(RuntimeError::new(
-                                format!("lastIndex требует число, получено '{}'", other.type_name()),
-                                span,
-                            ));
-                        }
-                    };
-                    let idx = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
-                    *last_index.borrow_mut() = idx;
-                    return Ok(value);
-                }
-                if property.name.starts_with('#') {
-                    self.check_private_access_for_set(object, &property.name, span)?;
-                }
-                if self.inherited_data_is_frozen(&obj_val, &property.name) {
-                    return Ok(value);
-                }
-                Self::set_at_path(obj_val, &[AccessSegment::Member(property.name.clone())], value.clone(), span)?;
-                Ok(value)
+                self.assign_member(obj_val, object, property, value, span)
             }
             Expr::Index { object, index, .. } => {
                 let obj = self.eval_expr(object)?;
@@ -214,6 +203,44 @@ impl Interpreter {
             self.assign_to_target(target, val, span)?;
         }
         Ok(())
+    }
+
+    fn assign_member(
+        &mut self,
+        obj_val: Value,
+        object: &Expr,
+        property: &yps_parser::ast::Identifier,
+        value: Value,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(result) = self.try_call_setter(&obj_val, &property.name, value.clone(), span)? {
+            return Ok(result);
+        }
+        if matches!(property.name.as_str(), "последнийИндекс" | "lastIndex")
+            && let Value::RegExp(re) = &obj_val
+        {
+            let last_index = &re.last_index;
+            let n = match &value {
+                Value::Number(n) => *n,
+                other => {
+                    return Err(RuntimeError::new(
+                        format!("lastIndex требует число, получено '{}'", other.type_name()),
+                        span,
+                    ));
+                }
+            };
+            let idx = if n.is_finite() && n >= 0.0 { n as usize } else { 0 };
+            *last_index.borrow_mut() = idx;
+            return Ok(value);
+        }
+        if property.name.starts_with('#') {
+            self.check_private_access_for_set(object, &property.name, span)?;
+        }
+        if self.inherited_data_is_frozen(&obj_val, &property.name) {
+            return Ok(value);
+        }
+        Self::set_at_path(obj_val, &[AccessSegment::Member(property.name.clone())], value.clone(), span)?;
+        Ok(value)
     }
 
     fn inherited_data_is_frozen(&self, obj: &Value, property: &str) -> bool {
