@@ -27,7 +27,7 @@ pub fn parse_str(source: &str, span: Span) -> Result<Value, RuntimeError> {
 }
 
 pub fn call_static(
-    _interp: &mut Interpreter,
+    interp: &mut Interpreter,
     method: &str,
     args: Vec<Value>,
     span: Span,
@@ -40,16 +40,85 @@ pub fn call_static(
         }
         "вСтроку" => {
             require_args(&args, 1, span, "Жсон.вСтроку")?;
-            stringify(&args[0], span)
+            stringify_with_options(interp, &args, span)
         }
         _ => Err(RuntimeError::new(format!("У 'Жсон' нет метода '{method}'"), span)),
     }
 }
 
+#[cfg_attr(test, derive(Default))]
+struct JsonHooks<'a> {
+    interp: Option<&'a mut Interpreter>,
+    replacer: Option<Value>,
+    allowed_keys: Option<Vec<String>>,
+    indent: String,
+}
+
+impl JsonHooks<'_> {
+    fn prepare(&mut self, holder: &Value, key: &str, value: Value, span: Span) -> Result<Value, RuntimeError> {
+        let Some(interp) = self.interp.as_deref_mut() else {
+            return Ok(value);
+        };
+        let mut value = value;
+        if matches!(value, Value::Object(_)) {
+            for name in ["вЖсон", "toJSON"] {
+                let method = interp.host_member_get(value.clone(), name, span)?;
+                if method.is_callable() {
+                    let key = Value::String(key.to_string().into());
+                    value = interp.call_with_this(method, Some(value.clone()), vec![key], span)?;
+                    break;
+                }
+            }
+        }
+        if let Some(replacer) = self.replacer.clone() {
+            let key = Value::String(key.to_string().into());
+            value = interp.call_with_this(replacer, Some(holder.clone()), vec![key, value], span)?;
+        }
+        Ok(value)
+    }
+
+    fn newline(&self, out: &mut String, depth: usize) {
+        if !self.indent.is_empty() {
+            out.push('\n');
+            for _ in 0..depth {
+                out.push_str(&self.indent);
+            }
+        }
+    }
+}
+
+fn indent_from(space: Option<&Value>) -> String {
+    match space {
+        Some(Value::Number(n)) if *n >= 1.0 => " ".repeat(n.min(10.0) as usize),
+        Some(Value::String(s)) => s.chars().take(10).collect(),
+        _ => String::new(),
+    }
+}
+
+fn stringify_with_options(interp: &mut Interpreter, args: &[Value], span: Span) -> Result<Value, RuntimeError> {
+    let (replacer, allowed_keys) = match args.get(1) {
+        Some(Value::Array(keys)) => (None, Some(keys.borrow().0.iter().map(ToString::to_string).collect())),
+        Some(callable) if callable.is_callable() => (Some(callable.clone()), None),
+        _ => (None, None),
+    };
+    let indent = indent_from(args.get(2));
+    let mut hooks = JsonHooks { interp: Some(interp), replacer, allowed_keys, indent };
+    let mut holder = indexmap::IndexMap::new();
+    holder.insert(String::new(), args[0].clone());
+    let value = hooks.prepare(&Value::object(holder), "", args[0].clone(), span)?;
+    if matches!(value, Value::Undefined) {
+        return Ok(Value::Undefined);
+    }
+    let mut out = String::new();
+    stringify_into(&value, &mut out, span, &mut HashSet::new(), 0, &mut hooks)?;
+    Ok(Value::String(out.into()))
+}
+
+#[cfg(test)]
 fn stringify(v: &Value, span: Span) -> Result<Value, RuntimeError> {
     let mut out = String::new();
     let mut seen: HashSet<*const ()> = HashSet::new();
-    stringify_into(v, &mut out, span, &mut seen, 0)?;
+    stringify_into(v, &mut out, span, &mut seen, 0, &mut JsonHooks::default())?;
     Ok(Value::String(out.into()))
 }
 
@@ -59,6 +128,7 @@ fn stringify_into(
     span: Span,
     seen: &mut HashSet<*const ()>,
     depth: usize,
+    hooks: &mut JsonHooks<'_>,
 ) -> Result<(), RuntimeError> {
     if depth >= MAX_JSON_DEPTH {
         return Err(RuntimeError::new("Превышена максимальная глубина вложенности JSON", span));
@@ -87,7 +157,12 @@ fn stringify_into(
                 if i > 0 {
                     out.push(',');
                 }
-                stringify_into(el, out, span, seen, depth + 1)?;
+                hooks.newline(out, depth + 1);
+                let el = hooks.prepare(v, &i.to_string(), el.clone(), span)?;
+                stringify_into(&el, out, span, seen, depth + 1, hooks)?;
+            }
+            if !snapshot.is_empty() {
+                hooks.newline(out, depth);
             }
             out.push(']');
             seen.remove(&ptr);
@@ -104,6 +179,10 @@ fn stringify_into(
                 if symbols::is_internal_key(k) {
                     continue;
                 }
+                if hooks.allowed_keys.as_ref().is_some_and(|keys| !keys.contains(k)) {
+                    continue;
+                }
+                let val = hooks.prepare(v, k, val.clone(), span)?;
                 if matches!(val, Value::Function(_) | Value::BuiltinFunction(_) | Value::Undefined) {
                     continue;
                 }
@@ -111,9 +190,16 @@ fn stringify_into(
                     out.push(',');
                 }
                 first = false;
+                hooks.newline(out, depth + 1);
                 write_json_string(out, k);
                 out.push(':');
-                stringify_into(val, out, span, seen, depth + 1)?;
+                if !hooks.indent.is_empty() {
+                    out.push(' ');
+                }
+                stringify_into(&val, out, span, seen, depth + 1, hooks)?;
+            }
+            if !first {
+                hooks.newline(out, depth);
             }
             out.push('}');
             seen.remove(&ptr);
@@ -174,7 +260,7 @@ fn stringify_into(
                     out.push(',');
                 }
                 let num = kind.read_le(&bytes, offset + i * size);
-                stringify_into(&Value::Number(num), out, span, seen, depth + 1)?;
+                stringify_into(&Value::Number(num), out, span, seen, depth + 1, hooks)?;
             }
             out.push(']');
         }
@@ -192,7 +278,7 @@ fn stringify_into(
         | Value::AbortRejectPromise { .. } => {
             return Err(RuntimeError::new("КонтроллёрОтмены/СигналОтмены нельзя сериализовать в JSON", span));
         }
-        Value::Proxy { target, .. } => stringify_into(target, out, span, seen, depth + 1)?,
+        Value::Proxy { target, .. } => stringify_into(target, out, span, seen, depth + 1, hooks)?,
     }
     Ok(())
 }
