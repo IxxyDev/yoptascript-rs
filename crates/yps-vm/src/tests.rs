@@ -4038,3 +4038,18 @@ fn callback_can_recurse_through_the_stdlib() {
         "2\n",
     );
 }
+
+#[test]
+fn sorting_an_array_is_seen_by_the_stdlib() {
+    assert_same_as_interpreter(
+        r#"
+        гыы м = [3, 1, 2];
+        сказать(Жсон.вСтроку(м));
+        м.сортировать();
+        сказать(Жсон.вСтроку(м));
+        м.вырезать(0, 1);
+        сказать(Жсон.вСтроку(м));
+        "#,
+        "[3,1,2]\n[1,2,3]\n[2,3]\n",
+    );
+}
