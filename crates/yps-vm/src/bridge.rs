@@ -449,6 +449,11 @@ pub(crate) fn mark_bridge_roots(marker: &mut crate::gc::Marker) {
             marker.push_value(value);
         }
     });
+    CROSSED.with(|c| {
+        for entry in c.borrow().values() {
+            marker.push_value(&entry.vm_value);
+        }
+    });
 }
 
 fn active_vm(span: Span) -> Result<*mut Vm, yps_interpreter::RuntimeError> {
