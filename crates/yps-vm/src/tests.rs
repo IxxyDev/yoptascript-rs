@@ -4072,3 +4072,19 @@ fn changing_the_prototype_of_an_instance_replaces_its_class() {
         "п false true\nл true false\nнеопределено null\n",
     );
 }
+
+#[test]
+fn cyclic_values_are_released_after_crossing_the_bridge() {
+    let src = r#"
+        го (гыы и = 0; и < 5000; и++) {
+            гыы а = { н: и };
+            а.я = а;
+            Кент.заморожен(а);
+            Отражение.установить(а, "м", 1);
+        }
+        сказать("конец");
+    "#;
+    assert_eq!(run(src), "конец\n");
+    let anchors = crate::bridge::anchor_count();
+    assert!(anchors < 2500, "якорей осталось: {anchors}");
+}

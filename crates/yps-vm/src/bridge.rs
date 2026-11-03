@@ -94,7 +94,6 @@ thread_local! {
 }
 
 const STACK_RED_ZONE: usize = 256 * 1024;
-const ANCHORED_STORE_HOLDERS: usize = 2;
 const PAIRED_STORE_HOLDERS: usize = 2;
 const STACK_GROW_SIZE: usize = 8 * 1024 * 1024;
 
@@ -110,6 +109,53 @@ fn cached_identity(ptr: usize) -> Option<IValue> {
             None => None,
         }
     })
+}
+
+fn store_children(store: &IValue) -> Vec<IValue> {
+    match store {
+        IValue::Array(rc) => rc.try_borrow().map(|a| a.0.clone()).unwrap_or_default(),
+        IValue::Object(rc) => rc.try_borrow().map(|o| o.map.values().cloned().collect()).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn stores_held_from_outside(cache: &HashMap<usize, (CacheKeepalive, IValue)>) -> HashSet<usize> {
+    let anchors: HashSet<usize> = ANCHORS.with(|a| a.borrow().keys().copied().collect());
+    let known: HashMap<usize, &IValue> =
+        cache.values().filter_map(|(_, store)| store_ptr(store).map(|ptr| (ptr, store))).collect();
+    let mut inner_edges: HashMap<usize, usize> = HashMap::new();
+    for store in known.values() {
+        for child in store_children(store) {
+            if let Some(ptr) = store_ptr(&child)
+                && known.contains_key(&ptr)
+            {
+                *inner_edges.entry(ptr).or_default() += 1;
+            }
+        }
+    }
+    let mut pending: Vec<usize> = known
+        .iter()
+        .filter(|(ptr, store)| {
+            let bridge_holders = 1 + usize::from(anchors.contains(*ptr));
+            let inner = inner_edges.get(*ptr).copied().unwrap_or(0);
+            store_holders(store) > bridge_holders + inner
+        })
+        .map(|(ptr, _)| *ptr)
+        .collect();
+    let mut held: HashSet<usize> = HashSet::new();
+    while let Some(ptr) = pending.pop() {
+        if held.insert(ptr)
+            && let Some(store) = known.get(&ptr)
+        {
+            pending.extend(store_children(store).iter().filter_map(store_ptr));
+        }
+    }
+    held
+}
+
+#[cfg(test)]
+pub(crate) fn anchor_count() -> usize {
+    ANCHORS.with(|a| a.borrow().len())
 }
 
 fn store_holders(store: &IValue) -> usize {
@@ -148,7 +194,8 @@ fn store_identity(ptr: usize, keepalive: CacheKeepalive, value: IValue) {
             cache.retain(|_, (k, _)| k.is_alive());
             VM_BY_STORE.with(|m| m.borrow_mut().retain(|_, k| k.is_alive()));
             SYNCED_AT.with(|m| m.borrow_mut().retain(|ptr, _| cache.contains_key(ptr)));
-            ANCHORS.with(|a| a.borrow_mut().retain(|_, (store, _)| store_holders(store) > ANCHORED_STORE_HOLDERS));
+            let held = stores_held_from_outside(&cache);
+            ANCHORS.with(|a| a.borrow_mut().retain(|ptr, _| held.contains(ptr)));
             let live = cache.len();
             let new_threshold = std::cmp::max(IDENTITY_CACHE_PRUNE_THRESHOLD, 2 * live);
             IDENTITY_CACHE_PRUNE_AT.with(|t| t.set(new_threshold));
