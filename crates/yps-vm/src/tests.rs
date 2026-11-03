@@ -4300,3 +4300,15 @@ fn collector_keeps_values_of_a_crossing_in_progress() {
         "1 [1, 2]\n",
     );
 }
+
+#[test]
+fn generator_step_does_not_leak_its_this_into_a_callback() {
+    let src = r#"
+        пиздюли г() {
+            Кент.группировать([1], йопта (х) { сказать(чезажижан тырыпыры); отвечаю 1; });
+            поебалу 1;
+        }
+        сказать(Итератор.от(г()).вМассив());
+    "#;
+    assert_eq!(run(src), "неопределено\n[1]\n");
+}

@@ -962,6 +962,7 @@ type GeneratorStep = fn(&mut Vm, &Rc<RefCell<crate::value::GenState>>, Value, Sp
 fn generator_method(generator: &Rc<RefCell<crate::value::GenState>>, step: GeneratorStep) -> IValue {
     let held = Rc::clone(generator);
     let marker = yps_interpreter::host_callback::register(Box::new(move |iargs, span| {
+        let _ = yps_interpreter::host_callback::take_call_this();
         let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
         let sent = match iargs.first() {
             Some(arg) => interp_to_vm(arg).map_err(|m| yps_interpreter::RuntimeError::new(m, span))?,
