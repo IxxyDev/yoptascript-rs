@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`f().х = 1` (interpreter)** — any expression can be the base of a property
   assignment, and the object of an assignment is evaluated once.
 - **Method identity (interpreter)** — `э.м === э.м` is now `true`.
+- **Arrows in object literals (`--vm`)** — they no longer bind their own `тырыпыры`.
+- **Assignment base (both)** — `f().х += 1` and `f().х ??= 1` evaluate `f()` once.
 - **Closures over suspended locals (`--vm`)** — a closure called while the
   generator or `ассо` function owning its variable was suspended read an
   unrelated value and lost its writes; so did a closure over a caller's local
