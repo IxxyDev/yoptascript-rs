@@ -407,7 +407,7 @@ fn active_vm(span: Span) -> Result<*mut Vm, yps_interpreter::RuntimeError> {
     Ok(vm_ptr)
 }
 
-pub(crate) fn listen_for_abort(state: &SignalState, mut on_abort: impl FnMut(&mut Vm, Span) + 'static) -> u64 {
+pub(crate) fn listen_for_abort(state: &SignalState, on_abort: impl Fn(&mut Vm, Span) + 'static) -> u64 {
     let marker = yps_interpreter::host_callback::register(Box::new(move |_, span| {
         let vm: &mut Vm = unsafe { &mut *active_vm(span)? };
         on_abort(vm, span);

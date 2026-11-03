@@ -8,10 +8,10 @@ use crate::value::Value;
 
 pub const HOST_CALLBACK_PREFIX: &str = "__host_cb__";
 
-pub type HostCallbackFn = Box<dyn FnMut(Vec<Value>, Span) -> Result<Value, RuntimeError>>;
+pub type HostCallbackFn = Box<dyn Fn(Vec<Value>, Span) -> Result<Value, RuntimeError>>;
 
 thread_local! {
-    static REGISTRY: RefCell<HashMap<u64, HostCallbackFn>> = RefCell::new(HashMap::new());
+    static REGISTRY: RefCell<HashMap<u64, std::rc::Rc<HostCallbackFn>>> = RefCell::new(HashMap::new());
     static NEXT_ID: RefCell<u64> = const { RefCell::new(0) };
 }
 
@@ -36,7 +36,7 @@ pub fn register(callback: HostCallbackFn) -> String {
         *n += 1;
         id
     });
-    REGISTRY.with(|r| r.borrow_mut().insert(id, callback));
+    REGISTRY.with(|r| r.borrow_mut().insert(id, std::rc::Rc::new(callback)));
     format!("{HOST_CALLBACK_PREFIX}{id}")
 }
 
@@ -57,11 +57,10 @@ fn parse_id(name: &str) -> Option<u64> {
 
 pub fn invoke(name: &str, args: Vec<Value>, span: Span) -> Option<Result<Value, RuntimeError>> {
     let id = parse_id(name)?;
-    let cb = REGISTRY.with(|r| r.borrow_mut().remove(&id));
-    let Some(mut cb) = cb else {
+    let cb = REGISTRY.with(|r| r.borrow().get(&id).cloned());
+    let Some(cb) = cb else {
         return Some(Err(RuntimeError::new("хост-замыкание VM уже недоступно", span)));
     };
     let result = cb(args, span);
-    REGISTRY.with(|r| r.borrow_mut().insert(id, cb));
     Some(result)
 }
