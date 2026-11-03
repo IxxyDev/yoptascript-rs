@@ -2513,7 +2513,9 @@ impl Vm {
     ) -> Result<Value, VmError> {
         match callee {
             Value::Function(closure) => {
-                if closure.proto.is_async {
+                if closure.proto.is_generator {
+                    Ok(self.make_generator(closure, this.unwrap_or(Value::Undefined), None, args.to_vec()))
+                } else if closure.proto.is_async {
                     Ok(self.spawn_async(closure, this, None, args.to_vec()))
                 } else {
                     self.call_closure_sync(closure, this, None, args, span)

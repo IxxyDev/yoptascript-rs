@@ -166,7 +166,13 @@ impl<'a> Parser<'a> {
         if matches!(self.current().kind, TokenKind::Punctuation(PunctuationKind::LBrace)) {
             let body = self.parse_function_body_block()?;
             let end = body.span.end;
-            Ok(Expr::ArrowFunction { params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
+            Ok(Expr::ArrowFunction {
+                is_method: false,
+                params: params.into(),
+                body: Rc::new(body),
+                is_async,
+                span: Span { start, end },
+            })
         } else {
             let expr = self.parse_expr()?;
             let end = expr.span().end;
@@ -174,7 +180,13 @@ impl<'a> Parser<'a> {
                 stmts: vec![Stmt::Return { value: Some(expr), span: Span { start, end } }],
                 span: Span { start, end },
             };
-            Ok(Expr::ArrowFunction { params: params.into(), body: Rc::new(body), is_async, span: Span { start, end } })
+            Ok(Expr::ArrowFunction {
+                is_method: false,
+                params: params.into(),
+                body: Rc::new(body),
+                is_async,
+                span: Span { start, end },
+            })
         }
     }
 

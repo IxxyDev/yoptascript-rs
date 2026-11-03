@@ -563,6 +563,7 @@ pub struct FunctionData {
     pub env: Rc<RefCell<EnvFrame>>,
     pub is_generator: bool,
     pub is_async: bool,
+    pub is_arrow: bool,
 }
 
 pub struct RegExpData {

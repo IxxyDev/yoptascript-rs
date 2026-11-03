@@ -320,7 +320,7 @@ impl Interpreter {
                 let cond = self.eval_expr(condition)?;
                 if cond.is_truthy() { self.eval_expr(then_expr) } else { self.eval_expr(else_expr) }
             }
-            Expr::ArrowFunction { params, body, is_async, .. } => {
+            Expr::ArrowFunction { params, body, is_async, is_method, .. } => {
                 let func = Value::Function(Rc::new(FunctionData {
                     name: Rc::from(""),
                     params: params.clone(),
@@ -328,6 +328,7 @@ impl Interpreter {
                     env: self.env.snapshot(),
                     is_generator: false,
                     is_async: *is_async,
+                    is_arrow: !*is_method,
                 }));
                 Ok(func)
             }
@@ -345,6 +346,7 @@ impl Interpreter {
                         env: fn_env.snapshot(),
                         is_generator: *is_generator,
                         is_async: *is_async,
+                        is_arrow: false,
                     }));
                     fn_env.define(&ident.name, func.clone(), false);
                     Ok(func)
@@ -356,6 +358,7 @@ impl Interpreter {
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
+                    is_arrow: false,
                 }))),
             },
             Expr::Await { argument, span } => {
@@ -557,6 +560,7 @@ impl Interpreter {
                                 env: self.env.snapshot(),
                                 is_generator: false,
                                 is_async: false,
+                                is_arrow: false,
                             }));
                             map.insert(symbols::getter_key(&key_str), getter_fn);
                         }
@@ -569,6 +573,7 @@ impl Interpreter {
                                 env: self.env.snapshot(),
                                 is_generator: false,
                                 is_async: false,
+                                is_arrow: false,
                             }));
                             map.insert(symbols::setter_key(&key_str), setter_fn);
                         }

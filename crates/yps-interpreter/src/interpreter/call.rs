@@ -103,6 +103,9 @@ impl Interpreter {
                 let saved_env = self.env.clone();
                 self.env = Environment::from_snapshot(env, self.env.registry());
                 let slotted = self.push_scope_keyed(body.span.start);
+                if let Some(this) = self.pending_call_this.take() {
+                    self.env.define(symbols::THIS, this, false);
+                }
 
                 if let Err(e) = self.bind_params(&params, &args, true, span) {
                     self.env = saved_env;

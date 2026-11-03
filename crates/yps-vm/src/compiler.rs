@@ -1526,7 +1526,9 @@ impl Compiler {
                 self.emit(Op::GetProp(idx), *span);
                 Ok(())
             }
-            Expr::ArrowFunction { params, body, is_async, span } => self.compile_arrow(params, body, *is_async, *span),
+            Expr::ArrowFunction { params, body, is_async, span, .. } => {
+                self.compile_arrow(params, body, *is_async, *span)
+            }
             Expr::FunctionExpr { name, params, body, is_generator, is_async, span } => {
                 let fname = name.as_ref().map(|n| n.name.as_str()).unwrap_or("");
                 self.compile_named_callable(fname, params, body, *is_generator, *is_async, *span)
@@ -1722,7 +1724,7 @@ impl Compiler {
     }
 
     fn compile_object_value(&mut self, value: &Expr) -> Result<(), CompileError> {
-        if let Expr::ArrowFunction { params, body, is_async, span } = value {
+        if let Expr::ArrowFunction { params, body, is_async, span, is_method: true } = value {
             return self.compile_function("", params, body, *is_async, *span);
         }
         self.compile_expr(value)

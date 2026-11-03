@@ -23,6 +23,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         match func {
+            Value::Function(fdata) if fdata.is_arrow => self.call_function(Value::Function(fdata), args, span),
+            Value::Function(fdata) if fdata.is_generator || fdata.is_async => {
+                self.pending_call_this = this;
+                self.call_function(Value::Function(fdata), args, span)
+            }
             Value::Function(fdata) => {
                 self.call_method_with_this(fdata.name.clone(), &fdata.params, &fdata.body, &fdata.env, args, this, span)
             }

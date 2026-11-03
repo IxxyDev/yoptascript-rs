@@ -98,6 +98,7 @@ pub enum Expr {
         params: Rc<[Param]>,
         body: Rc<Block>,
         is_async: bool,
+        is_method: bool,
         span: Span,
     },
 

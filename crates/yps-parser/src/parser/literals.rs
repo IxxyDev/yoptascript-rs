@@ -321,6 +321,7 @@ impl<'a> Parser<'a> {
                         let body = self.parse_function_body_block()?;
                         let func_span = body.span;
                         let value = Expr::ArrowFunction {
+                            is_method: true,
                             params: params.into(),
                             body: Rc::new(body),
                             is_async: false,
@@ -400,6 +401,7 @@ impl<'a> Parser<'a> {
                         let body = self.parse_function_body_block()?;
                         let func_span = Span { start: key.span.start, end: body.span.end };
                         let value = Expr::ArrowFunction {
+                            is_method: true,
                             params: params.into(),
                             body: Rc::new(body),
                             is_async: false,

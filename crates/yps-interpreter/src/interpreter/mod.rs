@@ -79,6 +79,7 @@ pub struct Interpreter {
     pub(super) stdin_blocked: Option<String>,
     pub(super) step_budget: Option<u64>,
     pub(super) sources: Option<Rc<RefCell<yps_lexer::Sources>>>,
+    pub(super) pending_call_this: Option<Value>,
 }
 
 pub(super) const MAX_AWAIT_DEPTH: usize = 16;
@@ -132,6 +133,7 @@ impl Interpreter {
             stdin_blocked: None,
             step_budget: None,
             sources: None,
+            pending_call_this: None,
         }
     }
 

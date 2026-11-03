@@ -199,6 +199,7 @@ impl Interpreter {
                         env: Rc::clone(env),
                         is_generator: false,
                         is_async: false,
+                        is_arrow: false,
                     })));
                 }
                 Ok(Value::Undefined)
@@ -349,6 +350,7 @@ impl Interpreter {
                             env: Rc::clone(env),
                             is_generator: false,
                             is_async: false,
+                            is_arrow: false,
                         })),
                     );
                 }

@@ -183,6 +183,7 @@ impl Interpreter {
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
+                        is_arrow: false,
                     }));
                     let (decorated, inits) = self.apply_member_decorators(
                         method_fn,
@@ -217,6 +218,7 @@ impl Interpreter {
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
+                        is_arrow: false,
                     }));
                     let (decorated, inits) = self.apply_member_decorators(
                         getter_fn,
@@ -251,6 +253,7 @@ impl Interpreter {
                         env: self.env.snapshot(),
                         is_generator: false,
                         is_async: false,
+                        is_arrow: false,
                     }));
                     let (decorated, inits) = self.apply_member_decorators(
                         setter_fn,

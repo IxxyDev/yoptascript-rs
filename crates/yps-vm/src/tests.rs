@@ -4055,6 +4055,26 @@ fn sorting_an_array_is_seen_by_the_stdlib() {
 }
 
 #[test]
+fn stdlib_keeps_the_this_of_arrows_and_runs_generators_and_async() {
+    assert_same_as_interpreter(
+        r#"
+        клёво К {
+            К() { тырыпыры.и = 7; }
+            п() { сказать(Посредник({}, { получить: (ц, к) => тырыпыры.и }).х); }
+        }
+        захуярить К().п();
+        пиздюли г() { поебалу 1; }
+        сказать(Отражение.применить(г, ноль, []).следующий().значение);
+        гыы а = ассо йопта() { отвечаю 5; };
+        Отражение.применить(а, ноль, []).потом((з) => сказать(з));
+        гыы б = { х: 3, ф: () => 9 };
+        сказать(б.ф());
+        "#,
+        "7\n1\n9\n5\n",
+    );
+}
+
+#[test]
 fn loop_iterator_is_closed_on_return_and_throw_and_keeps_the_throw() {
     assert_same_as_interpreter(
         r#"

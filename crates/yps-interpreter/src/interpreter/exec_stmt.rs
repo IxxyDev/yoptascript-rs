@@ -114,6 +114,7 @@ impl Interpreter {
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
+                    is_arrow: false,
                 }));
                 self.env.define(&name.name, func, false);
                 Ok(None)
@@ -397,6 +398,7 @@ impl Interpreter {
                     env: self.env.snapshot(),
                     is_generator: *is_generator,
                     is_async: *is_async,
+                    is_arrow: false,
                 }));
                 self.env.define(&name.name, func, false);
             }
