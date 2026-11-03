@@ -307,6 +307,9 @@ impl Marker {
     }
 
     fn mark_class(&mut self, class: &ClassDef) {
+        if let Some(prototype) = class.prototype_cache.get() {
+            self.push_value(prototype);
+        }
         for method in class
             .constructor
             .iter()
