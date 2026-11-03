@@ -97,7 +97,15 @@ fn indent_from(space: Option<&Value>) -> String {
 
 fn stringify_with_options(interp: &mut Interpreter, args: &[Value], span: Span) -> Result<Value, RuntimeError> {
     let (replacer, allowed_keys) = match args.get(1) {
-        Some(Value::Array(keys)) => (None, Some(keys.borrow().0.iter().map(ToString::to_string).collect())),
+        Some(Value::Array(keys)) => {
+            let mut unique: Vec<String> = Vec::new();
+            for key in keys.borrow().0.iter().map(ToString::to_string) {
+                if !unique.contains(&key) {
+                    unique.push(key);
+                }
+            }
+            (None, Some(unique))
+        }
         Some(callable) if callable.is_callable() => (Some(callable.clone()), None),
         _ => (None, None),
     };
@@ -172,14 +180,16 @@ fn stringify_into(
             if !seen.insert(ptr) {
                 return Err(RuntimeError::new("Циклическая структура не может быть сериализована в JSON", span));
             }
-            let snapshot: Vec<(String, Value)> = map.borrow().iter().map(|(k, val)| (k.clone(), val.clone())).collect();
+            let mut snapshot: Vec<(String, Value)> =
+                map.borrow().iter().map(|(k, val)| (k.clone(), val.clone())).collect();
+            if let Some(keys) = &hooks.allowed_keys {
+                snapshot =
+                    keys.iter().filter_map(|key| map.borrow().get(key).map(|val| (key.clone(), val.clone()))).collect();
+            }
             out.push('{');
             let mut first = true;
             for (k, val) in snapshot.iter() {
                 if symbols::is_internal_key(k) {
-                    continue;
-                }
-                if hooks.allowed_keys.as_ref().is_some_and(|keys| !keys.contains(k)) {
                     continue;
                 }
                 let val = hooks.prepare(v, k, val.clone(), span)?;

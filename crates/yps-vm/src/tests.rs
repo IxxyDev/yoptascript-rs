@@ -4074,6 +4074,16 @@ fn changing_the_prototype_of_an_instance_replaces_its_class() {
 }
 
 #[test]
+fn json_follows_the_key_list_order() {
+    assert_same_as_interpreter(
+        r#"
+        сказать(Жсон.вСтроку({ а: 1, б: 2 }, ["б", "а", "б"]));
+        "#,
+        "{\"б\":2,\"а\":1}\n",
+    );
+}
+
+#[test]
 fn cyclic_values_are_released_after_crossing_the_bridge() {
     let src = r#"
         го (гыы и = 0; и < 5000; и++) {
