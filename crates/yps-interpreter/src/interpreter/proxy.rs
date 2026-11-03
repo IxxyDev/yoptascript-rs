@@ -293,6 +293,7 @@ fn default_own_keys(target: &Value) -> Vec<Value> {
             .keys()
             .filter(|k| !crate::symbols::is_internal_key(k) && !k.starts_with('#'))
             .map(|k| Value::String(k.clone().into()))
+            .chain(map.borrow().keys().filter_map(|k| crate::stdlib::symbol::from_key(k)))
             .collect(),
         Value::Array(arr) => {
             let mut keys: Vec<Value> = (0..arr.borrow().len()).map(|i| Value::String(i.to_string().into())).collect();

@@ -146,10 +146,10 @@ pub fn call_static(
         }
         "имеетСвоё" => {
             require_args(&args, 2, span, "Кент.имеетСвоё")?;
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             match &args[0] {
                 Value::Object(map) => {
-                    let has = if symbols::is_internal_key(&key) {
+                    let has = if !symbols::is_copied_key(&key) {
                         false
                     } else {
                         let guard = map.borrow();
@@ -354,14 +354,14 @@ pub fn call_static(
             require_args(&args, 3, span, "Кент.определитьСвойство")?;
             if let Value::Proxy { target, handler } = &args[0] {
                 let (t, h) = ((**target).clone(), (**handler).clone());
-                let key = args[1].to_string();
+                let key = crate::interpreter::coercion::property_key(&args[1]);
                 let descriptor = args[2].clone();
                 interp.proxy_define_property(&t, &h, &key, descriptor, span)?;
                 return Ok(args.into_iter().next().unwrap());
             }
             let mut iter = args.into_iter();
             let target = iter.next().unwrap();
-            let key = iter.next().unwrap().to_string();
+            let key = crate::interpreter::coercion::property_key(&iter.next().unwrap());
             let descriptor = iter.next().unwrap();
             let target_rc = match &target {
                 Value::Object(m) => m.clone(),
@@ -402,13 +402,13 @@ pub fn call_static(
         }
         "описатьСвойство" => {
             require_args(&args, 2, span, "Кент.описатьСвойство")?;
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             if let Value::Proxy { target, handler } = &args[0] {
                 let (t, h) = ((**target).clone(), (**handler).clone());
                 return interp.proxy_get_own_property_descriptor(&t, &h, &key, span);
             }
             match &args[0] {
-                Value::Object(map) if !symbols::is_internal_key(&key) => {
+                Value::Object(map) if symbols::is_copied_key(&key) => {
                     Ok(describe_property_impl(&map.borrow(), &key).unwrap_or(Value::Undefined))
                 }
                 Value::Object(_) => Ok(Value::Undefined),

@@ -46,6 +46,11 @@ pub fn symbol_key(id: u64) -> String {
 }
 
 #[must_use]
+pub fn symbol_id_of_key(k: &str) -> Option<u64> {
+    k.strip_prefix(SYMBOL_KEY_PREFIX).and_then(|id| id.parse().ok())
+}
+
+#[must_use]
 pub fn is_symbol_key(k: &str) -> bool {
     k.starts_with(SYMBOL_KEY_PREFIX)
 }

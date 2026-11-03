@@ -35,26 +35,26 @@ pub fn call_static(
         "получить" => {
             require_args(&args, 2, span, "Отражение.получить")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             reflect_get(interp, obj, &key, span)
         }
         "установить" => {
             require_args(&args, 3, span, "Отражение.установить")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             let value = args[2].clone();
             reflect_set(interp, obj, &key, value, span)
         }
         "есть" => {
             require_args(&args, 2, span, "Отражение.есть")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             reflect_has(interp, obj, &key, span)
         }
         "удалить" => {
             require_args(&args, 2, span, "Отражение.удалить")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             reflect_delete(interp, obj, &key, span)
         }
         "прототипОт" => {
@@ -74,14 +74,14 @@ pub fn call_static(
         "определитьСвойство" => {
             require_args(&args, 3, span, "Отражение.определитьСвойство")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             let descriptor = args[2].clone();
             reflect_define_property(interp, obj, &key, descriptor, span)
         }
         "описатьСвойство" => {
             require_args(&args, 2, span, "Отражение.описатьСвойство")?;
             let obj = args[0].clone();
-            let key = args[1].to_string();
+            let key = crate::interpreter::coercion::property_key(&args[1]);
             reflect_get_own_property_descriptor(interp, obj, &key, span)
         }
         "расширяем" => {
@@ -294,6 +294,7 @@ fn reflect_own_keys(interp: &mut Interpreter, obj: Value, span: Span) -> Result<
                 .keys()
                 .filter(|k| !symbols::is_internal_key(k) && !k.starts_with('#'))
                 .map(|k| Value::String(k.clone().into()))
+                .chain(map.borrow().keys().filter_map(|k| crate::stdlib::symbol::from_key(k)))
                 .collect();
             Ok(Value::array(keys))
         }

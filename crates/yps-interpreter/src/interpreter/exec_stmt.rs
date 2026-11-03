@@ -137,7 +137,12 @@ impl Interpreter {
                         crate::stdlib::typed_array::ta_elements(&ta.buffer, ta.offset, ta.length, ta.kind)
                     }
                     Value::Proxy { target, handler } => self.proxy_own_keys(&target, &handler, *span)?,
-                    Value::Object(map) => map.borrow().keys().map(|k| Value::String(k.clone().into())).collect(),
+                    Value::Object(map) => map
+                        .borrow()
+                        .keys()
+                        .filter(|k| !crate::symbols::is_internal_key(k))
+                        .map(|k| Value::String(k.clone().into()))
+                        .collect(),
                     other => {
                         return Err(RuntimeError::new(
                             format!("Нельзя итерировать по типу '{}'", other.type_name()),

@@ -42,13 +42,37 @@ pub fn well_known(property: &str) -> Option<Value> {
     Some(Value::Symbol { description: Some(Rc::from(desc)), id })
 }
 
+thread_local! {
+    static DESCRIPTIONS: std::cell::RefCell<std::collections::HashMap<u64, Option<Rc<str>>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+const WELL_KNOWN_NAMES: [&str; 6] =
+    ["итератор", "асинхИтератор", "вПримитив", "строковыйТег", symbols::DISPOSE_METHOD, symbols::ASYNC_DISPOSE_METHOD];
+
+#[must_use]
+pub fn from_key(key: &str) -> Option<Value> {
+    let id = symbols::symbol_id_of_key(key)?;
+    let well_known_symbol = WELL_KNOWN_NAMES
+        .iter()
+        .filter_map(|name| well_known(name))
+        .find(|symbol| matches!(symbol, Value::Symbol { id: known, .. } if *known == id));
+    if well_known_symbol.is_some() {
+        return well_known_symbol;
+    }
+    let description = DESCRIPTIONS.with(|d| d.borrow().get(&id).cloned()).flatten();
+    Some(Value::Symbol { description, id })
+}
+
 pub fn construct(args: Vec<Value>, _span: Span) -> Result<Value, RuntimeError> {
     let description = match args.into_iter().next() {
         Some(Value::Undefined) | None => None,
         Some(Value::String(s)) => Some(s),
         Some(other) => Some(Rc::from(other.to_string())),
     };
-    Ok(Value::Symbol { description, id: fresh_id() })
+    let id = fresh_id();
+    DESCRIPTIONS.with(|d| d.borrow_mut().insert(id, description.clone()));
+    Ok(Value::Symbol { description, id })
 }
 
 pub fn call_static(
