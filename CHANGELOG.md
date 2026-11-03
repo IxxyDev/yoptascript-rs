@@ -96,6 +96,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists the two programs that cannot match with the reason for each.
 - Every conformance case has a Node mirror, so none is unchecked against Node.
 
+### Known issues
+
+- **The two backends still differ on edge cases.** Error texts and stack traces
+  differ throughout.
+  - Under `--vm`: labels on for-of loops and `яга.х = 1` are rejected at compile
+    time, `сказать` can print a stale copy of an object held in a `Карта` or
+    `Набор`, `харэ` exhausts a `Карта` iterator, and a write to a class prototype
+    reached through `Посредник` does not change method calls.
+  - In the interpreter: `о[1] = х` fails on objects, `го сидетьНахуй` rejects sync
+    iterables, for-of over a user iterable fails inside a generator, `двигай` in
+    `тюряжка` does not cancel `отвечаю`, an arrow called as `о.ф()` receives `о` as
+    `тырыпыры`, and `б().х = з()` evaluates `з()` before `б()`.
+- **Bridge memory.** Callbacks and generators that cross into the stdlib under
+  `--vm` stay alive until the program ends.
+
 ## [1.17.6] - 2026-10-29
 
 ### Fixed
