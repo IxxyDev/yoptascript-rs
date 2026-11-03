@@ -768,12 +768,17 @@ fn convert_args(name: &str, args: &[Value], span: Span) -> Result<Vec<IValue>, V
 }
 
 fn record_crossing(vm_value: Value, store: IValue, snapshot: Snapshot) {
-    if !is_recording() {
-        return;
-    }
     let Some(ptr) = store_ptr(&store) else {
         return;
     };
+    if !is_recording() {
+        CROSSED.with(|c| {
+            if let Some(entry) = c.borrow_mut().get_mut(&ptr) {
+                entry.snapshot = snapshot;
+            }
+        });
+        return;
+    }
     CROSSED.with(|c| c.borrow_mut().insert(ptr, Crossed { vm_value, store, snapshot }));
     CROSSED_LOG.with(|l| l.borrow_mut().push(ptr));
 }

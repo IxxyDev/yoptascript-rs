@@ -4185,3 +4185,26 @@ fn cyclic_values_are_released_after_crossing_the_bridge() {
     let anchors = crate::bridge::anchor_count();
     assert!(anchors < 2500, "якорей осталось: {anchors}");
 }
+
+#[test]
+fn writes_after_a_read_only_call_inside_a_callback_are_kept() {
+    assert_same_as_interpreter(
+        r#"
+        гыы п = { x: 1 };
+        гыы м = [];
+        Кент.группировать([п, м, 0], (v) => {
+            вилкойвглаз (v === 0) {
+                п.x = 2;
+                м.втолкнуть(1);
+                Кент.ключи(п);
+                Жсон.вСтроку(м);
+                п.x = 3;
+                м.втолкнуть(2);
+            }
+            отвечаю "г";
+        });
+        сказать(п.x, м.длина);
+        "#,
+        "3 2\n",
+    );
+}
