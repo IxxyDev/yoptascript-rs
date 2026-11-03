@@ -18,23 +18,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Кент.создать` and `Кент.назначитьПрототип`, classes have `.prototype`, and
   `шкура` follows the chain.
 - **`Итератор.от` takes the iteration protocol** — on both backends it now
-  accepts an object with `следующий` or `Симбол.итератор`, and a generator
-  under `--vm`.
+  accepts an object with `следующий` or `Симбол.итератор`, inherited ones
+  included, and a generator under `--vm`.
+- **`Жсон.вСтроку` options** — the replacer function or key list, the indent and
+  a value's `вЖсон` now work.
 
 ### Changed
 
 - **VM cycle collection** — the threshold grows with the heap, so programs
   holding many live objects no longer run a full collection every few thousand
   instructions.
+- **VM calls into the stdlib** — interpreters are reused and unchanged values are
+  not converted again, which speeds up `Карта`, `Набор` and `Посредник` access,
+  `Матан` and repeated `Кент` calls on large objects.
+- **Prototype cycles are rejected** — `Кент.назначитьПрототип` throws and
+  `Отражение.назначитьПрототип` returns `false` instead of overflowing later.
+- **`Отражение.прототипОт` of an instance** returns the class prototype, not the
+  class, and the error for writing a property of a non-object names the property.
 
 ### Fixed
 
 - **Values crossing into the stdlib (`--vm`)** — they were deep-copied, so
   `Кент.назначить` did not reach its target, a `Посредник` had its own copy of
-  its target, values read from a `Карта` were new objects, and a cyclic value
-  killed the process with a stack overflow. Each value now keeps one identity.
-- **Deep structures (`--vm`)** — releasing a deeply nested array or object no
-  longer overflows the native stack.
+  its target, values read from a `Карта` were new objects that lost their class
+  and later changes, and a cyclic value killed the process with a stack overflow.
+  Each value now keeps one identity.
+- **Stack overflows** — releasing a deeply nested array, object (`--vm`) or chain
+  of closures no longer overflows the native stack, nor does converting a cyclic
+  or very deep array to a string, which now follows JS.
+- **Iteration** — `го … сашаГрей` and `го сидетьНахуй` under `--vm` pull one value
+  per step instead of draining the iterator first, which hung on an infinite one.
+  Both backends call `вернуть` when a loop ends early, and `взять` closes its
+  source.
+- **Prototype chain** — `о["х"]` and `о[символ]` see inherited properties and
+  accessors, inherited setters run, a frozen prototype blocks a shadowing write,
+  and writes to `К.prototype` reach instances, on both backends. The chain from a
+  class prototype now ends at `ноль`.
+- **`тырыпыры` in stdlib callbacks** — `Посредник` traps, `Отражение.применить` and
+  iterator methods now receive it.
+- **`f().х = 1` (interpreter)** — any expression can be the base of a property
+  assignment, and the object of an assignment is evaluated once.
+- **Method identity (interpreter)** — `э.м === э.м` is now `true`.
 - **Closures over suspended locals (`--vm`)** — a closure called while the
   generator or `ассо` function owning its variable was suspended read an
   unrelated value and lost its writes; so did a closure over a caller's local
@@ -54,11 +78,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object as `тырыпыры`, and a method reached through `Кент.создать(К.prototype)`
   can use `яга`.
 - **Function identity (interpreter)** — `ф === ф` was `false` for every function.
+- **Reflection and symbols (interpreter)** — `Кент.имеетСвоё`, descriptors and
+  `Отражение.*` accept symbol keys, `собственныеКлючи` lists them, and `из` loops
+  no longer list internal or symbol keys.
 - **Generators** — a runtime error now finishes a generator in the interpreter
   (the next call used to resume its body), and the VM rejects re-entering a
   running generator.
-- **Loose equality (`--vm`)** — `==` between an object and a primitive now calls
-  `вПримитив`, `вЧисло` or `вСтроку`.
+- **Loose equality (`--vm`)** — `==` between an object or array and a primitive now
+  converts it first, calling `вПримитив`, `вЧисло` or `вСтроку`.
 
 ### Testing
 
