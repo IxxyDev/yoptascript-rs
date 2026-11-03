@@ -685,6 +685,12 @@ impl Vm {
                     self.pop();
                     self.stack.push(top);
                 }
+                Op::ForIterCloseFrame => {
+                    let top = self.stack.len().saturating_sub(1);
+                    for rc in self.for_iters_in(base, top) {
+                        self.close_for_iter(&rc, span)?;
+                    }
+                }
                 Op::ArrayLen => {
                     let len = match self.peek(0) {
                         Value::Array(a) => a.borrow().len(),
@@ -1150,7 +1156,20 @@ impl Vm {
         self.pending_throw_sites.pop_if(|(index, _)| *index == slot).map(|(_, thrown_at)| thrown_at)
     }
 
+    fn for_iters_in(&self, from: usize, to: usize) -> Vec<Rc<RefCell<crate::value::ForIter>>> {
+        let range = self.stack.get(from..to).unwrap_or(&[]);
+        range
+            .iter()
+            .rev()
+            .filter_map(|value| match value {
+                Value::ForIter(rc) => Some(Rc::clone(rc)),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn enter_handler(&mut self, handler: &Handler, value: Value, thrown_at: Span) {
+        let abandoned = self.for_iters_in(handler.stack_len, self.stack.len());
         self.frames.truncate(handler.frame_len);
         if handler.stack_len <= self.stack.len() {
             self.close_upvalues(handler.stack_len);
@@ -1166,6 +1185,9 @@ impl Vm {
         self.stack.push(value);
         let top = self.frames.len() - 1;
         self.frames[top].ip = handler.target;
+        for rc in abandoned {
+            let _ = self.close_for_iter(&rc, thrown_at);
+        }
     }
 
     fn unwind_to_handler_above(&mut self, value: Value, min_depth: usize, thrown_at: Span) -> bool {

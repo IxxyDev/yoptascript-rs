@@ -546,9 +546,12 @@ impl Interpreter {
                             }
                             LoopOp::Continue => continue,
                             LoopOp::Exit(cf) => {
-                                {
+                                let closed = {
                                     let mut state = rc.borrow_mut();
-                                    crate::stdlib::iterator::close(interp, &mut state, span)?;
+                                    crate::stdlib::iterator::close(interp, &mut state, span)
+                                };
+                                if !matches!(cf, ControlFlow::Throw(..)) {
+                                    closed?;
                                 }
                                 return Ok(Some(cf));
                             }

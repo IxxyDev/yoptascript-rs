@@ -63,6 +63,7 @@ impl CallableKind {
 }
 
 struct FnState {
+    for_of_depth: usize,
     kind: FnKind,
     name: String,
     arity: usize,
@@ -92,6 +93,7 @@ impl FnState {
         let locals =
             vec![Local { name: String::new(), depth: 0, is_const: false, is_captured: false, initialized: true }];
         FnState {
+            for_of_depth: 0,
             kind,
             name,
             arity: 0,
@@ -431,6 +433,9 @@ impl Compiler {
                         self.emit(Op::Undefined, *span);
                     }
                 }
+                if self.cur().for_of_depth > 0 {
+                    self.emit(Op::ForIterCloseFrame, *span);
+                }
                 self.emit_try_exits_all(*span)?;
                 self.emit(Op::Return, *span);
                 Ok(())
@@ -688,8 +693,10 @@ impl Compiler {
         self.compile_expr(iterable)?;
         if is_await {
             self.emit(Op::Await, span);
+            self.cur().for_of_depth += 1;
             self.emit(Op::AsyncForIterInit, span);
         } else {
+            self.cur().for_of_depth += 1;
             self.emit(Op::ForIterInit, span);
         }
         let handle = self.push_temp(span);
@@ -726,6 +733,7 @@ impl Compiler {
 
             self.emit(Op::GetLocal(handle), span);
             self.emit(Op::ForIterClose, span);
+            self.cur().for_of_depth -= 1;
             self.end_scope(span);
             return Ok(());
         }
@@ -753,6 +761,7 @@ impl Compiler {
 
         self.emit(Op::GetLocal(handle), span);
         self.emit(Op::ForIterClose, span);
+        self.cur().for_of_depth -= 1;
         self.end_scope(span);
         Ok(())
     }
