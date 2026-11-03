@@ -3254,6 +3254,32 @@ impl Vm {
         false
     }
 
+    pub(crate) fn class_along_chain(map: &Rc<RefCell<ObjMap>>) -> Option<Rc<ClassDef>> {
+        let mut current = Rc::clone(map);
+        for _ in 0..MAX_PROTO_CHAIN {
+            if let Some(class) = Self::resolve_class(&current) {
+                return Some(class);
+            }
+            let next = current.borrow().get(crate::value::PROTO_KEY).cloned();
+            let Some(Value::Object(next)) = next else {
+                return None;
+            };
+            current = next;
+        }
+        None
+    }
+
+    pub(crate) fn call_closure_with_owner(
+        &mut self,
+        closure: Rc<Closure>,
+        this: Option<Value>,
+        owner: Option<Rc<ClassDef>>,
+        args: &[Value],
+        span: Span,
+    ) -> Result<Value, VmError> {
+        self.call_closure_sync(closure, this, owner, args, span)
+    }
+
     fn method_class_along_chain(&self, map: &Rc<RefCell<ObjMap>>, name: &str) -> Option<Rc<ClassDef>> {
         let mut current = Rc::clone(map);
         for _ in 0..MAX_PROTO_CHAIN {

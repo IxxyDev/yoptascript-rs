@@ -1,6 +1,8 @@
 use yps_lexer::Span;
 
 use crate::error::RuntimeError;
+use std::rc::Rc;
+
 use crate::value::{IteratorState, Value};
 
 use super::Interpreter;
@@ -29,7 +31,24 @@ impl Interpreter {
                 self.call_function(Value::Function(fdata), args, span)
             }
             Value::Function(fdata) => {
-                self.call_method_with_this(fdata.name.clone(), &fdata.params, &fdata.body, &fdata.env, args, this, span)
+                let super_class = match &this {
+                    Some(Value::Object(map)) => Self::class_along_chain(map, &self.env).and_then(|cls| {
+                        let declared = Self::find_method_in_class(&cls, &fdata.name)
+                            .is_some_and(|method| Rc::ptr_eq(&method.body, &fdata.body));
+                        if declared { Self::find_method_owner_parent(&cls, &fdata.name) } else { None }
+                    }),
+                    _ => None,
+                };
+                self.call_method_with_this_super(
+                    fdata.name.clone(),
+                    &fdata.params,
+                    &fdata.body,
+                    &fdata.env,
+                    args,
+                    this,
+                    super_class,
+                    span,
+                )
             }
             Value::BuiltinFunction(ref name) if crate::host_callback::is_host_callback(name) => {
                 crate::host_callback::set_call_this(this);

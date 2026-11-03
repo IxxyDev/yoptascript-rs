@@ -986,7 +986,18 @@ fn wrap_vm_callback(callee: Value) -> IValue {
             Some(this) => Some(interp_to_vm(&this).map_err(|m| yps_interpreter::RuntimeError::new(m, span))?),
             None => None,
         };
-        let result = vm.call_value(callee.clone(), this, &vm_args, span);
+        let result = match (&callee, &this) {
+            (Value::Function(closure), Some(Value::Object(map)))
+                if !closure.proto.is_generator && !closure.proto.is_async =>
+            {
+                let owner = Vm::class_along_chain(map)
+                    .and_then(|class| class.find_method_with_owner(&closure.proto.name))
+                    .filter(|(method, _)| Rc::ptr_eq(method, closure))
+                    .map(|(_, owner)| owner);
+                vm.call_closure_with_owner(Rc::clone(closure), this.clone(), owner, &vm_args, span)
+            }
+            _ => vm.call_value(callee.clone(), this, &vm_args, span),
+        };
         for arg in vm_args.iter().filter(|a| matches!(a, Value::Array(_) | Value::Object(_))) {
             vm_to_interp(arg, span).map_err(|e| yps_interpreter::RuntimeError::new(e.message, span))?;
         }

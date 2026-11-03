@@ -4138,6 +4138,24 @@ fn json_follows_the_key_list_order() {
 }
 
 #[test]
+fn json_method_can_call_super() {
+    assert_same_as_interpreter(
+        r#"
+        клёво Д { вЖсон() { отвечаю { а: 1 }; } }
+        клёво Н батя Д {
+            вЖсон() {
+                гыы р = яга.вЖсон();
+                р.б = 2;
+                отвечаю р;
+            }
+        }
+        сказать(Жсон.вСтроку(захуярить Н()));
+        "#,
+        "{\"а\":1,\"б\":2}\n",
+    );
+}
+
+#[test]
 fn compound_assignment_evaluates_its_base_once() {
     assert_same_as_interpreter(
         r#"
